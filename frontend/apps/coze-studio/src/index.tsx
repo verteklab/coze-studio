@@ -23,6 +23,59 @@ import { App } from './app';
 import './global.less';
 import './index.less';
 
+const SESSION_KEY_QUERY_PARAM = 'session_key';
+
+const normalizeSessionKey = (rawSessionKey: string) => {
+  let sessionKey = rawSessionKey.trim();
+  if (!sessionKey) {
+    return '';
+  }
+
+  try {
+    sessionKey = decodeURIComponent(sessionKey);
+  } catch (error) {
+    if (!(error instanceof URIError)) {
+      throw error;
+    }
+    // Keep original value if decoding fails.
+  }
+
+  if (sessionKey.startsWith(`${SESSION_KEY_QUERY_PARAM}=`)) {
+    sessionKey = sessionKey.slice(`${SESSION_KEY_QUERY_PARAM}=`.length);
+  }
+
+  if (sessionKey.includes(';')) {
+    sessionKey = sessionKey.split(';')[0]?.trim() ?? '';
+  }
+
+  if (sessionKey === 'null' || sessionKey === 'undefined') {
+    return '';
+  }
+
+  return sessionKey.trim();
+};
+
+const syncSessionKeyFromUrlToCookie = () => {
+  const currentURL = new URL(window.location.href);
+  const rawSessionKey = currentURL.searchParams.get(SESSION_KEY_QUERY_PARAM);
+  const sessionKey = rawSessionKey ? normalizeSessionKey(rawSessionKey) : '';
+  if (!sessionKey) {
+    return;
+  }
+
+  const isHTTPS = window.location.protocol === 'https:';
+  const sameSite = isHTTPS ? 'none' : 'lax';
+  const secureFlag = isHTTPS ? '; secure' : '';
+  document.cookie = `${SESSION_KEY_QUERY_PARAM}=${sessionKey}; path=/; samesite=${sameSite}${secureFlag}`;
+
+  currentURL.searchParams.delete(SESSION_KEY_QUERY_PARAM);
+  window.history.replaceState(
+    window.history.state,
+    document.title,
+    `${currentURL.pathname}${currentURL.search}${currentURL.hash}`,
+  );
+};
+
 const initFlags = () => {
   pullFeatureFlags({
     timeout: 1000 * 4,
@@ -31,6 +84,7 @@ const initFlags = () => {
 };
 
 const main = () => {
+  syncSessionKeyFromUrlToCookie();
   // Initialize the value of the function switch
   initFlags();
   // Initialize i18n

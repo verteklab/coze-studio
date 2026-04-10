@@ -47,6 +47,18 @@ import {
   ExploreTemplatePage,
 } from './async-components';
 
+const isEmbeddedInIframe = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+};
+
 export const router: ReturnType<typeof createBrowserRouter> =
   createBrowserRouter([
     // Document routing
@@ -99,12 +111,18 @@ export const router: ReturnType<typeof createBrowserRouter> =
         {
           path: 'space',
           Component: SpaceLayout,
-          loader: () => ({
-            hasSider: true,
-            requireAuth: true,
-            subMenu: spaceSubMenu,
-            menuKey: BaseEnum.Space,
-          }),
+          loader: ({ request }) => {
+            const url = new URL(request.url);
+            const shouldHideSider =
+              isEmbeddedInIframe() &&
+              /\/space\/[^/]+\/(library|knowledge)(\/.*)?$/.test(url.pathname);
+            return {
+              hasSider: !shouldHideSider,
+              requireAuth: true,
+              subMenu: spaceSubMenu,
+              menuKey: BaseEnum.Space,
+            };
+          },
           children: [
             {
               path: ':space_id',
@@ -177,6 +195,7 @@ export const router: ReturnType<typeof createBrowserRouter> =
                   path: 'library',
                   Component: Library,
                   loader: () => ({
+                    hasSider: !isEmbeddedInIframe(),
                     subMenuKey: SpaceSubModuleEnum.LIBRARY,
                   }),
                 },
@@ -195,6 +214,7 @@ export const router: ReturnType<typeof createBrowserRouter> =
                     },
                   ],
                   loader: () => ({
+                    hasSider: !isEmbeddedInIframe(),
                     pageModeByQuery: true,
                   }),
                 },
