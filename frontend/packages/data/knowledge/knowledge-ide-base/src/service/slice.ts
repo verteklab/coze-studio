@@ -22,15 +22,20 @@ import {
   REPORT_EVENTS as ReportEventNames,
 } from '@coze-arch/report-events';
 import { I18n } from '@coze-arch/i18n';
+import { Toast } from '@coze-arch/coze-design';
 import { CustomError } from '@coze-arch/bot-error';
 import {
   type CreateSliceRequest,
   type ListSliceRequest,
 } from '@coze-arch/bot-api/knowledge';
 import { KnowledgeApi } from '@coze-arch/bot-api';
-import { Toast } from '@coze-arch/coze-design';
 
 import { type ISliceInfo } from '@/types/slice';
+
+import {
+  requestTemplateKnowledgeApi,
+  shouldUseTemplateKnowledgeApi,
+} from './template-knowledge-api';
 
 const pageSize = 50;
 export interface UseScrollListSliceReqParams {
@@ -83,11 +88,16 @@ export const useScrollListSliceReq = ({
               sequence: lastSequence,
             };
 
-        const resp = await KnowledgeApi.ListSlice({
+        const req = {
           ...extendParams,
           page_size: String(pageSize),
           ...params,
-        });
+        };
+        const resp = shouldUseTemplateKnowledgeApi()
+          ? await requestTemplateKnowledgeApi<
+              Awaited<ReturnType<typeof KnowledgeApi.ListSlice>>
+            >('slice/list', req)
+          : await KnowledgeApi.ListSlice(req);
         return {
           list: resp?.slices || [],
           total: Number(resp?.total ?? 0),

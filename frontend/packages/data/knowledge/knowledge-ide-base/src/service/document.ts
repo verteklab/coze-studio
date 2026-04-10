@@ -30,16 +30,21 @@ import {
 } from '@coze-arch/report-events';
 import { useErrorHandler } from '@coze-arch/logger';
 import { I18n } from '@coze-arch/i18n';
+import { Toast } from '@coze-arch/coze-design';
 import { CustomError } from '@coze-arch/bot-error';
 import {
   type PhotoDetailResponse,
   type DocumentInfo,
 } from '@coze-arch/bot-api/knowledge';
 import { KnowledgeApi } from '@coze-arch/bot-api';
-import { Toast } from '@coze-arch/coze-design';
 
 import { type ProgressMap } from '@/types';
 import { POLLING_TIME } from '@/constant';
+
+import {
+  requestTemplateKnowledgeApi,
+  shouldUseTemplateKnowledgeApi,
+} from './template-knowledge-api';
 
 export const useListDocumentReq = (
   onSuccess?: (res: DocumentInfo[] | undefined) => void,
@@ -63,11 +68,16 @@ export const useListDocumentReq = (
         );
       }
       try {
-        const res = await KnowledgeApi.ListDocument({
+        const req = {
           dataset_id: datasetID,
           page: page ?? 0,
           size: size ?? KNOWLEDGE_MAX_DOC_SIZE,
-        });
+        };
+        const res = shouldUseTemplateKnowledgeApi()
+          ? await requestTemplateKnowledgeApi<
+              Awaited<ReturnType<typeof KnowledgeApi.ListDocument>>
+            >('document/list', req)
+          : await KnowledgeApi.ListDocument(req);
         if (res.document_infos) {
           onSuccess?.(res.document_infos);
           return res.document_infos;
