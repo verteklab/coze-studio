@@ -49,6 +49,13 @@ export const ImportKnowledgeSourceButton = ({
   const disabledTooltip =
     disabledTooltipProp ?? createBtnDisableToolTip(dataSetDetail, documentList);
   const query = getKnowledgeIDEQuery() as Record<string, string>;
+  const iframeType =
+    new URLSearchParams(window.location.search).get('iframeType') ??
+    query.iframeType;
+  if (iframeType === 'look') {
+    return null;
+  }
+
   if (disabledTooltip) {
     return (
       <Tooltip

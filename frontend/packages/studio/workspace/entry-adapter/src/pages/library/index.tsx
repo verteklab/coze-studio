@@ -25,6 +25,14 @@ import {
   useKnowledgeConfig,
 } from '@coze-studio/workspace-base/library';
 
+const isEmbeddedInIframe = () => {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+};
+
 export const LibraryPage: FC<{ spaceId: string }> = ({ spaceId }) => {
   const basePageRef = useRef<{ reloadList: () => void }>(null);
   const configCommonParams = {
@@ -43,24 +51,29 @@ export const LibraryPage: FC<{ spaceId: string }> = ({ spaceId }) => {
     usePromptConfig(configCommonParams);
   const { config: databaseConfig, modals: databaseModals } =
     useDatabaseConfig(configCommonParams);
+  const shouldUseKnowledgeOnly = isEmbeddedInIframe();
 
   return (
     <>
       <BaseLibraryPage
         spaceId={spaceId}
         ref={basePageRef}
-        entityConfigs={[
-          pluginConfig,
-          workflowConfig,
-          knowledgeConfig,
-          promptConfig,
-          databaseConfig,
-        ]}
+        entityConfigs={
+          shouldUseKnowledgeOnly
+            ? [knowledgeConfig]
+            : [
+                pluginConfig,
+                workflowConfig,
+                knowledgeConfig,
+                promptConfig,
+                databaseConfig,
+              ]
+        }
       />
-      {pluginModals}
-      {workflowModals}
-      {promptModals}
-      {databaseModals}
+      {!shouldUseKnowledgeOnly ? pluginModals : null}
+      {!shouldUseKnowledgeOnly ? workflowModals : null}
+      {!shouldUseKnowledgeOnly ? promptModals : null}
+      {!shouldUseKnowledgeOnly ? databaseModals : null}
       {knowledgeModals}
     </>
   );

@@ -26,6 +26,17 @@ import { useIsPublishDisabled } from './use-is-publish-disabled';
 import { TooltipWithDisabled } from './tooltip-with-disabled';
 import { PublishWithEnv } from './publish-with-env';
 
+const isEmbeddedInIframe = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+};
+
 export const PublishButton = () => {
   const globalState = useGlobalState();
   const { playgroundProps } = globalState;
@@ -53,7 +64,7 @@ export const PublishButton = () => {
     return published;
   };
 
-  if (globalState.readonly) {
+  if (globalState.readonly || isEmbeddedInIframe()) {
     return null;
   }
 
