@@ -16,18 +16,61 @@
 
 import { useShallow } from 'zustand/react/shallow';
 import { useRequest } from 'ahooks';
+import { DataNamespace, dataReporter } from '@coze-data/reporter';
+import { useProcessingStore } from '@coze-data/knowledge-stores';
 import { REPORT_EVENTS as ReportEventNames } from '@coze-arch/report-events';
 import { useErrorHandler } from '@coze-arch/logger';
 import { I18n } from '@coze-arch/i18n';
+import { Toast } from '@coze-arch/coze-design';
 import { useSpaceStore } from '@coze-arch/bot-studio-store';
+import { CustomError } from '@coze-arch/bot-error';
 import { type Dataset } from '@coze-arch/bot-api/knowledge';
 import { KnowledgeApi } from '@coze-arch/bot-api';
-import { useProcessingStore } from '@coze-data/knowledge-stores';
-import { DataNamespace, dataReporter } from '@coze-data/reporter';
-import { CustomError } from '@coze-arch/bot-error';
-import { Toast } from '@coze-arch/coze-design';
+
+import {
+  requestTemplateKnowledgeApi,
+  shouldUseTemplateKnowledgeApi,
+} from './template-knowledge-api';
 
 const POLLING_TIME = 1000;
+type DatasetDetailResponse = Awaited<
+  ReturnType<typeof KnowledgeApi.DatasetDetail>
+>;
+type TemplateDatasetDetailResponse = DatasetDetailResponse & {
+  dataset_detail?: Dataset;
+  dataset?: Dataset;
+};
+
+const getDatasetDetail = async (
+  datasetID: string,
+  spaceId?: string,
+): Promise<Dataset | undefined> => {
+  if (shouldUseTemplateKnowledgeApi()) {
+    const res =
+      await requestTemplateKnowledgeApi<TemplateDatasetDetailResponse>(
+        'detail',
+        {
+          dataset_id: datasetID,
+        },
+      );
+    if (Number(res?.code ?? 0) !== 0) {
+      throw new CustomError('useDataSetDetailReq_error', res?.msg || '');
+    }
+    const datasetDetails = res?.dataset_details;
+    return (
+      datasetDetails?.[datasetID] ??
+      Object.values(datasetDetails || {})[0] ??
+      res?.dataset_detail ??
+      res?.dataset
+    );
+  }
+
+  const res = await KnowledgeApi.DatasetDetail({
+    dataset_ids: [datasetID],
+    space_id: spaceId,
+  });
+  return res?.dataset_details?.[datasetID];
+};
 
 export const useListDataSetReq = (params: { datasetID: string }) => {
   const spaceId = useSpaceStore(s => s.space.id);
@@ -83,11 +126,7 @@ export const useDataSetDetailReq = (
         );
       }
       try {
-        const res = await KnowledgeApi.DatasetDetail({
-          dataset_ids: [datasetID],
-          space_id: spaceId,
-        });
-        const curDatasetDetail = res?.dataset_details?.[datasetID];
+        const curDatasetDetail = await getDatasetDetail(datasetID, spaceId);
         if (curDatasetDetail) {
           onSuccess?.(curDatasetDetail);
           return curDatasetDetail;
@@ -133,11 +172,7 @@ export const usePollingDatasetProcess = () => {
         );
       }
       try {
-        const res = await KnowledgeApi.DatasetDetail({
-          dataset_ids: [datasetID],
-          space_id: spaceId,
-        });
-        const curDatasetDetail = res?.dataset_details?.[datasetID];
+        const curDatasetDetail = await getDatasetDetail(datasetID, spaceId);
         if (
           curDatasetDetail &&
           // @ts-expect-error -- linter-disable-autofix
