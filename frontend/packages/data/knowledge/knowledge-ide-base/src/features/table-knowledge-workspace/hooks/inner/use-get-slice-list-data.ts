@@ -24,6 +24,7 @@ import { useScrollListSliceReq } from '@/service';
 
 export const useGetSliceListData = () => {
   const documentList = useKnowledgeStore(state => state.documentList);
+  const datasetId = useKnowledgeStore(state => state.dataSetDetail?.dataset_id);
   const curDocId = documentList?.[0]?.document_id;
   // load data
   const {
@@ -35,9 +36,10 @@ export const useGetSliceListData = () => {
     loadingMore: isLoadingMoreSliceList,
   } = useScrollListSliceReq({
     params: {
-      document_id: curDocId,
+      dataset_id: curDocId ? datasetId : undefined,
+      document_id: curDocId || undefined,
     },
-    reloadDeps: [curDocId],
+    reloadDeps: [curDocId, datasetId],
     target: null,
     onError: error => {
       dataReporter.errorEvent(DataNamespace.KNOWLEDGE, {

@@ -32,6 +32,15 @@ const getTemplateIdFromQuery = () => {
   return new URLSearchParams(window.location.search).get('template_id') ?? '';
 };
 
+const getIframeTypeFromQuery = () => {
+  if (typeof window === 'undefined') {
+    return '';
+  }
+  return new URLSearchParams(window.location.search).get('iframeType') ?? '';
+};
+
+export const isLookIframeMode = () => getIframeTypeFromQuery() === 'look';
+
 const getTemplateKnowledgeApiHost = () => {
   if (typeof window === 'undefined') {
     return '';
@@ -45,7 +54,9 @@ const getTemplateKnowledgeApiHost = () => {
 };
 
 export const shouldUseTemplateKnowledgeApi = () =>
-  isEmbeddedInIframe() && Boolean(getTemplateIdFromQuery());
+  isEmbeddedInIframe() &&
+  isLookIframeMode() &&
+  Boolean(getTemplateIdFromQuery());
 
 export const requestTemplateKnowledgeApi = async <T>(
   path: string,
@@ -65,7 +76,7 @@ export const requestTemplateKnowledgeApi = async <T>(
         'Content-Type': 'application/json',
         'Agw-Js-Conv': 'str',
       },
-      credentials: 'include',
+      // credentials: 'include',
       body: JSON.stringify(body),
     },
   );

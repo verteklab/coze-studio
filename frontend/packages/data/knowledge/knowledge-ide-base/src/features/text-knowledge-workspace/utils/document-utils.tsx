@@ -31,6 +31,7 @@ import {
 import { getBasicConfig } from '@/utils/preview';
 import { getUnitType } from '@/utils';
 import { type ProgressMap } from '@/types';
+import { isLookIframeMode } from '@/service/template-knowledge-api';
 
 const FINISH_PROGRESS = 100;
 
@@ -64,6 +65,7 @@ export const getDocumentOptions = (
   progressMap: ProgressMap = {},
 ): OptionProps[] => {
   const basicConfig = getBasicConfig();
+  const isLookMode = isLookIframeMode();
   return documentList.map(doc => {
     const unitType = getUnitType({
       format_type: doc?.format_type,
@@ -97,7 +99,7 @@ export const getDocumentOptions = (
                 {` ${progressMap[doc?.document_id ?? '']?.progress}%`}
               </Tag>
             ) : null}
-            {doc?.status === DocumentStatus.Failed ? (
+            {!isLookMode && doc?.status === DocumentStatus.Failed ? (
               <Tooltip theme="dark" content={doc?.status_descript}>
                 <IconCozInfoCircle className="coz-fg-hglt-red" />
               </Tooltip>

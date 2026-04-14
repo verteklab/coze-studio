@@ -23,15 +23,16 @@ import {
 } from '@coze-data/knowledge-stores';
 import { UnitType } from '@coze-data/knowledge-resource-processor-core';
 import { KnowledgeE2e } from '@coze-data/e2e';
+import { IconCozCross } from '@coze-arch/coze-design/icons';
+import { IconButton, Avatar, Space } from '@coze-arch/coze-design';
 import {
   FormatType,
   type Dataset,
   type DocumentInfo,
 } from '@coze-arch/bot-api/knowledge';
-import { IconCozCross } from '@coze-arch/coze-design/icons';
-import { IconButton, Avatar, Space } from '@coze-arch/coze-design';
 
 import { getFormatTypeFromUnitType } from '@/utils';
+import { isLookIframeMode } from '@/service/template-knowledge-api';
 import { RenderDocumentIcon } from '@/components/render-document-icon';
 import { PhotoFilter } from '@/components/photo-filter';
 import { HeaderTags } from '@/components/header-tags';
@@ -60,6 +61,7 @@ export const KnowledgeModalNavBar: React.FC<KnowledgeModalNavBarProps> = ({
   const setSearchValue = useKnowledgeStore(state => state.setSearchValue);
   const dataSetDetail = useKnowledgeStore(state => state.dataSetDetail);
   const canEdit = useKnowledgeStore(state => state.canEdit);
+  const isLookMode = isLookIframeMode();
 
   const params = useKnowledgeParams();
 
@@ -112,8 +114,8 @@ export const KnowledgeModalNavBar: React.FC<KnowledgeModalNavBarProps> = ({
         <Space spacing={12}>
           {isImageFormat ? <PhotoFilter /> : null}
           {/* import button */}
-          {canEdit ? importKnowledgeSourceButton : null}
-          {actionButtons}
+          {canEdit && !isLookMode ? importKnowledgeSourceButton : null}
+          {!isLookMode ? actionButtons : null}
         </Space>
       </div>
     </div>

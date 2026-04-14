@@ -16,16 +16,17 @@
 
 /* eslint-disable complexity */
 import { I18n } from '@coze-arch/i18n';
+import { IconCozInfoCircle } from '@coze-arch/coze-design/icons';
+import { Tag, Tooltip, Typography } from '@coze-arch/coze-design';
 import {
   DocumentStatus,
   type DocumentInfo,
 } from '@coze-arch/bot-api/knowledge';
-import { IconCozInfoCircle } from '@coze-arch/coze-design/icons';
-import { Tag, Tooltip, Typography } from '@coze-arch/coze-design';
 
 import { getBasicConfig } from '@/utils/preview';
 import { getUnitType } from '@/utils';
 import { type ProgressMap } from '@/types';
+import { isLookIframeMode } from '@/service/template-knowledge-api';
 
 const FINISH_PROGRESS = 100;
 export const getDocumentOptions = (
@@ -33,6 +34,7 @@ export const getDocumentOptions = (
   progressMap: ProgressMap = {},
 ) => {
   const basicConfig = getBasicConfig();
+  const isLookMode = isLookIframeMode();
   return documentList.map(doc => {
     const unitType = getUnitType({
       format_type: doc?.format_type,
@@ -66,7 +68,7 @@ export const getDocumentOptions = (
                 {` ${progressMap[doc?.document_id ?? '']?.progress}%`}
               </Tag>
             ) : null}
-            {doc?.status === DocumentStatus.Failed ? (
+            {!isLookMode && doc?.status === DocumentStatus.Failed ? (
               <Tooltip theme="dark" content={doc?.status_descript}>
                 <IconCozInfoCircle className="coz-fg-hglt-red" />
               </Tooltip>

@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 
 import { useRequest } from 'ahooks';
 import { useCreateKnowledgeModalV2 } from '@coze-data/knowledge-modal-adapter';
@@ -153,12 +153,24 @@ const getTypeFilters = () => ({
   ],
 });
 
+const isEmbeddedInIframe = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+};
+
 export const useKnowledgeConfig: UseEntityConfigHook = ({
   spaceId,
   reloadList,
   getCommonActions,
 }) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const {
     modal: createKnowledgeModal,
     open: openCreateKnowledgeModal,
@@ -212,6 +224,16 @@ export const useKnowledgeConfig: UseEntityConfigHook = ({
     modals: <>{createKnowledgeModal}</>,
     config: {
       typeFilter: getTypeFilters(),
+      parseParams: params =>
+        isEmbeddedInIframe()
+          ? {
+              ...params,
+              res_type_filter: [
+                ResType.Knowledge,
+                params.res_type_filter?.[1] ?? -1,
+              ],
+            }
+          : params,
       renderCreateMenu: () => (
         <Menu.Item
           data-testid="workspace.library.header.create.knowledge"
@@ -223,7 +245,11 @@ export const useKnowledgeConfig: UseEntityConfigHook = ({
       ),
       target: [ResType.Knowledge],
       onItemClick: (item: ResourceInfo) => {
-        navigate(`/space/${spaceId}/knowledge/${item.res_id}?from=library`);
+        const searchParams = new URLSearchParams(location.search);
+        searchParams.set('from', 'library');
+        navigate(
+          `/space/${spaceId}/knowledge/${item.res_id}?${searchParams.toString()}`,
+        );
       },
       renderItem: renderKnowledgeItem,
       renderActions: (item: ResourceInfo) => {

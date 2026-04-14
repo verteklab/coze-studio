@@ -28,9 +28,6 @@ import { UnitType } from '@coze-data/knowledge-resource-processor-core';
 import { useEditKnowledgeModal } from '@coze-data/knowledge-modal-adapter';
 import { KnowledgeE2e } from '@coze-data/e2e';
 import { I18n } from '@coze-arch/i18n';
-import { useFlags } from '@coze-arch/bot-flags';
-import { FormatType, type Dataset } from '@coze-arch/bot-api/knowledge';
-import { KnowledgeApi } from '@coze-arch/bot-api';
 import {
   IconCozArrowLeft,
   IconCozEdit,
@@ -43,9 +40,13 @@ import {
   Tooltip,
   Typography,
 } from '@coze-arch/coze-design';
+import { useFlags } from '@coze-arch/bot-flags';
+import { FormatType, type Dataset } from '@coze-arch/bot-api/knowledge';
+import { KnowledgeApi } from '@coze-arch/bot-api';
 
 import { getUnitType } from '@/utils';
 import { type ProgressMap } from '@/types';
+import { isLookIframeMode } from '@/service/template-knowledge-api';
 import { RenderDocumentIcon } from '@/components/render-document-icon';
 import { PhotoFilter } from '@/components/photo-filter';
 import { HeaderTags, RelatedBotsList } from '@/components';
@@ -76,6 +77,8 @@ export const KnowledgeIDENavBar = ({
   const documentList = useKnowledgeStore(state => state.documentList);
   const navigate = useNavigate();
   const params = useKnowledgeParams();
+  const isLookMode = isLookIframeMode();
+  const canOperate = canEdit && !isLookMode;
 
   const [FLAGS] = useFlags();
 
@@ -100,7 +103,7 @@ export const KnowledgeIDENavBar = ({
   const isTableFormat = dataSetDetail?.format_type === FormatType.Table;
   const isImageFormat = dataSetDetail?.format_type === FormatType.Image;
   const isShowResegmentBtn =
-    canEdit &&
+    canOperate &&
     !isTableFormat &&
     !!dataSetDetail?.doc_count &&
     !dataSetDetail?.processing_file_id_list?.length &&
@@ -129,7 +132,7 @@ export const KnowledgeIDENavBar = ({
   );
   // Link or action will only be displayed when one exists
   const showTableConfigButton =
-    (isShowLinkUrl || canEdit) && isTableFormat && documentList?.length;
+    (isShowLinkUrl || canOperate) && isTableFormat && documentList?.length;
 
   const handleBack = () => {
     onBack?.();
@@ -186,7 +189,7 @@ export const KnowledgeIDENavBar = ({
             >
               {dataSetDetail?.name}
             </Typography.Text>
-            {canEdit ? (
+            {canOperate ? (
               <Tooltip content={I18n.t('datasets_segment_edit')}>
                 <IconButton
                   data-testid={KnowledgeE2e.SegmentDetailTitleEditIcon}
@@ -250,7 +253,7 @@ export const KnowledgeIDENavBar = ({
           {isImageFormat ? <PhotoFilter /> : null}
           {isShowResegmentBtn ? textConfigButton : null}
           {showTableConfigButton ? tableConfigButton : null}
-          {canEdit ? importKnowledgeSourceButton : null}
+          {canOperate ? importKnowledgeSourceButton : null}
         </Space>
       </div>
       {editKnowledgeModal}

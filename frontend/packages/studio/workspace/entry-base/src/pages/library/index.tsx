@@ -114,10 +114,21 @@ export const BaseLibraryPage = forwardRef<
       isPersonalSpace,
     });
 
-    const typeFilterData = [
-      { label: I18n.t('library_filter_tags_all_types'), value: -1 },
-      ...entityConfigs.map(item => item.typeFilter).filter(filter => !!filter),
-    ];
+    const singleEntityTypeValue =
+      entityConfigs.length === 1 ? entityConfigs[0]?.target?.[0] : undefined;
+    const shouldHideAllTypesOption = singleEntityTypeValue !== undefined;
+    const typeFilterData = shouldHideAllTypesOption
+      ? entityConfigs.map(item => item.typeFilter).filter(filter => !!filter)
+      : [
+          { label: I18n.t('library_filter_tags_all_types'), value: -1 },
+          ...entityConfigs
+            .map(item => item.typeFilter)
+            .filter(filter => !!filter),
+        ];
+    const currentTypeFilterValue =
+      shouldHideAllTypesOption && params?.res_type_filter?.[0] === -1
+        ? [singleEntityTypeValue, -1]
+        : params.res_type_filter;
     const scopeOptions = getScopeOptions();
     const statusOptions = getStatusOptions();
 
@@ -135,13 +146,13 @@ export const BaseLibraryPage = forwardRef<
                   data-testid="workspace.library.filter.type"
                   className={s.cascader}
                   style={
-                    params?.res_type_filter?.[0] !== -1
+                    currentTypeFilterValue?.[0] !== -1
                       ? highlightFilterStyle
                       : {}
                   }
                   dropdownClassName="[&_.semi-cascader-option-lists]:h-fit"
                   showClear={false}
-                  value={params.res_type_filter}
+                  value={currentTypeFilterValue}
                   treeData={typeFilterData}
                   onChange={v => {
                     const typeFilter = typeFilterData.find(

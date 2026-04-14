@@ -46,6 +46,30 @@ import {
   shouldUseTemplateKnowledgeApi,
 } from './template-knowledge-api';
 
+type TemplateDocumentInfo = DocumentInfo & {
+  id?: string;
+  doc_id?: string;
+  document_id_new?: string;
+};
+
+type TemplateListDocumentResponse = Awaited<
+  ReturnType<typeof KnowledgeApi.ListDocument>
+> & {
+  document_infos?: TemplateDocumentInfo[];
+  documents_info?: TemplateDocumentInfo[];
+};
+
+const normalizeDocumentInfos = (
+  res: TemplateListDocumentResponse,
+): DocumentInfo[] | undefined => {
+  const documentInfos = res.document_infos ?? res.documents_info;
+  return documentInfos?.map(item => ({
+    ...item,
+    document_id:
+      item.document_id ?? item.document_id_new ?? item.doc_id ?? item.id,
+  }));
+};
+
 export const useListDocumentReq = (
   onSuccess?: (res: DocumentInfo[] | undefined) => void,
   onError?: () => void,
@@ -70,17 +94,19 @@ export const useListDocumentReq = (
       try {
         const req = {
           dataset_id: datasetID,
-          page: page ?? 0,
+          page: page ?? 1,
           size: size ?? KNOWLEDGE_MAX_DOC_SIZE,
         };
         const res = shouldUseTemplateKnowledgeApi()
-          ? await requestTemplateKnowledgeApi<
-              Awaited<ReturnType<typeof KnowledgeApi.ListDocument>>
-            >('document/list', req)
+          ? await requestTemplateKnowledgeApi<TemplateListDocumentResponse>(
+              'document/list',
+              req,
+            )
           : await KnowledgeApi.ListDocument(req);
-        if (res.document_infos) {
-          onSuccess?.(res.document_infos);
-          return res.document_infos;
+        const documentInfos = normalizeDocumentInfos(res);
+        if (documentInfos) {
+          onSuccess?.(documentInfos);
+          return documentInfos;
         }
 
         capture(new CustomError('useListDataSetReq_error', res.msg || ''));

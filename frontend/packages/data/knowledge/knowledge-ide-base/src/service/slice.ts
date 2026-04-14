@@ -72,7 +72,7 @@ export const useScrollListSliceReq = ({
             ready: false,
           };
         }
-        const isAllType = !!params.dataset_id;
+        const isAllType = Boolean(params.dataset_id && !params.document_id);
         const lastSequence = d?.list?.length
           ? d.list[d.list.length - 1].sequence
           : undefined;
@@ -90,7 +90,8 @@ export const useScrollListSliceReq = ({
 
         const req = {
           ...extendParams,
-          page_size: String(pageSize),
+          page_size: Number(pageSize),
+          sequence: '1',
           ...params,
         };
         const resp = shouldUseTemplateKnowledgeApi()

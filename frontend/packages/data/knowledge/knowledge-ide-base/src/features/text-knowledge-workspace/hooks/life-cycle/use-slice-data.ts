@@ -55,6 +55,8 @@ export const useSliceData = ({
       searchValue: state.searchValue,
     })),
   );
+  const documentId =
+    curChunkType !== ChunkType.LevelChunk ? curDocId || undefined : undefined;
 
   // Get document content
   const {
@@ -65,10 +67,8 @@ export const useSliceData = ({
   } = useScrollListSliceReq({
     target,
     params: {
-      keyword: searchValue,
-      document_id:
-        // If it is a hierarchical segmentation, it is not requested.
-        curChunkType !== ChunkType.LevelChunk ? curDocId : '',
+      dataset_id: documentId ? datasetId : undefined,
+      document_id: documentId,
     },
     reloadDeps: [searchValue, curDocId, datasetId, processFinished],
     onError: error => {

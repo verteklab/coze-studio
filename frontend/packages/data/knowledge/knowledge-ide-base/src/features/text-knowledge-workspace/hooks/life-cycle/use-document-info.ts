@@ -31,14 +31,15 @@ export const useDocumentInfo = (progressMap: ProgressMap) => {
       dataSetDetail: state.dataSetDetail,
     })),
   );
+  const effectiveCurDocId = curDocId || documentList?.[0]?.document_id || '';
 
   // current document
-  const curDoc = documentList?.find(i => i.document_id === curDocId);
+  const curDoc = documentList?.find(i => i.document_id === effectiveCurDocId);
 
   // processing state
   const isProcessing = curDoc?.status === DocumentStatus.Processing;
-  const processFinished = curDocId
-    ? progressMap[curDocId]?.status === DocumentStatus.Enable
+  const processFinished = effectiveCurDocId
+    ? progressMap[effectiveCurDocId]?.status === DocumentStatus.Enable
     : false;
 
   // Dataset ID
@@ -46,7 +47,7 @@ export const useDocumentInfo = (progressMap: ProgressMap) => {
 
   return {
     curDoc,
-    curDocId,
+    curDocId: effectiveCurDocId,
     isProcessing,
     processFinished,
     datasetId,

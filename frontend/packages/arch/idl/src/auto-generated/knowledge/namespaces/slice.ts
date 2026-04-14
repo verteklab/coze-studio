@@ -111,8 +111,8 @@ export interface ListSliceRequest {
   /** 如果只传 dataset_id，则返回该知识库下的分片 */
   dataset_id?: string;
   /** 从1开始 */
-  page_no?: string;
-  page_size?: string;
+  page?: number;
+  page_size?: number;
   sort_field?: string;
   is_asc?: boolean;
   Base?: base.Base;

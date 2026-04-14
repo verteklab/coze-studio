@@ -36,6 +36,8 @@ import {
   type DocumentInfo,
 } from '@coze-arch/bot-api/knowledge';
 
+import { isLookIframeMode } from '@/service/template-knowledge-api';
+
 import { DocTag } from './doc-tag';
 import { DocSelector } from './doc-selector';
 
@@ -91,18 +93,21 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
   customUIElements: { linkOriginUrlButton, fetchSliceButton },
 }) => {
   const canEdit = useKnowledgeStore(state => state.canEdit);
+  const isLookMode = isLookIframeMode();
+  const canOperate = canEdit && !isLookMode;
 
   // Control button display logic
   const showUpdateFreBtn =
-    canEdit &&
+    canOperate &&
     curDoc &&
     (curDoc.source_type === DocumentSource.Web ||
       isFeishuOrLarkDocumentSource(curDoc?.source_type));
 
-  const showDeleteDocBtn = curDoc && canEdit;
-  const showResegmentButton = curDoc?.format_type === FormatType.Text;
+  const showDeleteDocBtn = curDoc && canOperate;
+  const showResegmentButton =
+    canOperate && curDoc?.format_type === FormatType.Text;
   const showFetchSliceBtn =
-    canEdit &&
+    canOperate &&
     curDoc &&
     ![DocumentSource.Custom, DocumentSource.Document].includes(
       curDoc.source_type as DocumentSource,
@@ -119,7 +124,7 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
         <DocSelector
           type={curFormatType as FormatType}
           options={docOptions}
-          canEdit={canEdit}
+          canEdit={canOperate}
           value={curDocId}
           onChange={onChangeDoc}
           onRename={onRenameDoc}
@@ -128,7 +133,7 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
       </div>
 
       <Space spacing={8}>
-        {fileUrl ? (
+        {fileUrl && !isLookMode ? (
           <div className="flex items-center gap-2">
             <span className="coz-fg-secondary text-[12px] leading-[16px]">
               {I18n.t('knowledge_level_030')}
@@ -141,7 +146,7 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
           </div>
         ) : null}
 
-        {showResegmentButton && canEdit ? (
+        {showResegmentButton ? (
           <Tooltip theme="dark" content={I18n.t('knowledge_new_001')}>
             <IconButton
               data-testid={KnowledgeE2e.SegmentDetailUpdateBtn}
@@ -171,7 +176,7 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
         ) : null}
 
         {showFetchSliceBtn ? fetchSliceButton : null}
-        {linkOriginUrlButton}
+        {!isLookMode ? linkOriginUrlButton : null}
 
         {showDeleteDocBtn ? (
           <Tooltip theme="dark" content={I18n.t('kl2_006')}>
