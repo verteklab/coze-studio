@@ -39,6 +39,24 @@ var noNeedSessionCheckPath = map[string]bool{
 	"/api/passport/web/email/register/v2/": true,
 }
 
+const sessionKeyHeader = "x-session-key"
+
+func getSessionKeyFromRequest(ctx *app.RequestContext) string {
+	if sessionKey := ctx.Request.Header.Peek(sessionKeyHeader); len(sessionKey) > 0 {
+		return string(sessionKey)
+	}
+
+	if sessionKey := ctx.Cookie(entity.SessionKey); len(sessionKey) > 0 {
+		return string(sessionKey)
+	}
+
+	if sessionKey := ctx.Request.URI().QueryArgs().Peek(entity.SessionKey); len(sessionKey) > 0 {
+		return string(sessionKey)
+	}
+
+	return ""
+}
+
 func SessionAuthMW() app.HandlerFunc {
 	return func(c context.Context, ctx *app.RequestContext) {
 		requestAuthType := ctx.GetInt32(RequestAuthTypeStr)
@@ -52,15 +70,15 @@ func SessionAuthMW() app.HandlerFunc {
 			return
 		}
 
-		s := ctx.Cookie(entity.SessionKey)
-		if len(s) == 0 {
+		sessionKey := getSessionKeyFromRequest(ctx)
+		if len(sessionKey) == 0 {
 			logs.Errorf("[SessionAuthMW] session id is nil")
-			httputil.Unauthorized(ctx, "missing session_key in cookie")
+			httputil.Unauthorized(ctx, "missing session_key in request")
 			return
 		}
 
 		// sessionID -> sessionData
-		session, err := user.UserApplicationSVC.ValidateSession(c, string(s))
+		session, err := user.UserApplicationSVC.ValidateSession(c, sessionKey)
 		if err != nil {
 			logs.Errorf("[SessionAuthMW] validate session failed, err: %v", err)
 			httputil.InternalError(c, ctx, err)

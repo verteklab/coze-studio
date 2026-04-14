@@ -23,6 +23,10 @@ import { type PhotoInfo } from '@coze-arch/bot-api/knowledge';
 import { KnowledgeApi } from '@coze-arch/bot-api';
 
 import { FilterPhotoType } from '@/types';
+import {
+  requestTemplateKnowledgeApi,
+  shouldUseTemplateKnowledgeApi,
+} from '@/service/template-knowledge-api';
 
 export interface UsePhotoListParams {
   datasetID: string;
@@ -34,6 +38,10 @@ interface Result {
   list: PhotoInfo[];
   total: number;
 }
+
+type TemplateListPhotoResponse = Awaited<
+  ReturnType<typeof KnowledgeApi.ListPhoto>
+>;
 
 const PAGE_SIZE = 20;
 
@@ -49,7 +57,7 @@ export const usePhotoList = (
     // @ts-expect-error -- linter-disable-autofix
   ): Promise<Result> => {
     try {
-      const res = await KnowledgeApi.ListPhoto({
+      const req = {
         page: page ?? 1,
         size: pageSize ?? KNOWLEDGE_MAX_DOC_SIZE,
         dataset_id: datasetID,
@@ -59,11 +67,17 @@ export const usePhotoList = (
             filterPhotoType === FilterPhotoType.HasCaption
               ? true
               : filterPhotoType === FilterPhotoType.NoCaption
-              ? false
-              : // Pass undefined to return all
-                undefined,
+                ? false
+                : // Pass undefined to return all
+                  undefined,
         },
-      });
+      };
+      const res = shouldUseTemplateKnowledgeApi()
+        ? await requestTemplateKnowledgeApi<TemplateListPhotoResponse>(
+            'photo/list',
+            req,
+          )
+        : await KnowledgeApi.ListPhoto(req);
       return {
         list: res.photo_infos || [],
         total: res.total || 0,

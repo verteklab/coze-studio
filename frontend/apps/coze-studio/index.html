@@ -5,6 +5,152 @@
     <meta http-equiv="X-UA-Compatible" content="IE=edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>@coze-studio/app</title>
+    <script>
+      (function () {
+        var SESSION_KEY_QUERY_PARAM = 'session_key';
+        var SESSION_KEY_HEADER = 'x-session-key';
+        var xhrRequestUrlMap = new WeakMap();
+
+        var normalizeSessionKey = function (rawSessionKey) {
+          var sessionKey = (rawSessionKey || '').trim();
+          if (!sessionKey) {
+            return '';
+          }
+
+          try {
+            sessionKey = decodeURIComponent(sessionKey);
+          } catch (error) {}
+
+          if (sessionKey.indexOf(SESSION_KEY_QUERY_PARAM + '=') === 0) {
+            sessionKey = sessionKey.slice(
+              (SESSION_KEY_QUERY_PARAM + '=').length,
+            );
+          }
+
+          if (sessionKey.indexOf(';') >= 0) {
+            sessionKey = sessionKey.split(';')[0].trim();
+          }
+
+          if (sessionKey === 'null' || sessionKey === 'undefined') {
+            return '';
+          }
+
+          return sessionKey.trim();
+        };
+
+        var persistSessionKey = function (sessionKey) {
+          if (!sessionKey) {
+            return;
+          }
+
+          try {
+            window.sessionStorage.setItem(SESSION_KEY_QUERY_PARAM, sessionKey);
+          } catch (error) {}
+        };
+
+        var getPersistedSessionKey = function () {
+          try {
+            return normalizeSessionKey(
+              window.sessionStorage.getItem(SESSION_KEY_QUERY_PARAM) || '',
+            );
+          } catch (error) {
+            return '';
+          }
+        };
+
+        var currentURL = new URL(window.location.href);
+        var sessionKey = normalizeSessionKey(
+          currentURL.searchParams.get(SESSION_KEY_QUERY_PARAM) || '',
+        );
+
+        if (sessionKey) {
+          persistSessionKey(sessionKey);
+
+          var isHTTPS = window.location.protocol === 'https:';
+          var sameSite = isHTTPS ? 'none' : 'lax';
+          var secureFlag = isHTTPS ? '; secure' : '';
+          document.cookie =
+            SESSION_KEY_QUERY_PARAM +
+            '=' +
+            sessionKey +
+            '; path=/; samesite=' +
+            sameSite +
+            secureFlag;
+        }
+
+        var isSameOriginRequest = function (requestURL) {
+          if (!requestURL) {
+            return true;
+          }
+
+          if (!/^https?:\/\//i.test(requestURL)) {
+            return true;
+          }
+
+          try {
+            return (
+              new URL(requestURL, window.location.origin).origin ===
+              window.location.origin
+            );
+          } catch (error) {
+            return false;
+          }
+        };
+
+        var originalOpen = XMLHttpRequest.prototype.open;
+        XMLHttpRequest.prototype.open = function () {
+          xhrRequestUrlMap.set(this, arguments[1] ? arguments[1].toString() : '');
+          return originalOpen.apply(this, arguments);
+        };
+
+        var originalSend = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.send = function () {
+          var requestURL = xhrRequestUrlMap.get(this) || '';
+          var persistedSessionKey = getPersistedSessionKey();
+          if (persistedSessionKey && isSameOriginRequest(requestURL)) {
+            this.setRequestHeader(SESSION_KEY_HEADER, persistedSessionKey);
+          }
+          return originalSend.apply(this, arguments);
+        };
+
+        if (window.fetch) {
+          var originalFetch = window.fetch.bind(window);
+          window.fetch = function (input, init) {
+            var requestURL =
+              typeof input === 'string' || input instanceof URL
+                ? input.toString()
+                : input.url;
+            var persistedSessionKey = getPersistedSessionKey();
+
+            if (
+              !persistedSessionKey ||
+              !isSameOriginRequest(requestURL)
+            ) {
+              return originalFetch(input, init);
+            }
+
+            if (input instanceof Request) {
+              var requestHeaders = new Headers(input.headers);
+              if (!requestHeaders.has(SESSION_KEY_HEADER)) {
+                requestHeaders.set(SESSION_KEY_HEADER, persistedSessionKey);
+              }
+              return originalFetch(
+                new Request(input, {
+                  headers: requestHeaders,
+                }),
+                init,
+              );
+            }
+
+            var headers = new Headers(init && init.headers);
+            if (!headers.has(SESSION_KEY_HEADER)) {
+              headers.set(SESSION_KEY_HEADER, persistedSessionKey);
+            }
+            return originalFetch(input, Object.assign({}, init, { headers: headers }));
+          };
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -36,6 +36,31 @@ import { getCreateDocumentParams } from './utils';
 
 import styles from './index.module.less';
 
+const notifyParentToCloseIframeModal = (datasetID?: string) => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  try {
+    if (window.self === window.top) {
+      return false;
+    }
+
+    window.parent.postMessage(
+      {
+        source: 'coze-knowledge-iframe',
+        type: 'knowledge-iframe-confirm',
+        value: 'close',
+        datasetID,
+      },
+      '*',
+    );
+    return true;
+  } catch {
+    return false;
+  }
+};
+
 export const TextProcessing: FC<
   ContentProps<UploadTextLocalAddUpdateStore>
 > = props => {
@@ -109,6 +134,10 @@ export const TextProcessing: FC<
             theme: 'solid',
             text: I18n.t('variable_reset_yes'),
             onClick: () => {
+              if (notifyParentToCloseIframeModal(params.datasetID)) {
+                return;
+              }
+
               const query = getKnowledgeIDEQuery() as Record<string, string>;
 
               resourceNavigate.toResource?.(
