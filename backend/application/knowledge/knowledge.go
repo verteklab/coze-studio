@@ -253,12 +253,20 @@ func (k *KnowledgeApplicationService) CreateKnowledge(ctx context.Context, req *
 }
 
 func (k *KnowledgeApplicationService) DatasetDetail(ctx context.Context, req *dataset.DatasetDetailRequest) (*dataset.DatasetDetailResponse, error) {
+	return k.datasetDetail(ctx, req, false)
+}
+
+func (k *KnowledgeApplicationService) DatasetDetailOpenAPI(ctx context.Context, req *dataset.DatasetDetailRequest) (*dataset.DatasetDetailResponse, error) {
+	return k.datasetDetail(ctx, req, true)
+}
+
+func (k *KnowledgeApplicationService) datasetDetail(ctx context.Context, req *dataset.DatasetDetailRequest, fromOpenAPI bool) (*dataset.DatasetDetailResponse, error) {
 	var err error
 	var datasetIDs []int64
 
-	uid := ctxutil.GetUIDFromCtx(ctx)
-	if uid == nil {
-		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
+	uid, err := getUID(ctx, fromOpenAPI)
+	if err != nil {
+		return nil, err
 	}
 
 	err = k.checkPermission(ctx, uid, ptr.Of(req.SpaceID), nil, nil, nil)
@@ -956,10 +964,17 @@ func packTableSliceColumnData(ctx context.Context, slice *model.Slice, text stri
 }
 
 func (k *KnowledgeApplicationService) ListSlice(ctx context.Context, req *dataset.ListSliceRequest) (*dataset.ListSliceResponse, error) {
+	return k.listSlice(ctx, req, false)
+}
 
-	uid := ctxutil.GetUIDFromCtx(ctx)
-	if uid == nil {
-		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
+func (k *KnowledgeApplicationService) ListSliceOpenAPI(ctx context.Context, req *dataset.ListSliceRequest) (*dataset.ListSliceResponse, error) {
+	return k.listSlice(ctx, req, true)
+}
+
+func (k *KnowledgeApplicationService) listSlice(ctx context.Context, req *dataset.ListSliceRequest, fromOpenAPI bool) (*dataset.ListSliceResponse, error) {
+	uid, err := getUID(ctx, fromOpenAPI)
+	if err != nil {
+		return nil, err
 	}
 
 	if req.DatasetID != nil {
@@ -1381,9 +1396,17 @@ func (k *KnowledgeApplicationService) MoveKnowledgeToLibrary(ctx context.Context
 	return nil
 }
 func (k *KnowledgeApplicationService) ListPhoto(ctx context.Context, req *dataset.ListPhotoRequest) (*dataset.ListPhotoResponse, error) {
-	uid := ctxutil.GetUIDFromCtx(ctx)
-	if uid == nil {
-		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
+	return k.listPhoto(ctx, req, false)
+}
+
+func (k *KnowledgeApplicationService) ListPhotoOpenAPI(ctx context.Context, req *dataset.ListPhotoRequest) (*dataset.ListPhotoResponse, error) {
+	return k.listPhoto(ctx, req, true)
+}
+
+func (k *KnowledgeApplicationService) listPhoto(ctx context.Context, req *dataset.ListPhotoRequest, fromOpenAPI bool) (*dataset.ListPhotoResponse, error) {
+	uid, err := getUID(ctx, fromOpenAPI)
+	if err != nil {
+		return nil, err
 	}
 
 	err := k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
@@ -1456,6 +1479,14 @@ func (k *KnowledgeApplicationService) packPhotoInfo(slices []*entity.Slice, docu
 }
 
 func (k *KnowledgeApplicationService) PhotoDetail(ctx context.Context, req *dataset.PhotoDetailRequest) (*dataset.PhotoDetailResponse, error) {
+	return k.photoDetail(ctx, req, false)
+}
+
+func (k *KnowledgeApplicationService) PhotoDetailOpenAPI(ctx context.Context, req *dataset.PhotoDetailRequest) (*dataset.PhotoDetailResponse, error) {
+	return k.photoDetail(ctx, req, true)
+}
+
+func (k *KnowledgeApplicationService) photoDetail(ctx context.Context, req *dataset.PhotoDetailRequest, fromOpenAPI bool) (*dataset.PhotoDetailResponse, error) {
 	resp := dataset.NewPhotoDetailResponse()
 	if len(req.GetDocumentIds()) == 0 {
 		resp.Code = 400
@@ -1463,12 +1494,12 @@ func (k *KnowledgeApplicationService) PhotoDetail(ctx context.Context, req *data
 		return resp, nil
 	}
 
-	uid := ctxutil.GetUIDFromCtx(ctx)
-	if uid == nil {
-		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
+	uid, err := getUID(ctx, fromOpenAPI)
+	if err != nil {
+		return nil, err
 	}
 
-	err := k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+	err = k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
 	if err != nil {
 		return nil, err
 	}

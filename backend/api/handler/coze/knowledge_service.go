@@ -654,6 +654,86 @@ func ListDocumentOpenAPI(ctx context.Context, c *app.RequestContext) {
 	c.JSON(consts.StatusOK, resp)
 }
 
+// DatasetDetailOpenAPI .
+// @router /open_api/knowledge/detail [POST]
+func DatasetDetailOpenAPI(ctx context.Context, c *app.RequestContext) {
+	var err error
+	var req dataset.DatasetDetailRequest
+	err = c.BindAndValidate(&req)
+	if err != nil {
+		c.String(consts.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp := new(dataset.DatasetDetailResponse)
+	resp, err = application.KnowledgeSVC.DatasetDetailOpenAPI(ctx, &req)
+	if err != nil {
+		internalServerErrorResponse(ctx, c, err)
+		return
+	}
+	c.JSON(consts.StatusOK, resp)
+}
+
+// ListSliceOpenAPI .
+// @router /open_api/knowledge/slice/list [POST]
+func ListSliceOpenAPI(ctx context.Context, c *app.RequestContext) {
+	var err error
+	var req dataset.ListSliceRequest
+	err = c.BindAndValidate(&req)
+	if err != nil {
+		c.String(consts.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp := new(dataset.ListSliceResponse)
+	resp, err = application.KnowledgeSVC.ListSliceOpenAPI(ctx, &req)
+	if err != nil {
+		internalServerErrorResponse(ctx, c, err)
+		return
+	}
+	c.JSON(consts.StatusOK, resp)
+}
+
+// ListPhotoOpenAPI .
+// @router /open_api/knowledge/photo/list [POST]
+func ListPhotoOpenAPI(ctx context.Context, c *app.RequestContext) {
+	var err error
+	var req dataset.ListPhotoRequest
+	err = c.BindAndValidate(&req)
+	if err != nil {
+		c.String(consts.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp := new(dataset.ListPhotoResponse)
+	resp, err = application.KnowledgeSVC.ListPhotoOpenAPI(ctx, &req)
+	if err != nil {
+		internalServerErrorResponse(ctx, c, err)
+		return
+	}
+	c.JSON(consts.StatusOK, resp)
+}
+
+// PhotoDetailOpenAPI .
+// @router /open_api/knowledge/photo/detail [POST]
+func PhotoDetailOpenAPI(ctx context.Context, c *app.RequestContext) {
+	var err error
+	var req dataset.PhotoDetailRequest
+	err = c.BindAndValidate(&req)
+	if err != nil {
+		c.String(consts.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp := new(dataset.PhotoDetailResponse)
+	resp, err = application.KnowledgeSVC.PhotoDetailOpenAPI(ctx, &req)
+	if err != nil {
+		internalServerErrorResponse(ctx, c, err)
+		return
+	}
+	c.JSON(consts.StatusOK, resp)
+}
+
 // CreateDatasetOpenAPI .
 // @router /v1/datasets [POST]
 func CreateDatasetOpenAPI(ctx context.Context, c *app.RequestContext) {

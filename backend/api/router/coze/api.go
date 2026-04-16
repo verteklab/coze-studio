@@ -462,11 +462,17 @@ func Register(r *server.Hertz) {
 		{
 			_knowledge1 := _open_api.Group("/knowledge", _knowledge1Mw()...)
 			{
+				_knowledge1.POST("/detail", append(_datasetdetailopenapiMw(), coze.DatasetDetailOpenAPI)...)
 				_document0 := _knowledge1.Group("/document", _document0Mw()...)
 				_document0.POST("/create", append(_createdocumentopenapiMw(), coze.CreateDocumentOpenAPI)...)
 				_document0.POST("/list", append(_listdocumentopenapiMw(), coze.ListDocumentOpenAPI)...)
 				_document0.POST("/delete", append(_updatedocumentopenapiMw(), coze.DeleteDocumentOpenAPI)...)
 				_document0.POST("/update", append(_updatedocumentopenapiMw(), coze.UpdateDocumentOpenAPI)...)
+				_slice0 := _knowledge1.Group("/slice", _slice0Mw()...)
+				_slice0.POST("/list", append(_listsliceopenapiMw(), coze.ListSliceOpenAPI)...)
+				_photo0 := _knowledge1.Group("/photo", _photo0Mw()...)
+				_photo0.POST("/list", append(_listphotoopenapiMw(), coze.ListPhotoOpenAPI)...)
+				_photo0.POST("/detail", append(_photodetailopenapiMw(), coze.PhotoDetailOpenAPI)...)
 			}
 		}
 	}

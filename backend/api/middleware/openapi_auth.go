@@ -54,10 +54,14 @@ var needAuthPath = map[string]bool{
 	"/v1/conversation/retrieve":           true,
 	"/v3/chat/retrieve":                   true,
 	"/v3/chat/message/list":               true,
+	"/open_api/knowledge/detail":          true,
 	"/open_api/knowledge/document/delete": true,
 	"/open_api/knowledge/document/create": true,
 	"/open_api/knowledge/document/update": true,
 	"/open_api/knowledge/document/list":   true,
+	"/open_api/knowledge/slice/list":      true,
+	"/open_api/knowledge/photo/list":      true,
+	"/open_api/knowledge/photo/detail":    true,
 	"/v1/datasets":                        true,
 }
 

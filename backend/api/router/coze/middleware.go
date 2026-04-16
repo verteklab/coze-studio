@@ -1670,6 +1670,11 @@ func _knowledge1Mw() []app.HandlerFunc {
 	return nil
 }
 
+func _datasetdetailopenapiMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
 func _document0Mw() []app.HandlerFunc {
 	// your code...
 	return nil
@@ -1686,6 +1691,31 @@ func _listdocumentopenapiMw() []app.HandlerFunc {
 }
 
 func _updatedocumentopenapiMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _slice0Mw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listsliceopenapiMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _photo0Mw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _listphotoopenapiMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _photodetailopenapiMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
