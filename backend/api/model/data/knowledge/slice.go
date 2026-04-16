@@ -1685,7 +1685,7 @@ type ListSliceRequest struct {
 	// If only dataset_id, return sharding under that knowledge base
 	DatasetID *int64 `thrift:"dataset_id,5,optional" form:"dataset_id" json:"dataset_id,string,omitempty" query:"dataset_id"`
 	// page size
-	PageSize int64      `thrift:"page_size,21" form:"page_size" json:"page_size,string" query:"page_size"`
+	PageSize int64      `thrift:"page_size,21" form:"page_size" json:"page_size" query:"page_size"`
 	Base     *base.Base `thrift:"Base,255,optional" form:"Base" json:"Base,omitempty" query:"Base"`
 }
 

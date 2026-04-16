@@ -518,8 +518,13 @@ func (k *KnowledgeApplicationService) ListDocument(ctx context.Context, req *dat
 		return nil, err
 	}
 	var limit int = int(req.GetSize())
-	var offset int = int(req.GetPage() * req.GetSize())
-
+	// var offset int = int(req.GetPage() * req.GetSize())
+	page := int(req.GetPage())
+	if page < 1 {
+		page = 1
+	}
+	var offset int = (page - 1) * limit
+	
 	docIDs := make([]int64, 0)
 	if len(req.GetDocumentIds()) != 0 {
 		docIDs, err = slices.TransformWithErrorCheck(req.GetDocumentIds(), func(s string) (int64, error) {

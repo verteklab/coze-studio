@@ -1,0 +1,11 @@
+services:
+  coze-server:
+    image: coze-studio-server-local:latest
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+  coze-web:
+    image: coze-studio-web-local:latest
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
