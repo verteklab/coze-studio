@@ -15,6 +15,7 @@
  */
 
 import { createRoot } from 'react-dom/client';
+import { passport } from '@coze-studio/api-schema';
 import { initI18nInstance } from '@coze-arch/i18n/raw';
 import { dynamicImportMdBoxStyle } from '@coze-arch/bot-md-box-adapter/style';
 import { pullFeatureFlags, type FEATURE_FLAGS } from '@coze-arch/bot-flags';
@@ -83,10 +84,25 @@ const initFlags = () => {
   });
 };
 
+const forceLocaleToZhCN = () => {
+  localStorage.setItem('i18next', 'zh-CN');
+  void passport
+    .UserUpdateProfile(
+      {
+        locale: 'zh-CN',
+      },
+      {
+        __disableErrorToast: true,
+      },
+    )
+    .catch(() => undefined);
+};
+
 const main = () => {
   syncSessionKeyFromUrlToCookie();
   // Initialize the value of the function switch
   initFlags();
+  forceLocaleToZhCN();
   // Initialize i18n
   initI18nInstance({
     lng: (localStorage.getItem('i18next') ?? (IS_OVERSEA ? 'en' : 'zh-CN')) as
