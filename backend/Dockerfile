@@ -6,9 +6,16 @@ WORKDIR /app
 # Install build dependencies for Go
 RUN apk add --no-cache git gcc libc-dev
 
+# Use a configurable Go module proxy to avoid timeouts
+# when the builder cannot reach proxy.golang.org reliably.
+ARG GOPROXY=https://goproxy.cn,direct
+ARG GOSUMDB=sum.golang.google.cn
+ENV GOPROXY=${GOPROXY}
+ENV GOSUMDB=${GOSUMDB}
+
 # Copy go.mod and go.sum first to leverage Docker cache
 COPY backend/go.mod backend/go.sum ./
-RUN go mod download
+RUN go env -w GOPROXY="${GOPROXY}" GOSUMDB="${GOSUMDB}" && go mod download
 
 # Copy the entire backend source code
 COPY backend/ ./
