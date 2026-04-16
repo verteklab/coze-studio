@@ -15,9 +15,6 @@ RUN npm config set registry https://registry.npmmirror.com
 # Copy rush.json from root directory first
 COPY rush.json ./
 
-# Install rush with retry logic
-RUN npm install -g @microsoft/rush --registry=https://registry.npmjs.org
-
 # Copy the frontend source code (excluding node_modules and build artifacts)
 COPY frontend/ ./frontend/
 
@@ -31,10 +28,10 @@ COPY scripts/ ./scripts/
 RUN find . -name "*.sh" -type f -exec dos2unix {} \;
 
 # Install all dependencies
-RUN chmod +x scripts/hooks/post-rush-install.sh && rm -rf /app/common/temp && rush install
+RUN chmod +x scripts/hooks/post-rush-install.sh && rm -rf /app/common/temp && node common/scripts/install-run-rush.js install
 
 # Use rush build to build the specific project
-RUN rush build --to @coze-studio/app
+RUN node common/scripts/install-run-rush.js build --to @coze-studio/app
 
 # Production image stage
 FROM nginx:1.25-alpine
