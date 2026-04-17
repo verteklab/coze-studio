@@ -62,6 +62,7 @@ var needAuthPath = map[string]bool{
 	"/open_api/knowledge/slice/list":      true,
 	"/open_api/knowledge/photo/list":      true,
 	"/open_api/knowledge/photo/detail":    true,
+	"/open_api/workflow/sign_image_url":   true,
 	"/v1/datasets":                        true,
 }
 

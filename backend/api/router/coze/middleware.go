@@ -1720,6 +1720,16 @@ func _photodetailopenapiMw() []app.HandlerFunc {
 	return nil
 }
 
+func _workflow1Mw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _signimageurlopenapiMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
 func _datasetsMw() []app.HandlerFunc {
 	// your code...
 	return nil

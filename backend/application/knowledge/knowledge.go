@@ -269,9 +269,11 @@ func (k *KnowledgeApplicationService) datasetDetail(ctx context.Context, req *da
 		return nil, err
 	}
 
-	err = k.checkPermission(ctx, uid, ptr.Of(req.SpaceID), nil, nil, nil)
-	if err != nil {
-		return dataset.NewDatasetDetailResponse(), err
+	if !fromOpenAPI {
+		err = k.checkPermission(ctx, uid, ptr.Of(req.SpaceID), nil, nil, nil)
+		if err != nil {
+			return dataset.NewDatasetDetailResponse(), err
+		}
 	}
 
 	datasetIDs, err = slices.TransformWithErrorCheck(req.GetDatasetIDs(), func(s string) (int64, error) {
@@ -283,11 +285,14 @@ func (k *KnowledgeApplicationService) datasetDetail(ctx context.Context, req *da
 		return dataset.NewDatasetDetailResponse(), err
 	}
 
-	domainResp, err := k.DomainSVC.ListKnowledge(ctx, &service.ListKnowledgeRequest{
-		IDs:     datasetIDs,
-		SpaceID: &req.SpaceID,
-		AppID:   &req.ProjectID,
-	})
+	listKnowledgeReq := &service.ListKnowledgeRequest{
+		IDs: datasetIDs,
+	}
+	if !fromOpenAPI {
+		listKnowledgeReq.SpaceID = &req.SpaceID
+		listKnowledgeReq.AppID = &req.ProjectID
+	}
+	domainResp, err := k.DomainSVC.ListKnowledge(ctx, listKnowledgeReq)
 	if err != nil {
 		logs.CtxErrorf(ctx, "get knowledge failed, err: %v", err)
 		return dataset.NewDatasetDetailResponse(), err
@@ -532,7 +537,7 @@ func (k *KnowledgeApplicationService) ListDocument(ctx context.Context, req *dat
 		page = 1
 	}
 	var offset int = (page - 1) * limit
-	
+
 	docIDs := make([]int64, 0)
 	if len(req.GetDocumentIds()) != 0 {
 		docIDs, err = slices.TransformWithErrorCheck(req.GetDocumentIds(), func(s string) (int64, error) {
@@ -977,7 +982,7 @@ func (k *KnowledgeApplicationService) listSlice(ctx context.Context, req *datase
 		return nil, err
 	}
 
-	if req.DatasetID != nil {
+	if !fromOpenAPI && req.DatasetID != nil {
 		err := k.checkPermission(ctx, uid, nil, nil, ptr.Of(*req.DatasetID), nil)
 		if err != nil {
 			return nil, err
@@ -1409,9 +1414,11 @@ func (k *KnowledgeApplicationService) listPhoto(ctx context.Context, req *datase
 		return nil, err
 	}
 
-	err := k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
-	if err != nil {
-		return nil, err
+	if !fromOpenAPI {
+		err = k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	resp := dataset.NewListPhotoResponse()
@@ -1499,9 +1506,11 @@ func (k *KnowledgeApplicationService) photoDetail(ctx context.Context, req *data
 		return nil, err
 	}
 
-	err = k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
-	if err != nil {
-		return nil, err
+	if !fromOpenAPI {
+		err = k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	docIDs, err := slices.TransformWithErrorCheck(req.GetDocumentIds(), func(s string) (int64, error) {

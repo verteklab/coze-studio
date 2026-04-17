@@ -474,6 +474,10 @@ func Register(r *server.Hertz) {
 				_photo0.POST("/list", append(_listphotoopenapiMw(), coze.ListPhotoOpenAPI)...)
 				_photo0.POST("/detail", append(_photodetailopenapiMw(), coze.PhotoDetailOpenAPI)...)
 			}
+			{
+				_workflow1 := _open_api.Group("/workflow", _workflow1Mw()...)
+				_workflow1.POST("/sign_image_url", append(_signimageurlopenapiMw(), coze.SignImageURLOpenAPI)...)
+			}
 		}
 	}
 	{

@@ -546,6 +546,26 @@ func SignImageURL(ctx context.Context, c *app.RequestContext) {
 	c.JSON(consts.StatusOK, resp)
 }
 
+// SignImageURLOpenAPI .
+// @router /open_api/workflow/sign_image_url [POST]
+func SignImageURLOpenAPI(ctx context.Context, c *app.RequestContext) {
+	var err error
+	var req workflow.SignImageURLRequest
+	err = c.BindAndValidate(&req)
+	if err != nil {
+		invalidParamRequestResponse(c, err.Error())
+		return
+	}
+
+	resp, err := appworkflow.SVC.SignImageURL(ctx, &req)
+	if err != nil {
+		internalServerErrorResponse(ctx, c, err)
+		return
+	}
+
+	c.JSON(consts.StatusOK, resp)
+}
+
 // CreateProjectConversationDef .
 // @router /api/workflow_api/project_conversation/create [POST]
 func CreateProjectConversationDef(ctx context.Context, c *app.RequestContext) {
