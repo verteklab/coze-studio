@@ -39,10 +39,6 @@ func newOpenaiModelBuilder(cfg *config.Model) Service {
 func (o *openaiModelBuilder) getDefaultConfig() *openai.ChatModelConfig {
 	return &openai.ChatModelConfig{
 		MaxCompletionTokens: ptr.Of(4096),
-		ResponseFormat: &openai.ChatCompletionResponseFormat{
-			Type:       "text",
-			JSONSchema: nil,
-		},
 	}
 }
 
@@ -74,9 +70,7 @@ func (o *openaiModelBuilder) applyParamsToOpenaiConfig(conf *openai.ChatModelCon
 			Type: openai.ChatCompletionResponseFormatTypeJSONObject,
 		}
 	} else {
-		conf.ResponseFormat = &openai.ChatCompletionResponseFormat{
-			Type: openai.ChatCompletionResponseFormatTypeText,
-		}
+		conf.ResponseFormat = nil
 	}
 }
 

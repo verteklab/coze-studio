@@ -1,6 +1,8 @@
 # Stage 1: Builder for Go application
 FROM golang:1.24.13-alpine3.23 AS builder
 
+RUN sed -i 's|https://dl-cdn.alpinelinux.org/alpine|https://mirrors.tuna.tsinghua.edu.cn/alpine|g' /etc/apk/repositories
+
 WORKDIR /app
 
 # Install build dependencies for Go
@@ -25,7 +27,9 @@ RUN go build -ldflags="-s -w" -o /app/opencoze main.go
 
 
 # Stage 2: Final image
-FROM alpine:3.22.0
+FROM alpine:3.22
+
+RUN sed -i 's|https://dl-cdn.alpinelinux.org/alpine|https://mirrors.tuna.tsinghua.edu.cn/alpine|g' /etc/apk/repositories
 
 WORKDIR /app
 
@@ -43,7 +47,8 @@ RUN apk add --no-cache --virtual .python-build-deps build-base py3-pip git && \
     . /app/.venv/bin/activate && \
     # If you want to use other third-party libraries, you can install them here.
     pip install urllib3==1.26.16 && \
-    pip install --no-cache-dir h11==0.16.0 httpx==0.28.1 pillow==11.2.1 pdfplumber==0.11.7 python-docx==1.2.0 numpy==2.3.1 && \
+    # pip install --no-cache-dir h11==0.16.0 httpx==0.28.1 pillow==11.2.1 pdfplumber==0.11.7 python-docx==1.2.0 numpy==2.3.1 && \
+    pip install --no-cache-dir -i https://pypi.tuna.tsinghua.edu.cn/simple --trusted-host pypi.tuna.tsinghua.edu.cn h11==0.16.0 httpx==0.28.1 pillow==11.2.1 pdfplumber==0.11.7 python-docx==1.2.0 numpy==2.3.1 && \
     # Deactivate (optional, as RUN is a new shell)
     # deactivate && \
     # Remove build dependencies
