@@ -34,8 +34,8 @@ export type Channel = 'DOUYIN' | 'DEFAULT';
 
 const textUploadChannelConfigMap: Record<Channel, TextUploadChannelConfig> = {
   DOUYIN: {
-    acceptFileTypes: ['.pdf', '.txt', '.doc', '.docx'],
-    fileFormatString: 'PDF、TXT、DOC、DOCX',
+    acceptFileTypes: ['.pdf', '.txt', '.docx'],
+    fileFormatString: 'PDF、TXT、DOCX',
     addUnitMaxLimit: 100,
   },
   DEFAULT: {

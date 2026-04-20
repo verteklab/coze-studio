@@ -16,6 +16,7 @@
 
 export { PreviewMd } from './doc-preview/preview-md';
 export { PreviewTxt } from './doc-preview/preview-txt';
+export { PreviewDocx } from './doc-preview/preview-docx';
 export { usePreviewPdf } from './doc-preview/use-preview-pdf';
 export { default as SegmentMenu } from './segment-menu';
 export { DocumentEditor } from './text-knowledge-editor/features/editor';

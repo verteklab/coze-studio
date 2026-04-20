@@ -117,7 +117,6 @@ func ValidateFileExtension(fileSuffix string) (ext FileExtension, support bool) 
 var fileExtensionSet = sets.Set[FileExtension]{
 	FileExtensionPDF:      {},
 	FileExtensionTXT:      {},
-	FileExtensionDoc:      {},
 	FileExtensionDocx:     {},
 	FileExtensionMarkdown: {},
 	FileExtensionCSV:      {},

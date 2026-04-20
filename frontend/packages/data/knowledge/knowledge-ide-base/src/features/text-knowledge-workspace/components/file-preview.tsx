@@ -19,6 +19,7 @@ import {
   usePreviewPdf,
   PreviewMd,
   PreviewTxt,
+  PreviewDocx,
 } from '@coze-data/knowledge-common-components';
 import {
   IconCozArrowLeft,
@@ -70,7 +71,11 @@ export const FilePreview: React.FC<FilePreviewProps> = ({
           return <PreviewTxt fileUrl={fileUrl} />;
         }
 
-        if (['docx', 'pdf', 'doc'].includes(fileType ?? '')) {
+        if (fileType === 'docx') {
+          return <PreviewDocx fileUrl={fileUrl} />;
+        }
+
+        if (fileType === 'pdf') {
           return (
             <div className="grow w-full relative">
               {numPages >= 1 ? (
@@ -119,7 +124,11 @@ export const FilePreview: React.FC<FilePreviewProps> = ({
             </div>
           );
         }
-        return null;
+        return (
+          <div className="flex items-center justify-center w-full h-full coz-fg-secondary text-[14px]">
+            Preview is not supported for this file type.
+          </div>
+        );
       })()}
     </div>
   );

@@ -49,6 +49,7 @@ const options = {
 export const usePreviewPdf = (props: IUsePreviewPdfProps) => {
   const { fileUrl } = props;
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string>('');
   const [numPages, setNumPages] = useState<number>(0);
   const [currentPage, setCurrentPage] = useState<number>(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -80,7 +81,14 @@ export const usePreviewPdf = (props: IUsePreviewPdfProps) => {
     numPages: number;
   }) => {
     setLoading(false);
+    setLoadError('');
     setNumPages(totalPages);
+  };
+
+  const onDocumentLoadError = (err: Error) => {
+    setLoading(false);
+    setNumPages(0);
+    setLoadError(err?.message || 'Failed to load PDF');
   };
 
   const handleScroll = ({ scrollOffset }: { scrollOffset: number }) => {
@@ -163,25 +171,32 @@ export const usePreviewPdf = (props: IUsePreviewPdfProps) => {
           )}
           ref={containerRef}
         >
-          <Document
-            file={fileUrl}
-            // bug fix https://github.com/wojtekmaj/react-pdf/issues/974
-            key={fileUrl}
-            onLoadSuccess={onDocumentLoadSuccess}
-            options={options}
-            className={cls('flex w-full h-full')}
-            loading={
-              <Spin
-                wrapperClassName="w-full h-full"
-                childStyle={{
-                  width: containerRef.current?.clientWidth,
-                  height: '100%',
-                }}
-              ></Spin>
-            }
-          >
-            {containerRef.current ? memoizedList : null}
-          </Document>
+          {loadError ? (
+            <div className="flex items-center justify-center w-full h-full coz-fg-hglt-red text-[14px] leading-[22px] p-4">
+              {loadError}
+            </div>
+          ) : (
+            <Document
+              file={fileUrl}
+              // bug fix https://github.com/wojtekmaj/react-pdf/issues/974
+              key={fileUrl}
+              onLoadSuccess={onDocumentLoadSuccess}
+              onLoadError={onDocumentLoadError}
+              options={options}
+              className={cls('flex w-full h-full')}
+              loading={
+                <Spin
+                  wrapperClassName="w-full h-full"
+                  childStyle={{
+                    width: containerRef.current?.clientWidth,
+                    height: '100%',
+                  }}
+                ></Spin>
+              }
+            >
+              {containerRef.current ? memoizedList : null}
+            </Document>
+          )}
         </div>
       </div>
     </>

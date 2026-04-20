@@ -58,6 +58,7 @@
     "classnames": "^2.3.2",
     "dompurify": "3.0.8",
     "lodash-es": "^4.17.21",
+    "mammoth": "^1.8.0",
     "mitt": "^3.0.1",
     "nanoid": "^4.0.2",
     "react-arborist": "^3.4.0",

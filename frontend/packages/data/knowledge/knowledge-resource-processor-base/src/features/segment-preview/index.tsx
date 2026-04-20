@@ -32,6 +32,7 @@ import {
   usePreviewPdf,
   PreviewTxt,
   PreviewMd,
+  PreviewDocx,
 } from '@coze-data/knowledge-common-components';
 import { ReviewStatus, type Review } from '@coze-arch/idl/knowledge';
 import { I18n } from '@coze-arch/i18n';
@@ -84,10 +85,13 @@ export const SegmentPreview = (props: ISegmentPreviewProps) => {
     review => review.review_id === currentReviewID,
   );
   const fileType = currentReview?.document_type;
-  // The front end is not good to display docx, so you need to use the URL in pdf format converted by the back end.
-  const fileUrl = ['docx', 'doc'].includes(fileType ?? '')
-    ? currentReview?.preview_tos_url ?? ''
-    : currentReview?.tos_url ?? '';
+  // docx is rendered client-side via mammoth from the original object URL.
+  // Legacy .doc has no client renderer; fall back to the backend-converted
+  // preview_tos_url (PDF) if present.
+  const fileUrl =
+    fileType === 'doc'
+      ? currentReview?.preview_tos_url ?? ''
+      : currentReview?.tos_url ?? '';
   const segmentTosUrl = currentReview?.doc_tree_tos_url ?? '';
   // Save review when switching documents
   const { loading: saveLoading, runAsync: saveDocumentReview } = useRequest(
@@ -261,7 +265,7 @@ export const SegmentPreview = (props: ISegmentPreviewProps) => {
                       {I18n.t('knowledge_level_010')}
                     </div>
                   </div>
-                  {['pdf', 'docx', 'doc'].includes(fileType ?? '') &&
+                  {['pdf', 'doc'].includes(fileType ?? '') &&
                   numPages >= 1 ? (
                     <div className="flex h-full items-center gap-[3px]">
                       <IconButton
@@ -302,7 +306,10 @@ export const SegmentPreview = (props: ISegmentPreviewProps) => {
               <div className="grow w-full h-[650px] flex flex-col items-center overflow-auto">
                 {fileType === 'md' ? <PreviewMd fileUrl={fileUrl} /> : null}
                 {fileType === 'txt' ? <PreviewTxt fileUrl={fileUrl} /> : null}
-                {['docx', 'pdf', 'doc'].includes(fileType ?? '') ? (
+                {fileType === 'docx' ? (
+                  <PreviewDocx fileUrl={fileUrl} />
+                ) : null}
+                {['pdf', 'doc'].includes(fileType ?? '') ? (
                   <div className="grow w-full">{pdfNode}</div>
                 ) : null}
               </div>
