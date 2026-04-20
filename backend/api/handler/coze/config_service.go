@@ -250,7 +250,7 @@ func CreateModel(ctx context.Context, c *app.RequestContext) {
 		EnableBase64URL: req.EnableBase64URL,
 		Connection:      req.Connection,
 	}
-	if req.ModelClass == developer_api.ModelClass_CustomHTTP {
+	if req.ModelClass == developer_api.ModelClass_Other {
 		err = modelbuilder.ProbeCustomHTTP(ctx, modelCfg)
 		if err != nil {
 			invalidParamRequestResponse(c, fmt.Sprintf("probe custom HTTP model failed: %v", err))
