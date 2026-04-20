@@ -382,8 +382,8 @@ func (r *customHTTPRuntime) buildRequestBody(templateVars map[string]any) ([]byt
 			if r.params.MaxTokens != 0 {
 				body["max_tokens"] = r.params.MaxTokens
 			}
-			if r.params.TopP != 0 {
-				body["top_p"] = r.params.TopP
+			if r.params.TopP != nil && *r.params.TopP != 0 {
+				body["top_p"] = *r.params.TopP
 			}
 			if r.params.FrequencyPenalty != 0 {
 				body["frequency_penalty"] = r.params.FrequencyPenalty
@@ -451,8 +451,8 @@ func (r *customHTTPRuntime) buildTemplateVars(messages []*schema.Message) map[st
 		if r.params.MaxTokens != 0 {
 			vars["max_tokens"] = r.params.MaxTokens
 		}
-		if r.params.TopP != 0 {
-			vars["top_p"] = r.params.TopP
+		if r.params.TopP != nil && *r.params.TopP != 0 {
+			vars["top_p"] = *r.params.TopP
 		}
 		if r.params.FrequencyPenalty != 0 {
 			vars["frequency_penalty"] = r.params.FrequencyPenalty
