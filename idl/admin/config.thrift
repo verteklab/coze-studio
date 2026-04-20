@@ -85,6 +85,7 @@ struct Connection {
     6: optional QwenConnInfo qwen
     7: optional OllamaConnInfo ollama
     8: optional ClaudeConnInfo claude
+    9: optional CustomHTTPConnInfo custom_http
 }
 
 struct BaseConnectionInfo {
@@ -123,6 +124,27 @@ struct QwenConnInfo {}
 struct OllamaConnInfo {}
 
 struct ClaudeConnInfo {}
+
+struct CustomHTTPValidation {
+    1: string mode
+    2: i32 expected_status
+    3: string json_path
+    4: string expected_equals
+    5: bool expected_non_empty
+}
+
+struct CustomHTTPConnInfo {
+    1: string protocol_type
+    2: string method
+    3: string path
+    4: string auth_header
+    5: string headers_json
+    6: string payload_template
+    7: string input_mapping_json
+    8: optional CustomHTTPValidation validation
+    9: string output_mode
+    10: string response_path
+}
 
 struct CreateModelReq {
     1: developer_api.ModelClass model_class

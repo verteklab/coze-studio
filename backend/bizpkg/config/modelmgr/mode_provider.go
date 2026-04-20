@@ -107,6 +107,18 @@ func getModelProviderList() []*config.ModelProvider {
 			},
 			ModelClass: developer_api.ModelClass_QWen,
 		},
+		{
+			Name: &config.I18nText{
+				ZhCn: "自定义 HTTP 模型",
+				EnUs: "Custom HTTP Model",
+			},
+			IconURI: "default_icon/openai_v2.png",
+			Description: &config.I18nText{
+				ZhCn: "通过自定义 HTTP 协议接入模型",
+				EnUs: "connect models with custom HTTP protocol",
+			},
+			ModelClass: developer_api.ModelClass_CustomHTTP,
+		},
 	}
 }
 
