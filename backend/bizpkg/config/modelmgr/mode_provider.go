@@ -117,7 +117,7 @@ func getModelProviderList() []*config.ModelProvider {
 				ZhCn: "通过自定义 HTTP 协议接入模型",
 				EnUs: "connect models with custom HTTP protocol",
 			},
-			ModelClass: developer_api.ModelClass_CustomHTTP,
+			ModelClass: developer_api.ModelClass_Other,
 		},
 	}
 }

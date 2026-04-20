@@ -1,6 +1,6 @@
 {
   "provider2models": {
-    "CustomHTTP": {
+    "Other": {
       "default": {
         "display_info": {
           "name": "Custom HTTP Model",
