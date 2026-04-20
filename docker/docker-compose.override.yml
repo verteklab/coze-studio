@@ -12,3 +12,7 @@ services:
     build:
       context: ..
       dockerfile: frontend/Dockerfile
+      args:
+        # Use a Docker Hub mirror to avoid registry-1.docker.io timeouts.
+        NODE_IMAGE: docker.m.daocloud.io/library/node:22-alpine
+        NGINX_IMAGE: docker.m.daocloud.io/library/nginx:1.25-alpine
