@@ -74,6 +74,9 @@ func (c *ModelConfig) createModel(ctx context.Context, id *int64, modelClass dev
 		conn.Qwen = modelMeta.Connection.Qwen
 		conn.Ollama = modelMeta.Connection.Ollama
 		conn.Claude = modelMeta.Connection.Claude
+		if conn.CustomHTTP == nil {
+			conn.CustomHTTP = modelMeta.Connection.CustomHTTP
+		}
 	}
 
 	extraStr := "{}"

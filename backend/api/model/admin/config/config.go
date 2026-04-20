@@ -2473,6 +2473,7 @@ type Connection struct {
 	Qwen         *QwenConnInfo       `thrift:"qwen,6,optional" form:"qwen" json:"qwen,omitempty" query:"qwen"`
 	Ollama       *OllamaConnInfo     `thrift:"ollama,7,optional" form:"ollama" json:"ollama,omitempty" query:"ollama"`
 	Claude       *ClaudeConnInfo     `thrift:"claude,8,optional" form:"claude" json:"claude,omitempty" query:"claude"`
+	CustomHTTP   *CustomHTTPConnInfo `thrift:"custom_http,9,optional" form:"custom_http" json:"custom_http,omitempty" query:"custom_http"`
 }
 
 func NewConnection() *Connection {
@@ -2554,6 +2555,15 @@ func (p *Connection) GetClaude() (v *ClaudeConnInfo) {
 	return p.Claude
 }
 
+var Connection_CustomHTTP_DEFAULT *CustomHTTPConnInfo
+
+func (p *Connection) GetCustomHTTP() (v *CustomHTTPConnInfo) {
+	if !p.IsSetCustomHTTP() {
+		return Connection_CustomHTTP_DEFAULT
+	}
+	return p.CustomHTTP
+}
+
 var fieldIDToName_Connection = map[int16]string{
 	1: "base_conn_info",
 	2: "ark",
@@ -2563,6 +2573,7 @@ var fieldIDToName_Connection = map[int16]string{
 	6: "qwen",
 	7: "ollama",
 	8: "claude",
+	9: "custom_http",
 }
 
 func (p *Connection) IsSetBaseConnInfo() bool {
@@ -2595,6 +2606,10 @@ func (p *Connection) IsSetOllama() bool {
 
 func (p *Connection) IsSetClaude() bool {
 	return p.Claude != nil
+}
+
+func (p *Connection) IsSetCustomHTTP() bool {
+	return p.CustomHTTP != nil
 }
 
 func (p *Connection) Read(iprot thrift.TProtocol) (err error) {
@@ -4317,6 +4332,27 @@ func (p *ClaudeConnInfo) String() string {
 	}
 	return fmt.Sprintf("ClaudeConnInfo(%+v)", *p)
 
+}
+
+type CustomHTTPValidation struct {
+	Mode             string `thrift:"mode,1" form:"mode" json:"mode" query:"mode"`
+	ExpectedStatus   int32  `thrift:"expected_status,2" form:"expected_status" json:"expected_status" query:"expected_status"`
+	JSONPath         string `thrift:"json_path,3" form:"json_path" json:"json_path" query:"json_path"`
+	ExpectedEquals   string `thrift:"expected_equals,4" form:"expected_equals" json:"expected_equals" query:"expected_equals"`
+	ExpectedNonEmpty bool   `thrift:"expected_non_empty,5" form:"expected_non_empty" json:"expected_non_empty" query:"expected_non_empty"`
+}
+
+type CustomHTTPConnInfo struct {
+	ProtocolType    string                `thrift:"protocol_type,1" form:"protocol_type" json:"protocol_type" query:"protocol_type"`
+	Method          string                `thrift:"method,2" form:"method" json:"method" query:"method"`
+	Path            string                `thrift:"path,3" form:"path" json:"path" query:"path"`
+	AuthHeader      string                `thrift:"auth_header,4" form:"auth_header" json:"auth_header" query:"auth_header"`
+	HeadersJSON     string                `thrift:"headers_json,5" form:"headers_json" json:"headers_json" query:"headers_json"`
+	PayloadTemplate string                `thrift:"payload_template,6" form:"payload_template" json:"payload_template" query:"payload_template"`
+	InputMappingJSON string               `thrift:"input_mapping_json,7" form:"input_mapping_json" json:"input_mapping_json" query:"input_mapping_json"`
+	Validation      *CustomHTTPValidation `thrift:"validation,8" form:"validation" json:"validation,omitempty" query:"validation"`
+	OutputMode      string                `thrift:"output_mode,9" form:"output_mode" json:"output_mode" query:"output_mode"`
+	ResponsePath    string                `thrift:"response_path,10" form:"response_path" json:"response_path" query:"response_path"`
 }
 
 type CreateModelReq struct {

@@ -31,6 +31,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/protocol/consts"
 
 	"github.com/coze-dev/coze-studio/backend/api/model/admin/config"
+	"github.com/coze-dev/coze-studio/backend/api/model/app/developer_api"
 	bizConf "github.com/coze-dev/coze-studio/backend/bizpkg/config"
 	"github.com/coze-dev/coze-studio/backend/bizpkg/config/modelmgr"
 	"github.com/coze-dev/coze-studio/backend/bizpkg/llm/modelbuilder"
@@ -243,33 +244,42 @@ func CreateModel(ctx context.Context, c *app.RequestContext) {
 		return
 	}
 
-	modelBuilder, err := modelbuilder.NewModelBuilder(req.ModelClass, &config.Model{
-		EnableBase64URL: req.EnableBase64URL,
-		Connection:      req.Connection,
-	})
-	if err != nil {
-		invalidParamRequestResponse(c, fmt.Sprintf("create model builder failed: %v", err))
-		return
-	}
-
 	logs.CtxDebugf(ctx, "create model req: %s, conn: %s", conv.DebugJsonToStr(req), conv.DebugJsonToStr(req.Connection.BaseConnInfo))
 
-	chatModel, err := modelBuilder.Build(ctx, &modelbuilder.LLMParams{EnableThinking: ptr.Of(false)})
-	if err != nil {
-		invalidParamRequestResponse(c, fmt.Sprintf("build model failed: %v", err))
-		return
+	modelCfg := &config.Model{
+		EnableBase64URL: req.EnableBase64URL,
+		Connection:      req.Connection,
 	}
+	if req.ModelClass == developer_api.ModelClass_CustomHTTP {
+		err = modelbuilder.ProbeCustomHTTP(ctx, modelCfg)
+		if err != nil {
+			invalidParamRequestResponse(c, fmt.Sprintf("probe custom HTTP model failed: %v", err))
+			return
+		}
+	} else {
+		modelBuilder, err := modelbuilder.NewModelBuilder(req.ModelClass, modelCfg)
+		if err != nil {
+			invalidParamRequestResponse(c, fmt.Sprintf("create model builder failed: %v", err))
+			return
+		}
 
-	respMsgs, err := chatModel.Generate(ctx, []*schema.Message{
-		schema.SystemMessage("Just answer with a number, no explanation."),
-		schema.UserMessage("1+1=?"),
-	})
-	if err != nil {
-		invalidParamRequestResponse(c, fmt.Sprintf("generate model failed: %v", err))
-		return
+		chatModel, err := modelBuilder.Build(ctx, &modelbuilder.LLMParams{EnableThinking: ptr.Of(false)})
+		if err != nil {
+			invalidParamRequestResponse(c, fmt.Sprintf("build model failed: %v", err))
+			return
+		}
+
+		respMsgs, err := chatModel.Generate(ctx, []*schema.Message{
+			schema.SystemMessage("Just answer with a number, no explanation."),
+			schema.UserMessage("1+1=?"),
+		})
+		if err != nil {
+			invalidParamRequestResponse(c, fmt.Sprintf("generate model failed: %v", err))
+			return
+		}
+
+		logs.CtxDebugf(ctx, "chatModel.Generate resp : %s", conv.DebugJsonToStr(respMsgs))
 	}
-
-	logs.CtxDebugf(ctx, "chatModel.Generate resp : %s", conv.DebugJsonToStr(respMsgs))
 
 	id, err := bizConf.ModelConf().CreateModel(ctx, req.ModelClass, req.ModelName, req.Connection, &modelmgr.ModelExtra{
 		EnableBase64URL: req.EnableBase64URL,
