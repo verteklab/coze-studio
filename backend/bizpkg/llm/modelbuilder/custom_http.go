@@ -38,9 +38,6 @@ import (
 )
 
 const (
-	customHTTPProtocolChatCompletions = "chat_completions"
-	customHTTPProtocolScores          = "scores"
-
 	customHTTPValidationStatusOnly = "status_only"
 	customHTTPValidationJSONField  = "json_field"
 
@@ -89,19 +86,17 @@ func (b *customHTTPModelBuilder) Build(_ context.Context, params *LLMParams) (To
 }
 
 type customHTTPRuntime struct {
-	cfg           *config.Model
-	params        *LLMParams
-	protocolType  string
-	method        string
-	path          string
-	authHeader    string
-	headers       map[string]string
-	payloadTpl    string
-	inputMapping  map[string]string
-	outputMode    string
-	responsePath  string
-	validation    *config.CustomHTTPValidation
-	client        *http.Client
+	cfg          *config.Model
+	params       *LLMParams
+	method       string
+	path         string
+	authHeader   string
+	headers      map[string]string
+	payloadTpl   string
+	outputMode   string
+	responsePath string
+	validation   *config.CustomHTTPValidation
+	client       *http.Client
 }
 
 type customHTTPResponse struct {
@@ -165,24 +160,6 @@ func newCustomHTTPRuntime(cfg *config.Model, params *LLMParams) (*customHTTPRunt
 		}
 	}
 
-	inputMapping := map[string]string{}
-	if strings.TrimSpace(custom.InputMappingJSON) != "" {
-		if err := json.Unmarshal([]byte(custom.InputMappingJSON), &inputMapping); err != nil {
-			return nil, fmt.Errorf("parse custom HTTP input mapping failed: %w", err)
-		}
-	}
-
-	protocolType := strings.TrimSpace(custom.ProtocolType)
-	if protocolType == "" {
-		return nil, fmt.Errorf("custom HTTP protocol type is required")
-	}
-
-	switch protocolType {
-	case customHTTPProtocolChatCompletions, customHTTPProtocolScores:
-	default:
-		return nil, fmt.Errorf("unsupported custom HTTP protocol type: %s", protocolType)
-	}
-
 	method := strings.ToUpper(strings.TrimSpace(custom.Method))
 	if method == "" {
 		method = http.MethodPost
@@ -210,13 +187,11 @@ func newCustomHTTPRuntime(cfg *config.Model, params *LLMParams) (*customHTTPRunt
 	return &customHTTPRuntime{
 		cfg:          cfg,
 		params:       params,
-		protocolType: protocolType,
 		method:       method,
 		path:         strings.TrimSpace(custom.Path),
 		authHeader:   strings.TrimSpace(custom.AuthHeader),
 		headers:      headers,
 		payloadTpl:   custom.PayloadTemplate,
-		inputMapping: inputMapping,
 		outputMode:   outputMode,
 		responsePath: strings.TrimSpace(custom.ResponsePath),
 		validation:   validation,
@@ -232,7 +207,7 @@ func (r *customHTTPRuntime) doRequest(ctx context.Context, messages []*schema.Me
 		return nil, err
 	}
 
-	templateVars := r.buildTemplateVars(messages)
+	templateVars := r.buildTemplateVars(ctx, messages)
 	body, err := r.buildRequestBody(templateVars)
 	if err != nil {
 		return nil, err
@@ -316,21 +291,6 @@ func (r *customHTTPRuntime) validateResponse(resp *customHTTPResponse) error {
 }
 
 func (r *customHTTPRuntime) responseToContent(resp *customHTTPResponse) (string, error) {
-	if r.protocolType == customHTTPProtocolChatCompletions {
-		path := r.responsePath
-		if path == "" {
-			path = "choices.0.message.content"
-		}
-		if resp.JSON == nil {
-			return "", errors.New("chat completions response is not valid JSON")
-		}
-		v, ok := jsonLookup(resp.JSON, path)
-		if !ok {
-			return "", fmt.Errorf("chat completions response path %q not found", path)
-		}
-		return stringifyJSONValue(v), nil
-	}
-
 	if r.outputMode == customHTTPOutputModeJSON {
 		if resp.JSON == nil {
 			return string(resp.Body), nil
@@ -340,7 +300,7 @@ func (r *customHTTPRuntime) responseToContent(resp *customHTTPResponse) (string,
 		}
 		v, ok := jsonLookup(resp.JSON, r.responsePath)
 		if !ok {
-			return "", fmt.Errorf("scores response path %q not found", r.responsePath)
+			return "", fmt.Errorf("custom HTTP response path %q not found", r.responsePath)
 		}
 		buf, err := json.Marshal(v)
 		if err != nil {
@@ -352,9 +312,15 @@ func (r *customHTTPRuntime) responseToContent(resp *customHTTPResponse) (string,
 	if resp.JSON != nil && r.responsePath != "" {
 		v, ok := jsonLookup(resp.JSON, r.responsePath)
 		if !ok {
-			return "", fmt.Errorf("scores response path %q not found", r.responsePath)
+			return "", fmt.Errorf("custom HTTP response path %q not found", r.responsePath)
 		}
 		return stringifyJSONValue(v), nil
+	}
+
+	if resp.JSON != nil {
+		if v, ok := jsonLookup(resp.JSON, "choices.0.message.content"); ok {
+			return stringifyJSONValue(v), nil
+		}
 	}
 
 	return string(resp.Body), nil
@@ -373,41 +339,35 @@ func (r *customHTTPRuntime) buildRequestBody(templateVars map[string]any) ([]byt
 		"model": r.cfg.Connection.BaseConnInfo.Model,
 	}
 
-	if r.protocolType == customHTTPProtocolChatCompletions {
-		body["messages"] = templateVars["messages"]
-		if r.params != nil {
-			if r.params.Temperature != nil {
-				body["temperature"] = *r.params.Temperature
-			}
-			if r.params.MaxTokens != 0 {
-				body["max_tokens"] = r.params.MaxTokens
-			}
-			if r.params.TopP != nil && *r.params.TopP != 0 {
-				body["top_p"] = *r.params.TopP
-			}
-			if r.params.FrequencyPenalty != 0 {
-				body["frequency_penalty"] = r.params.FrequencyPenalty
-			}
-			if r.params.PresencePenalty != 0 {
-				body["presence_penalty"] = r.params.PresencePenalty
-			}
-			if r.params.ResponseFormat == bot_common.ModelResponseFormat_JSON {
-				body["response_format"] = map[string]any{"type": "json_object"}
-			}
+	if messages, ok := templateVars["messages"]; ok {
+		body["messages"] = messages
+	}
+
+	if r.params != nil {
+		if r.params.Temperature != nil {
+			body["temperature"] = *r.params.Temperature
 		}
-	} else {
-		if len(r.inputMapping) == 0 {
-			return nil, errors.New("scores protocol requires input_mapping_json or payload_template")
+		if r.params.MaxTokens != 0 {
+			body["max_tokens"] = r.params.MaxTokens
 		}
-		for key := range r.inputMapping {
-			body[key] = templateVars[key]
+		if r.params.TopP != nil && *r.params.TopP != 0 {
+			body["top_p"] = *r.params.TopP
+		}
+		if r.params.FrequencyPenalty != 0 {
+			body["frequency_penalty"] = r.params.FrequencyPenalty
+		}
+		if r.params.PresencePenalty != 0 {
+			body["presence_penalty"] = r.params.PresencePenalty
+		}
+		if r.params.ResponseFormat == bot_common.ModelResponseFormat_JSON {
+			body["response_format"] = map[string]any{"type": "json_object"}
 		}
 	}
 
 	return json.Marshal(body)
 }
 
-func (r *customHTTPRuntime) buildTemplateVars(messages []*schema.Message) map[string]any {
+func (r *customHTTPRuntime) buildTemplateVars(ctx context.Context, messages []*schema.Message) map[string]any {
 	messagePayload := make([]map[string]any, 0, len(messages))
 	lastUserMessage := ""
 	lastMessage := ""
@@ -462,8 +422,11 @@ func (r *customHTTPRuntime) buildTemplateVars(messages []*schema.Message) map[st
 		}
 	}
 
-	for target, source := range r.inputMapping {
-		vars[target] = resolveTemplateValue(source, vars)
+	for key, value := range LoadCustomHTTPTemplateVars(ctx) {
+		if _, exists := vars[key]; exists {
+			continue
+		}
+		vars[key] = value
 	}
 
 	return vars
@@ -530,20 +493,6 @@ func extractTemplateName(token string) string {
 	token = strings.TrimPrefix(token, "{{")
 	token = strings.TrimSuffix(token, "}}")
 	return strings.TrimSpace(token)
-}
-
-func resolveTemplateValue(source string, vars map[string]any) any {
-	source = strings.TrimSpace(source)
-	if source == "" {
-		return ""
-	}
-	if strings.HasPrefix(source, "{{") && strings.HasSuffix(source, "}}") {
-		source = extractTemplateName(source)
-	}
-	if value, ok := vars[source]; ok {
-		return value
-	}
-	return source
 }
 
 func jsonLookup(data any, path string) (any, bool) {

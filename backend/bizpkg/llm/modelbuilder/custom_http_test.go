@@ -51,9 +51,8 @@ func TestCustomHTTPChatCompletionsGenerate(t *testing.T) {
 	defer srv.Close()
 
 	builder, err := newCustomHTTPModelBuilder(newCustomHTTPConfig(srv.URL, &config.CustomHTTPConnInfo{
-		ProtocolType: customHTTPProtocolChatCompletions,
-		Method:       http.MethodPost,
-		Path:         "/v1/chat/completions",
+		Method: http.MethodPost,
+		Path:   "/v1/chat/completions",
 	})).Build(context.Background(), nil)
 	require.NoError(t, err)
 
@@ -80,12 +79,15 @@ func TestCustomHTTPScoresGenerate(t *testing.T) {
 	defer srv.Close()
 
 	builder, err := newCustomHTTPModelBuilder(newCustomHTTPConfig(srv.URL, &config.CustomHTTPConnInfo{
-		ProtocolType:    customHTTPProtocolScores,
-		Method:          http.MethodPost,
-		Path:            "/scores",
-		InputMappingJSON: `{"text_1":"last_user_message","text_2":"system_message"}`,
-		ResponsePath:    "data.score",
-		OutputMode:      customHTTPOutputModeText,
+		Method: http.MethodPost,
+		Path:   "/scores",
+		PayloadTemplate: `{
+			"model": {{model}},
+			"text_1": {{last_user_message}},
+			"text_2": {{system_message}}
+		}`,
+		ResponsePath: "data.score",
+		OutputMode:   customHTTPOutputModeText,
 	})).Build(context.Background(), nil)
 	require.NoError(t, err)
 
@@ -108,10 +110,12 @@ func TestProbeCustomHTTPValidation(t *testing.T) {
 	defer srv.Close()
 
 	err := ProbeCustomHTTP(context.Background(), newCustomHTTPConfig(srv.URL, &config.CustomHTTPConnInfo{
-		ProtocolType: customHTTPProtocolScores,
-		Method:       http.MethodPost,
-		Path:         "/scores",
-		InputMappingJSON: `{"text_1":"last_user_message"}`,
+		Method: http.MethodPost,
+		Path:   "/scores",
+		PayloadTemplate: `{
+			"model": {{model}},
+			"text_1": {{last_user_message}}
+		}`,
 		Validation: &config.CustomHTTPValidation{
 			Mode:           customHTTPValidationJSONField,
 			ExpectedStatus: http.StatusOK,

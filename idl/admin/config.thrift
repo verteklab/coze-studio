@@ -140,10 +140,11 @@ struct CustomHTTPConnInfo {
     4: string auth_header
     5: string headers_json
     6: string payload_template
-    7: string input_mapping_json
     8: optional CustomHTTPValidation validation
     9: string output_mode
     10: string response_path
+    11: string input_schema_json
+    12: string output_schema_json
 }
 
 struct CreateModelReq {

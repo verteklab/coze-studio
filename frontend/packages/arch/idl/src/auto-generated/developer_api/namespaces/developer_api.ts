@@ -4457,6 +4457,7 @@ export interface Model {
   model_status_details?: ModelStatusDetails;
   /** 模型能力 */
   model_ability?: ModelAbility;
+  custom_http?: CustomHTTPModelConfig;
   model_show_family_id?: string;
   hot_flag?: number;
   hot_ranking?: number;
@@ -4481,6 +4482,11 @@ export interface ModelAbility {
   support_multi_modal?: boolean;
   /** 是否支持续写 */
   prefill_resp?: boolean;
+}
+
+export interface CustomHTTPModelConfig {
+  input_schema_json?: string;
+  output_schema_json?: string;
 }
 
 export interface ModelDescGroup {

@@ -25,6 +25,7 @@ import (
 
 	"github.com/coze-dev/coze-studio/backend/api/model/app/developer_api"
 	"github.com/coze-dev/coze-studio/backend/api/model/workflow"
+	"github.com/coze-dev/coze-studio/backend/bizpkg/llm/modelbuilder"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/entity/vo"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/execute"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/nodes"
@@ -355,6 +356,13 @@ func transformMessagePart(part schema.ChatMessagePart, supportedModals *develope
 func (p *prompts) Format(ctx context.Context, vs map[string]any, _ ...prompt.Option) (
 	_ []*schema.Message, err error,
 ) {
+	if p.mwi != nil {
+		modelInfo := p.mwi.Info(ctx)
+		if modelInfo != nil && modelInfo.Connection != nil && modelInfo.Connection.CustomHTTP != nil {
+			modelbuilder.StoreCustomHTTPTemplateVars(ctx, vs)
+		}
+	}
+
 	exeCtx := execute.GetExeCtx(ctx)
 	var nodeKey vo.NodeKey
 	if exeCtx != nil && exeCtx.NodeCtx != nil {

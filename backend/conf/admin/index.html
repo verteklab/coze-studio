@@ -640,7 +640,6 @@
                 'model.field.api_version': 'API Version',
                 'model.field.endpoint': '接口地址',
                 'model.field.thinking_type': 'Thinking Type',
-                'model.field.protocol_type': '协议类型',
                 'model.field.output_mode': '输出模式',
                 'model.field.response_path': '响应路径',
                 'model.thinking_type.default': 'Default',
@@ -658,7 +657,7 @@
                 'model.error.provider_unrecognized': '无法识别模型提供方，请从提供方卡片点击“添加模型”。',
                 'model.error.missing_required_with_api': '请填写必填项：模型展示名称、model、api_key',
                 'model.error.missing_required': '请填写必填项：模型展示名称、model',
-                'model.error.custom_missing_required': '请填写必填项：模型展示名称、model、base_url、协议类型、path',
+                'model.error.custom_missing_required': '请填写必填项：模型展示名称、model、Endpoint URL、Payload 模板、输出模式、响应提取路径',
                 'model.error.custom_invalid_json': '自定义模型字段不是合法 JSON',
                 'model.error.create_read_failed': '创建模型失败: 无法读取响应内容',
                 'model.create.success': '创建成功',
@@ -674,6 +673,8 @@
                 'model.modal.api_key.placeholder': '密钥',
                 'model.modal.base_url.label': 'Base URL',
                 'model.modal.base_url.placeholder': '选填',
+                'model.modal.custom.endpoint_url.label': 'Endpoint URL',
+                'model.modal.custom.endpoint_url.placeholder': '例如：http://127.0.0.1:18003/v1/scores',
                 'model.modal.enable_base64_url.label': '启用 Base64 URL',
                 'model.modal.enable_base64_url.help': '使用 base64 编码图片、文件、音频、视频 URL 给模型',
                 'model.modal.ark_region.label': 'Region（Ark）',
@@ -694,29 +695,13 @@
                 'model.modal.thinking_type.enable': 'Enable',
                 'model.modal.thinking_type.disable': 'Disable',
                 'model.modal.thinking_type.auto': 'Auto',
-                'model.modal.custom.protocol_type.label': '协议类型',
-                'model.modal.custom.protocol_type.chat': 'Chat Completions',
-                'model.modal.custom.protocol_type.scores': 'Scores',
-                'model.modal.custom.path.label': '请求 Path',
-                'model.modal.custom.path.placeholder': '例如：/v1/chat/completions 或 /scores',
                 'model.modal.custom.auth_header.label': '鉴权 Header 名',
                 'model.modal.custom.auth_header.placeholder': '选填，默认 Authorization',
                 'model.modal.custom.headers_json.label': '额外 Headers(JSON)',
                 'model.modal.custom.headers_json.placeholder': '{\"X-Trace-Id\":\"demo\"}',
                 'model.modal.custom.payload_template.label': 'Payload 模板(JSON)',
                 'model.modal.custom.payload_template.placeholder': '{\"model\":{{model}},\"messages\":{{messages}}}',
-                'model.modal.custom.input_mapping.label': '输入映射(JSON)',
-                'model.modal.custom.input_mapping.placeholder': '{\"text_1\":\"last_user_message\",\"text_2\":\"system_message\"}',
-                'model.modal.custom.validation_mode.label': '验证方式',
-                'model.modal.custom.validation_mode.status_only': '仅校验 HTTP 状态码',
-                'model.modal.custom.validation_mode.json_field': '校验 JSON 字段',
-                'model.modal.custom.expected_status.label': '期望状态码',
-                'model.modal.custom.expected_status.placeholder': '默认 200',
-                'model.modal.custom.json_path.label': 'JSON Path',
-                'model.modal.custom.json_path.placeholder': '例如：choices.0.message.content',
-                'model.modal.custom.expected_equals.label': '期望等于',
-                'model.modal.custom.expected_equals.placeholder': '选填',
-                'model.modal.custom.expected_non_empty.label': '期望非空',
+                'model.modal.custom.payload_template.tip': '模板变量名需要和 LLM 节点里的输入名保持一致，例如 {{text_1}}、{{prompt}}。',
                 'model.modal.custom.output_mode.label': '输出模式',
                 'model.modal.custom.output_mode.text': '文本',
                 'model.modal.custom.output_mode.json': 'JSON',
@@ -877,7 +862,6 @@
                 'model.field.api_version': 'API Version',
                 'model.field.endpoint': 'Endpoint',
                 'model.field.thinking_type': 'Thinking Type',
-                'model.field.protocol_type': 'Protocol Type',
                 'model.field.output_mode': 'Output Mode',
                 'model.field.response_path': 'Response Path',
                 'model.thinking_type.default': 'Default',
@@ -895,7 +879,7 @@
                 'model.error.provider_unrecognized': 'Unrecognized provider; click “Add Model” on a provider card.',
                 'model.error.missing_required_with_api': 'Please fill required: display name, model, api_key',
                 'model.error.missing_required': 'Please fill required: display name, model',
-                'model.error.custom_missing_required': 'Please fill required: display name, model, base_url, protocol type, path',
+                'model.error.custom_missing_required': 'Please fill required: display name, model, Endpoint URL, Payload Template, Output Mode, Response Path',
                 'model.error.custom_invalid_json': 'Custom model field is not valid JSON',
                 'model.error.create_read_failed': 'Create model failed: cannot read response',
                 'model.create.success': 'Created successfully',
@@ -911,6 +895,8 @@
                 'model.modal.api_key.placeholder': 'Secret',
                 'model.modal.base_url.label': 'Base URL',
                 'model.modal.base_url.placeholder': 'Optional',
+                'model.modal.custom.endpoint_url.label': 'Endpoint URL',
+                'model.modal.custom.endpoint_url.placeholder': 'e.g. http://127.0.0.1:18003/v1/scores',
                 'model.modal.enable_base64_url.label': 'Enable Base64 URL',
                 'model.modal.enable_base64_url.help': 'Use base64-encoded URLs for images, files, audio, video',
                 'model.modal.ark_region.label': 'Region (Ark)',
@@ -931,29 +917,13 @@
                 'model.modal.thinking_type.enable': 'Enable',
                 'model.modal.thinking_type.disable': 'Disable',
                 'model.modal.thinking_type.auto': 'Auto',
-                'model.modal.custom.protocol_type.label': 'Protocol Type',
-                'model.modal.custom.protocol_type.chat': 'Chat Completions',
-                'model.modal.custom.protocol_type.scores': 'Scores',
-                'model.modal.custom.path.label': 'Request Path',
-                'model.modal.custom.path.placeholder': 'e.g. /v1/chat/completions or /scores',
                 'model.modal.custom.auth_header.label': 'Auth Header Name',
                 'model.modal.custom.auth_header.placeholder': 'Optional, defaults to Authorization',
                 'model.modal.custom.headers_json.label': 'Extra Headers (JSON)',
                 'model.modal.custom.headers_json.placeholder': '{\"X-Trace-Id\":\"demo\"}',
                 'model.modal.custom.payload_template.label': 'Payload Template (JSON)',
                 'model.modal.custom.payload_template.placeholder': '{\"model\":{{model}},\"messages\":{{messages}}}',
-                'model.modal.custom.input_mapping.label': 'Input Mapping (JSON)',
-                'model.modal.custom.input_mapping.placeholder': '{\"text_1\":\"last_user_message\",\"text_2\":\"system_message\"}',
-                'model.modal.custom.validation_mode.label': 'Validation Mode',
-                'model.modal.custom.validation_mode.status_only': 'Validate HTTP status only',
-                'model.modal.custom.validation_mode.json_field': 'Validate JSON field',
-                'model.modal.custom.expected_status.label': 'Expected Status',
-                'model.modal.custom.expected_status.placeholder': 'defaults to 200',
-                'model.modal.custom.json_path.label': 'JSON Path',
-                'model.modal.custom.json_path.placeholder': 'e.g. choices.0.message.content',
-                'model.modal.custom.expected_equals.label': 'Expected Equals',
-                'model.modal.custom.expected_equals.placeholder': 'Optional',
-                'model.modal.custom.expected_non_empty.label': 'Expected Non-empty',
+                'model.modal.custom.payload_template.tip': 'Template variable names must match the input names defined in the LLM node, such as {{text_1}} or {{prompt}}.',
                 'model.modal.custom.output_mode.label': 'Output Mode',
                 'model.modal.custom.output_mode.text': 'Text',
                 'model.modal.custom.output_mode.json': 'JSON',
@@ -2078,9 +2048,9 @@
                                     <input id="newModelDisplayName" type="text" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;" placeholder="${t('model.modal.display_name.placeholder')}">
                                     <label style="font-size:12px;color:#374151;">${t('model.modal.model.label')}<span style="display:inline-block;width:6px;height:6px;background:#e74c3c;border-radius:50%;margin-left:6px;"></span></label>
                                     <input id="newModelModel" type="text" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;" placeholder="${t('model.modal.model.placeholder')}">
-                                    <label id="newModelApiKeyLabel" style="font-size:12px;color:#374151;">${t('model.modal.api_key.label')}<span style="display:inline-block;width:6px;height:6px;background:#e74c3c;border-radius:50%;margin-left:6px;"></span></label>
+                                    <label id="newModelApiKeyLabel" style="font-size:12px;color:#374151;">${t('model.modal.api_key.label')}<span id="newModelApiKeyRequiredMark" style="display:inline-block;width:6px;height:6px;background:#e74c3c;border-radius:50%;margin-left:6px;"></span></label>
                                     <input id="newModelApiKey" type="text" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;" placeholder="${t('model.modal.api_key.placeholder')}">
-                                    <label style="font-size:12px;color:#374151;">${t('model.modal.base_url.label')}</label>
+                                    <label id="newModelBaseUrlLabel" style="font-size:12px;color:#374151;"><span id="newModelBaseUrlLabelText">${t('model.modal.base_url.label')}</span><span id="newModelBaseUrlRequiredMark" style="display:none;width:6px;height:6px;background:#e74c3c;border-radius:50%;margin-left:6px;"></span></label>
                                     <input id="newModelBaseUrl" type="text" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;" placeholder="${t('model.modal.base_url.placeholder')}">
                                     <label style="font-size:12px;color:#374151;">${t('model.modal.enable_base64_url.label')}</label>
                                     <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
@@ -2112,43 +2082,19 @@
                                        <option value="1">${t('model.modal.thinking_type.enable')}</option>
                                        <option id="thinkingTypeAutoOption" value="3" style="display:none;">${t('model.modal.thinking_type.auto')}</option>
                                      </select>
-                                     <label id="newModelCustomProtocolTypeLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.protocol_type.label')}</label>
-                                     <select id="newModelCustomProtocolType" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;display:none;">
-                                       <option value="chat_completions">${t('model.modal.custom.protocol_type.chat')}</option>
-                                       <option value="scores">${t('model.modal.custom.protocol_type.scores')}</option>
-                                     </select>
-                                     <label id="newModelCustomPathLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.path.label')}</label>
-                                     <input id="newModelCustomPath" type="text" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;display:none;" placeholder="${t('model.modal.custom.path.placeholder')}">
                                      <label id="newModelCustomAuthHeaderLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.auth_header.label')}</label>
                                      <input id="newModelCustomAuthHeader" type="text" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;display:none;" placeholder="${t('model.modal.custom.auth_header.placeholder')}">
                                      <label id="newModelCustomHeadersLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.headers_json.label')}</label>
                                      <textarea id="newModelCustomHeaders" rows="3" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;display:none;resize:vertical;" placeholder="${t('model.modal.custom.headers_json.placeholder')}"></textarea>
-                                     <label id="newModelCustomPayloadTemplateLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.payload_template.label')}</label>
+                                     <label id="newModelCustomPayloadTemplateLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.payload_template.label')}<span id="newModelCustomPayloadTemplateRequiredMark" style="display:inline-block;width:6px;height:6px;background:#e74c3c;border-radius:50%;margin-left:6px;"></span></label>
                                      <textarea id="newModelCustomPayloadTemplate" rows="5" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;display:none;resize:vertical;" placeholder="${t('model.modal.custom.payload_template.placeholder')}"></textarea>
-                                     <label id="newModelCustomInputMappingLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.input_mapping.label')}</label>
-                                     <textarea id="newModelCustomInputMapping" rows="4" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;display:none;resize:vertical;" placeholder="${t('model.modal.custom.input_mapping.placeholder')}"></textarea>
-                                     <label id="newModelCustomValidationModeLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.validation_mode.label')}</label>
-                                     <select id="newModelCustomValidationMode" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;display:none;">
-                                       <option value="status_only">${t('model.modal.custom.validation_mode.status_only')}</option>
-                                       <option value="json_field">${t('model.modal.custom.validation_mode.json_field')}</option>
-                                     </select>
-                                     <label id="newModelCustomExpectedStatusLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.expected_status.label')}</label>
-                                     <input id="newModelCustomExpectedStatus" type="number" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;display:none;" placeholder="${t('model.modal.custom.expected_status.placeholder')}" value="200">
-                                     <label id="newModelCustomJSONPathLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.json_path.label')}</label>
-                                     <input id="newModelCustomJSONPath" type="text" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;display:none;" placeholder="${t('model.modal.custom.json_path.placeholder')}">
-                                     <label id="newModelCustomExpectedEqualsLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.expected_equals.label')}</label>
-                                     <input id="newModelCustomExpectedEquals" type="text" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;display:none;" placeholder="${t('model.modal.custom.expected_equals.placeholder')}">
-                                     <label id="newModelCustomExpectedNonEmptyLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.expected_non_empty.label')}</label>
-                                     <div id="newModelCustomExpectedNonEmptyWrapper" style="display:none;align-items:center;gap:8px;margin-bottom:4px;">
-                                         <input id="newModelCustomExpectedNonEmpty" type="checkbox">
-                                         <span style="font-size:12px;color:#6c757d;">${t('model.modal.custom.expected_non_empty.label')}</span>
-                                     </div>
-                                     <label id="newModelCustomOutputModeLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.output_mode.label')}</label>
+                                     <div id="newModelCustomPayloadTemplateTip" style="font-size:12px;color:#6b7280;display:none;">${t('model.modal.custom.payload_template.tip')}</div>
+                                     <label id="newModelCustomOutputModeLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.output_mode.label')}<span id="newModelCustomOutputModeRequiredMark" style="display:inline-block;width:6px;height:6px;background:#e74c3c;border-radius:50%;margin-left:6px;"></span></label>
                                      <select id="newModelCustomOutputMode" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;display:none;">
                                        <option value="text">${t('model.modal.custom.output_mode.text')}</option>
                                        <option value="json">${t('model.modal.custom.output_mode.json')}</option>
                                      </select>
-                                     <label id="newModelCustomResponsePathLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.response_path.label')}</label>
+                                     <label id="newModelCustomResponsePathLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.response_path.label')}<span id="newModelCustomResponsePathRequiredMark" style="display:inline-block;width:6px;height:6px;background:#e74c3c;border-radius:50%;margin-left:6px;"></span></label>
                                      <input id="newModelCustomResponsePath" type="text" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;display:none;" placeholder="${t('model.modal.custom.response_path.placeholder')}">
                                 </div>
                                 <div style="padding:12px 20px;display:flex;justify-content:flex-end;gap:8px;border-top:1px solid #f1f3f4;">
@@ -2209,7 +2155,7 @@
                                                             ${p?.model_class === 2 ? `<div>${t('model.field.region')}：${m?.connection?.ark?.region || ''}</div>` : ''}
                                                             ${p?.model_class === 11 ? `<div>${t('model.field.backend')}：${m?.connection?.gemini?.backend ?? ''}</div><div>${t('model.field.project')}：${m?.connection?.gemini?.project || ''}</div><div>${t('model.field.location')}：${m?.connection?.gemini?.location || ''}</div>` : ''}
                                                             ${p?.model_class === 1 ? `<div>${t('model.field.azure')}：${(m?.connection?.openai?.by_azure === undefined) ? '' : (m?.connection?.openai?.by_azure ? 'true' : 'false')}</div><div>${t('model.field.api_version')}：${m?.connection?.openai?.api_version || ''}</div>` : ''}
-                                                            ${p?.model_class === 999 ? `<div>${t('model.field.protocol_type')}：${customHTTP.protocol_type || '-'}</div><div>${t('model.field.output_mode')}：${customHTTP.output_mode || '-'}</div><div>${t('model.field.response_path')}：${customHTTP.response_path || '-'}</div>` : ''}
+                                                            ${p?.model_class === 999 ? `<div>${t('model.field.output_mode')}：${customHTTP.output_mode || '-'}</div><div>${t('model.field.response_path')}：${customHTTP.response_path || '-'}</div>` : ''}
                                                         </div>
                                                         <div style="margin-top:8px;font-size:12px;color:#374151;word-break:break-all;">
                                                             ${t('model.field.endpoint')}：<span style="color:#3498db;">${baseUrl || '-'}</span>
@@ -2290,10 +2236,14 @@
               }
               // 根据 provider 隐藏或显示 API Key 字段（Ollama 不需要）
               const apiLabel = document.getElementById('newModelApiKeyLabel');
+              const apiRequiredMark = document.getElementById('newModelApiKeyRequiredMark');
               const apiInput = document.getElementById('newModelApiKey');
+              const baseUrlLabelText = document.getElementById('newModelBaseUrlLabelText');
+              const baseUrlInput = document.getElementById('newModelBaseUrl');
               const isOllama = providerClass === 20; // developer_api.ModelClass_Llama
               if (apiLabel) apiLabel.style.display = isOllama ? 'none' : '';
               if (apiInput) apiInput.style.display = isOllama ? 'none' : '';
+              if (apiRequiredMark) apiRequiredMark.style.display = isOllama ? 'none' : 'inline-block';
               // 根据 provider 显示 Ark 的 Region 字段（仅 Doubao/Ark，class=2）
               const arkLabel = document.getElementById('newModelArkRegionLabel');
               const arkInput = document.getElementById('newModelArkRegion');
@@ -2339,29 +2289,19 @@
               if (thinkingTypeAutoOption) thinkingTypeAutoOption.style.display = isArkProvider ? '' : 'none';
 
               const isCustomHTTP = providerClass === 999;
+              const baseUrlRequiredMark = document.getElementById('newModelBaseUrlRequiredMark');
+              if (apiRequiredMark) apiRequiredMark.style.display = (isOllama || isCustomHTTP) ? 'none' : 'inline-block';
+              if (baseUrlRequiredMark) baseUrlRequiredMark.style.display = isCustomHTTP ? 'inline-block' : 'none';
+              if (baseUrlLabelText) baseUrlLabelText.textContent = isCustomHTTP ? t('model.modal.custom.endpoint_url.label') : t('model.modal.base_url.label');
+              if (baseUrlInput) baseUrlInput.placeholder = isCustomHTTP ? t('model.modal.custom.endpoint_url.placeholder') : t('model.modal.base_url.placeholder');
               [
-                'newModelCustomProtocolTypeLabel',
-                'newModelCustomProtocolType',
-                'newModelCustomPathLabel',
-                'newModelCustomPath',
                 'newModelCustomAuthHeaderLabel',
                 'newModelCustomAuthHeader',
                 'newModelCustomHeadersLabel',
                 'newModelCustomHeaders',
                 'newModelCustomPayloadTemplateLabel',
                 'newModelCustomPayloadTemplate',
-                'newModelCustomInputMappingLabel',
-                'newModelCustomInputMapping',
-                'newModelCustomValidationModeLabel',
-                'newModelCustomValidationMode',
-                'newModelCustomExpectedStatusLabel',
-                'newModelCustomExpectedStatus',
-                'newModelCustomJSONPathLabel',
-                'newModelCustomJSONPath',
-                'newModelCustomExpectedEqualsLabel',
-                'newModelCustomExpectedEquals',
-                'newModelCustomExpectedNonEmptyLabel',
-                'newModelCustomExpectedNonEmptyWrapper',
+                'newModelCustomPayloadTemplateTip',
                 'newModelCustomOutputModeLabel',
                 'newModelCustomOutputMode',
                 'newModelCustomResponsePathLabel',
@@ -2413,20 +2353,13 @@
                   restoreSavingState();
                   return;
               }
-              const customProtocolType = document.getElementById('newModelCustomProtocolType')?.value?.trim() || 'chat_completions';
-              const customPath = document.getElementById('newModelCustomPath')?.value?.trim() || '';
+              const customEndpointURL = baseUrl;
               const customAuthHeader = document.getElementById('newModelCustomAuthHeader')?.value?.trim() || '';
               const customHeadersJSON = document.getElementById('newModelCustomHeaders')?.value?.trim() || '';
               const customPayloadTemplate = document.getElementById('newModelCustomPayloadTemplate')?.value?.trim() || '';
-              const customInputMappingJSON = document.getElementById('newModelCustomInputMapping')?.value?.trim() || '';
-              const customValidationMode = document.getElementById('newModelCustomValidationMode')?.value?.trim() || 'status_only';
-              const customExpectedStatus = document.getElementById('newModelCustomExpectedStatus')?.value?.trim() || '200';
-              const customJSONPath = document.getElementById('newModelCustomJSONPath')?.value?.trim() || '';
-              const customExpectedEquals = document.getElementById('newModelCustomExpectedEquals')?.value?.trim() || '';
-              const customExpectedNonEmpty = !!document.getElementById('newModelCustomExpectedNonEmpty')?.checked;
               const customOutputMode = document.getElementById('newModelCustomOutputMode')?.value?.trim() || 'text';
               const customResponsePath = document.getElementById('newModelCustomResponsePath')?.value?.trim() || '';
-              if (isCustomHTTP && (!baseUrl || !customProtocolType || !customPath)) {
+              if (isCustomHTTP && (!customEndpointURL || !customPayloadTemplate || !customOutputMode || !customResponsePath)) {
                   showError(t('model.error.custom_missing_required'));
                   restoreSavingState();
                   return;
@@ -2434,7 +2367,6 @@
               if (isCustomHTTP) {
                   try {
                       if (customHeadersJSON) JSON.parse(customHeadersJSON);
-                      if (customInputMappingJSON) JSON.parse(customInputMappingJSON);
                       if (customPayloadTemplate) JSON.parse(customPayloadTemplate.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, 'null'));
                   } catch (_) {
                       showError(t('model.error.custom_invalid_json'));
@@ -2444,7 +2376,7 @@
               }
               // 构造 payload，Base URL 为空时不传该字段；Ollama 不传 api_key
               const baseConn = { model: model };
-              if (baseUrl) baseConn.base_url = baseUrl;
+              if (baseUrl && !isCustomHTTP) baseConn.base_url = baseUrl;
               if ((requireApiKey || (isCustomHTTP && apiKey)) && apiKey) baseConn.api_key = apiKey;
               
               // 读取 ThinkingType（仅 Ark, Claude, Gemini, Qwen, Ollama）
@@ -2495,22 +2427,13 @@
               }
               if (isCustomHTTP) {
                   connection.custom_http = {
-                      protocol_type: customProtocolType,
                       method: 'POST',
-                      path: customPath,
+                      path: customEndpointURL,
                       auth_header: customAuthHeader,
                       headers_json: customHeadersJSON,
                       payload_template: customPayloadTemplate,
-                      input_mapping_json: customInputMappingJSON,
                       output_mode: customOutputMode,
                       response_path: customResponsePath,
-                      validation: {
-                          mode: customValidationMode,
-                          expected_status: parseInt(customExpectedStatus, 10) || 200,
-                          json_path: customJSONPath,
-                          expected_equals: customExpectedEquals,
-                          expected_non_empty: customExpectedNonEmpty,
-                      },
                   };
               }
               const payload = {

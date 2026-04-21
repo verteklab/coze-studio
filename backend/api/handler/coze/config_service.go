@@ -251,9 +251,21 @@ func CreateModel(ctx context.Context, c *app.RequestContext) {
 		Connection:      req.Connection,
 	}
 	if req.ModelClass == developer_api.ModelClass_Other {
-		err = modelbuilder.ProbeCustomHTTP(ctx, modelCfg)
-		if err != nil {
-			invalidParamRequestResponse(c, fmt.Sprintf("probe custom HTTP model failed: %v", err))
+		customHTTP := req.Connection.CustomHTTP
+		if customHTTP == nil {
+			invalidParamRequestResponse(c, "custom HTTP config is required")
+			return
+		}
+		if strings.TrimSpace(customHTTP.PayloadTemplate) == "" {
+			invalidParamRequestResponse(c, "custom HTTP payload template is required")
+			return
+		}
+		if strings.TrimSpace(customHTTP.OutputMode) == "" {
+			invalidParamRequestResponse(c, "custom HTTP output mode is required")
+			return
+		}
+		if strings.TrimSpace(customHTTP.ResponsePath) == "" {
+			invalidParamRequestResponse(c, "custom HTTP response path is required")
 			return
 		}
 	} else {

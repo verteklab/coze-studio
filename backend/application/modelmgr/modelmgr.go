@@ -94,6 +94,11 @@ func modelDo2To(m *modelmgr.Model, locale i18n.Locale) (*developer_api.Model, er
 		modelStatusDetails.DeprecatedDate = hideDate.Format(time.DateTime)
 	}
 
+	var customHTTP *developer_api.CustomHTTPModelConfig
+	if model.Connection != nil && model.Connection.CustomHTTP != nil {
+		customHTTP = &developer_api.CustomHTTPModelConfig{}
+	}
+
 	return &developer_api.Model{
 		Name:             model.DisplayInfo.Name,
 		ModelType:        model.ID,
@@ -135,5 +140,6 @@ func modelDo2To(m *modelmgr.Model, locale i18n.Locale) (*developer_api.Model, er
 		},
 		ModelStatusDetails: modelStatusDetails,
 		ModelAbility:       model.Capability,
+		CustomHTTP:         customHTTP,
 	}, nil
 }
