@@ -22435,7 +22435,8 @@ type Model struct {
 	// model state
 	ModelStatusDetails *ModelStatusDetails `thrift:"model_status_details,19" form:"model_status_details" json:"model_status_details" query:"model_status_details"`
 	// model capability
-	ModelAbility *ModelAbility `thrift:"model_ability,20" form:"model_ability" json:"model_ability" query:"model_ability"`
+	ModelAbility *ModelAbility          `thrift:"model_ability,20" form:"model_ability" json:"model_ability" query:"model_ability"`
+	CustomHTTP   *CustomHTTPModelConfig `json:"custom_http,omitempty"`
 }
 
 func NewModel() *Model {
@@ -22568,6 +22569,11 @@ func (p *Model) GetModelAbility() (v *ModelAbility) {
 		return Model_ModelAbility_DEFAULT
 	}
 	return p.ModelAbility
+}
+
+type CustomHTTPModelConfig struct {
+	InputSchemaJSON  string `json:"input_schema_json"`
+	OutputSchemaJSON string `json:"output_schema_json"`
 }
 
 var fieldIDToName_Model = map[int16]string{

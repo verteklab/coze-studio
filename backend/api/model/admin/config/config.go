@@ -4343,16 +4343,17 @@ type CustomHTTPValidation struct {
 }
 
 type CustomHTTPConnInfo struct {
-	ProtocolType    string                `thrift:"protocol_type,1" form:"protocol_type" json:"protocol_type" query:"protocol_type"`
-	Method          string                `thrift:"method,2" form:"method" json:"method" query:"method"`
-	Path            string                `thrift:"path,3" form:"path" json:"path" query:"path"`
-	AuthHeader      string                `thrift:"auth_header,4" form:"auth_header" json:"auth_header" query:"auth_header"`
-	HeadersJSON     string                `thrift:"headers_json,5" form:"headers_json" json:"headers_json" query:"headers_json"`
-	PayloadTemplate string                `thrift:"payload_template,6" form:"payload_template" json:"payload_template" query:"payload_template"`
-	InputMappingJSON string               `thrift:"input_mapping_json,7" form:"input_mapping_json" json:"input_mapping_json" query:"input_mapping_json"`
-	Validation      *CustomHTTPValidation `thrift:"validation,8" form:"validation" json:"validation,omitempty" query:"validation"`
-	OutputMode      string                `thrift:"output_mode,9" form:"output_mode" json:"output_mode" query:"output_mode"`
-	ResponsePath    string                `thrift:"response_path,10" form:"response_path" json:"response_path" query:"response_path"`
+	ProtocolType     string                `thrift:"protocol_type,1" form:"protocol_type" json:"protocol_type" query:"protocol_type"`
+	Method           string                `thrift:"method,2" form:"method" json:"method" query:"method"`
+	Path             string                `thrift:"path,3" form:"path" json:"path" query:"path"`
+	AuthHeader       string                `thrift:"auth_header,4" form:"auth_header" json:"auth_header" query:"auth_header"`
+	HeadersJSON      string                `thrift:"headers_json,5" form:"headers_json" json:"headers_json" query:"headers_json"`
+	PayloadTemplate  string                `thrift:"payload_template,6" form:"payload_template" json:"payload_template" query:"payload_template"`
+	Validation       *CustomHTTPValidation `thrift:"validation,8" form:"validation" json:"validation,omitempty" query:"validation"`
+	OutputMode       string                `thrift:"output_mode,9" form:"output_mode" json:"output_mode" query:"output_mode"`
+	ResponsePath     string                `thrift:"response_path,10" form:"response_path" json:"response_path" query:"response_path"`
+	InputSchemaJSON  string                `thrift:"input_schema_json,11" form:"input_schema_json" json:"input_schema_json" query:"input_schema_json"`
+	OutputSchemaJSON string                `thrift:"output_schema_json,12" form:"output_schema_json" json:"output_schema_json" query:"output_schema_json"`
 }
 
 type CreateModelReq struct {

@@ -659,6 +659,11 @@ struct ModelAbility {
     7: optional bool prefill_resp // Whether to support continuation
 }
 
+struct CustomHTTPModelConfig {
+    1: string input_schema_json
+    2: string output_schema_json
+}
+
 struct Model {
     1: string     name
     2: i64        model_type
@@ -680,6 +685,7 @@ struct Model {
     18: ModelSeriesInfo model_series // Model series
     19: ModelStatusDetails model_status_details // model state
     20: ModelAbility model_ability // model capability
+    21: optional CustomHTTPModelConfig custom_http
 }
 
 struct VoiceType {
