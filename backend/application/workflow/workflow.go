@@ -537,8 +537,10 @@ func (w *ApplicationService) TestRun(ctx context.Context, req *workflow.WorkFlow
 
 	uID := ctxutil.MustGetUIDFromCtx(ctx)
 
-	if err := checkUserSpace(ctx, uID, mustParseInt64(req.GetSpaceID())); err != nil {
-		return nil, err
+	if !ctxutil.IsAdminFromCtx(ctx) {
+		if err := checkUserSpace(ctx, uID, mustParseInt64(req.GetSpaceID())); err != nil {
+			return nil, err
+		}
 	}
 
 	var appID, agentID *int64
