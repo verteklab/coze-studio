@@ -313,8 +313,10 @@ func (w *ApplicationService) SaveWorkflow(ctx context.Context, req *workflow.Sav
 		}
 	}()
 
-	if err := checkUserSpace(ctx, ctxutil.MustGetUIDFromCtx(ctx), mustParseInt64(req.GetSpaceID())); err != nil {
-		return nil, err
+	if !ctxutil.IsAdminFromCtx(ctx) {
+		if err := checkUserSpace(ctx, ctxutil.MustGetUIDFromCtx(ctx), mustParseInt64(req.GetSpaceID())); err != nil {
+			return nil, err
+		}
 	}
 
 	if err := GetWorkflowDomainSVC().Save(ctx, mustParseInt64(req.WorkflowID), req.GetSchema()); err != nil {
