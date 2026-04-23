@@ -16,6 +16,7 @@
 
 import { useNavigate, useParams } from 'react-router-dom';
 
+import { useSpaceApp } from '@coze-foundation/space-store';
 import { SpaceAppEnum, BaseEnum } from '@coze-arch/web-context';
 import { I18n } from '@coze-arch/i18n';
 import { IconCozArrowLeft } from '@coze-arch/coze-design/icons';
@@ -37,7 +38,6 @@ import {
   type PluginAPIInfo,
 } from '@coze-arch/bot-api/developer_api';
 import { type MockSet } from '@coze-arch/bot-api/debugger_api';
-import { useSpaceApp } from '@coze-foundation/space-store';
 
 import s from './index.module.less';
 
@@ -51,7 +51,7 @@ export interface BreadCrumbProps extends SemiBreadcrumbProps {
   mockSetInfo?: MockSet;
 }
 
-// eslint-disable-next-line @coze-arch/max-line-per-function
+// eslint-disable-next-line @coze-arch/max-line-per-function -- breadcrumb rendering branches across multiple resource types
 export const UIBreadcrumb: React.FC<BreadCrumbProps> = ({
   botInfo,
   datasetInfo,
@@ -71,9 +71,32 @@ export const UIBreadcrumb: React.FC<BreadCrumbProps> = ({
   const goBack = () => {
     if (base === BaseEnum.Explore) {
       navigate('/explore');
-    } else {
-      navigate(`/space/${id}/library`);
+      return;
     }
+    // 若 sessionStorage 里存有工作流 returnUrl（从工作流弹窗“创建插件”链路过来），
+    // 返回资源库时把它再拼到 URL 上，使资源库页继续显示「返回工作流」按钮
+    let workflowReturnUrl: string | null = null;
+    try {
+      workflowReturnUrl = sessionStorage.getItem('workflowReturnUrl');
+    } catch (error) {
+      void error;
+    }
+    if (!workflowReturnUrl) {
+      try {
+        workflowReturnUrl = localStorage.getItem('workflowReturnUrl');
+      } catch (error) {
+        void error;
+      }
+    }
+    if (workflowReturnUrl) {
+      const libraryParams = new URLSearchParams();
+      libraryParams.set('type', '1');
+      libraryParams.set('returnUrl', workflowReturnUrl);
+      libraryParams.set('from', 'workflow');
+      navigate(`/space/${id}/library?${libraryParams.toString()}`);
+      return;
+    }
+    navigate(`/space/${id}/library`);
   };
   const goBackToDoc = () => {
     navigate(`/space/${id}/${spaceApp}/${params.dataset_id}`);

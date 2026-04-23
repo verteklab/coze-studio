@@ -34,9 +34,25 @@ import {
 
 import styles from './index.module.less';
 
+const isEmbeddedInIframe = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  try {
+    return window.self !== window.top;
+  } catch (error) {
+    void error;
+    return true;
+  }
+};
+
 const WorkFlowHeader: React.FC = () => {
   const globalState = useGlobalState();
   const { readonly, info, playgroundProps, workflowId } = globalState;
+
+  if (isEmbeddedInIframe()) {
+    return null;
+  }
 
   return (
     <div className={styles.container}>

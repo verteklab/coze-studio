@@ -14,6 +14,8 @@
  * limitations under the License.
  */
 
+import { useMemo } from 'react';
+
 import { useRequest } from 'ahooks';
 import { explore } from '@coze-studio/api-schema';
 import {
@@ -23,10 +25,29 @@ import {
 } from '@coze-community/components';
 import { SearchInput, useUsageModal } from '@coze-community/components';
 import { I18n } from '@coze-arch/i18n';
-import { IconCozDocument } from '@coze-arch/coze-design/icons';
+import {
+  IconCozArrowLeft,
+  IconCozDocument,
+} from '@coze-arch/coze-design/icons';
 import { TabBar, Button } from '@coze-arch/coze-design';
 import { ProductEntityType } from '@coze-arch/bot-api/product_api';
 import useUrlState from '@ahooksjs/use-url-state';
+
+// 工作流“创建插件”跳转时带到 URL 上的 returnUrl，
+// 插件市场页据此渲染「返回工作流」按钮
+const getReturnUrlFromLocation = (): string | null => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const fromQuery = params.get('returnUrl');
+    return fromQuery ? decodeURIComponent(fromQuery) : null;
+  } catch (error) {
+    void error;
+    return null;
+  }
+};
 
 import {
   PageList,
@@ -45,6 +66,25 @@ export const PluginPage = () => {
   const { node: usageInvokeModal, open: openUsageInvokeModal } = useUsageModal(
     {},
   );
+
+  const returnUrl = useMemo(getReturnUrlFromLocation, []);
+  const handleBack = () => {
+    if (!returnUrl) {
+      return;
+    }
+    try {
+      sessionStorage.removeItem('workflowReturnUrl');
+    } catch (error) {
+      void error;
+    }
+    try {
+      localStorage.removeItem('workflowReturnUrl');
+    } catch (error) {
+      void error;
+    }
+    window.history.pushState({}, '', returnUrl);
+    window.dispatchEvent(new PopStateEvent('popstate'));
+  };
 
   const { data: enableSaaSPlugin } = useRequest(async () => {
     const res = await explore.PublicGetMarketPluginConfig({});
@@ -104,6 +144,17 @@ export const PluginPage = () => {
 
   return (
     <>
+      {returnUrl ? (
+        <div className="flex items-center px-[24px] pt-[12px]">
+          <Button
+            color="primary"
+            icon={<IconCozArrowLeft />}
+            onClick={handleBack}
+          >
+            返回工作流
+          </Button>
+        </div>
+      ) : null}
       <PageList
         title={
           <div className="flex justify-between items-center">

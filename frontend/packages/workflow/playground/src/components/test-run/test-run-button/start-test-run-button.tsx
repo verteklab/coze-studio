@@ -29,6 +29,18 @@ type StartTestRunButtonProps = Pick<ButtonProps, 'size'>;
 
 import { WorkflowTestFormStateEntity } from '../../../entities';
 
+const isEmbeddedInIframe = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  try {
+    return window.self !== window.top;
+  } catch (error) {
+    void error;
+    return true;
+  }
+};
+
 export const StartTestRunButton: React.FC<StartTestRunButtonProps> = props => {
   const [loading, setLoading] = useState(false);
   const testFormState = useEntity<WorkflowTestFormStateEntity>(
@@ -42,6 +54,10 @@ export const StartTestRunButton: React.FC<StartTestRunButtonProps> = props => {
   const disabled = !!frozen || loading || !!(projectId && projectCommitVersion);
   const testRunReporterService = useTestRunReporterService();
   const { testRunFlow } = useTestRunFlowV2();
+
+  if (isEmbeddedInIframe()) {
+    return null;
+  }
 
   return (
     <BaseTestButton
