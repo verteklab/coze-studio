@@ -54,7 +54,8 @@ const isEmbeddedInIframe = () => {
 
   try {
     return window.self !== window.top;
-  } catch {
+  } catch (error) {
+    void error;
     return true;
   }
 };
@@ -238,6 +239,10 @@ export const router: ReturnType<typeof createBrowserRouter> =
                 {
                   path: 'plugin/:plugin_id',
                   Component: PluginLayout,
+                  loader: () => ({
+                    hasSider: !isEmbeddedInIframe(),
+                    subMenuKey: SpaceSubModuleEnum.LIBRARY,
+                  }),
                   children: [
                     {
                       index: true,

@@ -14,7 +14,8 @@
  * limitations under the License.
  */
 
-/* eslint-disable complexity */
+/* eslint-disable complexity -- plugin modal content combines list loading, empty states, and panel rendering */
+import { useNavigate } from 'react-router-dom';
 import { type FC, useRef, useState } from 'react';
 
 import { useShallow } from 'zustand/react/shallow';
@@ -55,9 +56,30 @@ export type PluginModalContentListItem = PluginInfoForPlayground & {
   belong_page?: number;
 };
 
-// @ts-expect-error -- linter-disable-autofix
-// eslint-disable-next-line max-params
-const getEmptyConf = (spaceId, isMine, isTeam, isProject) => {
+// 把当前工作流页面 URL 写到 sessionStorage / localStorage，并作为 returnUrl 透传给目标页
+const WORKFLOW_RETURN_URL_KEY = 'workflowReturnUrl';
+const buildUrlWithReturn = (target: string) => {
+  const { pathname, search, hash } = window.location;
+  const returnUrlRaw = `${pathname}${search}${hash}`;
+  try {
+    sessionStorage.setItem(WORKFLOW_RETURN_URL_KEY, returnUrlRaw);
+  } catch (error) {
+    void error;
+  }
+  try {
+    localStorage.setItem(WORKFLOW_RETURN_URL_KEY, returnUrlRaw);
+  } catch (error) {
+    void error;
+  }
+  const sep = target.includes('?') ? '&' : '?';
+  return `${target}${sep}returnUrl=${encodeURIComponent(
+    returnUrlRaw,
+  )}&from=workflow`;
+};
+
+// @ts-expect-error -- preserve existing helper call shape while keeping current inference stable
+// eslint-disable-next-line max-params -- empty state config depends on current workspace and navigation context
+const getEmptyConf = (spaceId, isMine, isTeam, isProject, navigate) => {
   if ((isMine || isTeam) && !isProject) {
     return {
       text: {
@@ -66,7 +88,7 @@ const getEmptyConf = (spaceId, isMine, isTeam, isProject) => {
       },
       btn: {
         emptyClick: () => {
-          window.open(`/space/${spaceId}/library?type=1`);
+          navigate(buildUrlWithReturn(`/space/${spaceId}/library?type=1`));
         },
         emptyText: I18n.t('plugin_create'),
       },
@@ -79,14 +101,14 @@ const getEmptyConf = (spaceId, isMine, isTeam, isProject) => {
     },
     btn: {
       emptyClick: () => {
-        window.open('/store/plugin');
+        navigate(buildUrlWithReturn('/explore/plugin'));
       },
       emptyText: I18n.t('mkl_plugin_to_plugin_gallery'),
     },
   };
 };
 
-/* eslint-disable @coze-arch/max-line-per-function */
+/* eslint-disable @coze-arch/max-line-per-function -- modal content integrates filtering, infinite list, and plugin panel composition */
 export const PluginModalContent: FC<PluginModalContentProps> = ({
   query,
   pluginApiList,
@@ -112,6 +134,7 @@ export const PluginModalContent: FC<PluginModalContentProps> = ({
     pluginType,
   } = query;
   const id = useSpaceStore(store => store.space.id);
+  const navigate = useNavigate();
   // Scroll container
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
   // Currently active key
@@ -217,7 +240,7 @@ export const PluginModalContent: FC<PluginModalContentProps> = ({
                   />
                 );
               }}
-              emptyConf={getEmptyConf(id, isMine, isTeam, isProject)}
+              emptyConf={getEmptyConf(id, isMine, isTeam, isProject, navigate)}
               scrollConf={{
                 reloadDeps: [
                   type,
