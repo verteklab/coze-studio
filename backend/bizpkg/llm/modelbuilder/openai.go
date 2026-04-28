@@ -18,12 +18,14 @@ package modelbuilder
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/cloudwego/eino-ext/components/model/openai"
 
 	"github.com/coze-dev/coze-studio/backend/api/model/admin/config"
 	"github.com/coze-dev/coze-studio/backend/api/model/app/bot_common"
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/ptr"
+	"github.com/coze-dev/coze-studio/backend/pkg/openaiproxy"
 )
 
 type openaiModelBuilder struct {
@@ -40,6 +42,18 @@ func (o *openaiModelBuilder) getDefaultConfig() *openai.ChatModelConfig {
 	return &openai.ChatModelConfig{
 		MaxCompletionTokens: ptr.Of(4096),
 	}
+}
+
+func setOpenAIReasoningEffort(
+	conf *openai.ChatModelConfig,
+	enableThinking bool,
+) {
+	if enableThinking {
+		conf.ReasoningEffort = openai.ReasoningEffortLevelMedium
+		return
+	}
+
+	conf.ReasoningEffort = ""
 }
 
 func (o *openaiModelBuilder) applyParamsToOpenaiConfig(conf *openai.ChatModelConfig, params *LLMParams) {
@@ -65,6 +79,10 @@ func (o *openaiModelBuilder) applyParamsToOpenaiConfig(conf *openai.ChatModelCon
 
 	conf.TopP = params.TopP
 
+	if params.EnableThinking != nil {
+		setOpenAIReasoningEffort(conf, *params.EnableThinking)
+	}
+
 	if params.ResponseFormat == bot_common.ModelResponseFormat_JSON {
 		conf.ResponseFormat = &openai.ChatCompletionResponseFormat{
 			Type: openai.ChatCompletionResponseFormatTypeJSONObject,
@@ -81,6 +99,14 @@ func (o *openaiModelBuilder) Build(ctx context.Context, params *LLMParams) (Tool
 	conf.APIKey = base.APIKey
 	conf.Model = base.Model
 
+	httpClient, err := openaiproxy.NewHTTPClientFromEnv()
+	if err != nil {
+		return nil, fmt.Errorf("build openai proxy client failed: %w", err)
+	}
+	if httpClient != nil {
+		conf.HTTPClient = httpClient
+	}
+
 	if base.BaseURL != "" {
 		conf.BaseURL = base.BaseURL
 	}
@@ -88,6 +114,13 @@ func (o *openaiModelBuilder) Build(ctx context.Context, params *LLMParams) (Tool
 	if o.cfg.Connection.Openai != nil {
 		conf.APIVersion = o.cfg.Connection.Openai.APIVersion
 		conf.ByAzure = o.cfg.Connection.Openai.ByAzure
+	}
+
+	switch base.ThinkingType {
+	case config.ThinkingType_Enable:
+		setOpenAIReasoningEffort(conf, true)
+	case config.ThinkingType_Disable:
+		setOpenAIReasoningEffort(conf, false)
 	}
 
 	o.applyParamsToOpenaiConfig(conf, params)

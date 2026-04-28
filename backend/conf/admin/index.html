@@ -2151,7 +2151,7 @@
                                                             <div>${t('model.field.model')}：${conn.model || '-'}</div>
                                                             ${p?.model_class === 20 ? '' : `<div>${t('model.field.api_key')}：${apiKeyMasked}</div>`}
                                                             <div>${t('model.field.base64_url')}：${m.enable_base64_url ? t('common.on') : t('common.off')}</div>
-                                                            ${[2, 3, 11, 15, 20].includes(p?.model_class) ? `<div>${t('model.field.thinking_type')}：${getThinkingTypeText(conn.thinking_type ?? 0)}</div>` : ''}
+                                                            ${[1, 2, 3, 11, 15, 20].includes(p?.model_class) ? `<div>${t('model.field.thinking_type')}：${getThinkingTypeText(conn.thinking_type ?? 0)}</div>` : ''}
                                                             ${p?.model_class === 2 ? `<div>${t('model.field.region')}：${m?.connection?.ark?.region || ''}</div>` : ''}
                                                             ${p?.model_class === 11 ? `<div>${t('model.field.backend')}：${m?.connection?.gemini?.backend ?? ''}</div><div>${t('model.field.project')}：${m?.connection?.gemini?.project || ''}</div><div>${t('model.field.location')}：${m?.connection?.gemini?.location || ''}</div>` : ''}
                                                             ${p?.model_class === 1 ? `<div>${t('model.field.azure')}：${(m?.connection?.openai?.by_azure === undefined) ? '' : (m?.connection?.openai?.by_azure ? 'true' : 'false')}</div><div>${t('model.field.api_version')}：${m?.connection?.openai?.api_version || ''}</div>` : ''}
@@ -2279,7 +2279,7 @@
               const thinkingTypeLabel = document.getElementById('newModelThinkingTypeLabel');
               const thinkingTypeSelect = document.getElementById('newModelThinkingType');
               const thinkingTypeAutoOption = document.getElementById('thinkingTypeAutoOption');
-              const hasThinkingType = [2, 3, 11, 15, 20].includes(providerClass); // Ark, Claude, Gemini, Qwen, Ollama
+              const hasThinkingType = [1, 2, 3, 11, 15, 20].includes(providerClass); // GPT, Ark, Claude, Gemini, Qwen, Ollama
               const isArkProvider = providerClass === 2;
               if (thinkingTypeLabel) thinkingTypeLabel.style.display = hasThinkingType ? '' : 'none';
               if (thinkingTypeSelect) {
@@ -2379,9 +2379,9 @@
               if (baseUrl && !isCustomHTTP) baseConn.base_url = baseUrl;
               if ((requireApiKey || (isCustomHTTP && apiKey)) && apiKey) baseConn.api_key = apiKey;
               
-              // 读取 ThinkingType（仅 Ark, Claude, Gemini, Qwen, Ollama）
+              // 读取 ThinkingType（仅 GPT, Ark, Claude, Gemini, Qwen, Ollama）
               const thinkingTypeSelect = document.getElementById('newModelThinkingType');
-              const hasThinkingType = [2, 3, 11, 15, 20].includes(providerClass);
+              const hasThinkingType = [1, 2, 3, 11, 15, 20].includes(providerClass);
               if (hasThinkingType && thinkingTypeSelect) {
                   const thinkingTypeValue = parseInt(thinkingTypeSelect.value, 10);
                   if (!Number.isNaN(thinkingTypeValue)) {

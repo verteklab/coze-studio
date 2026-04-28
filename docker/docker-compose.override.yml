@@ -7,6 +7,8 @@ services:
       args:
         PIP_INDEX_URL: https://pypi.tuna.tsinghua.edu.cn/simple
         PIP_TRUSTED_HOST: pypi.tuna.tsinghua.edu.cn
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
   coze-web:
     image: coze-studio-web-local:latest
     build:

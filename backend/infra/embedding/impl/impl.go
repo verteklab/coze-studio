@@ -31,6 +31,7 @@ import (
 	"github.com/coze-dev/coze-studio/backend/infra/embedding/impl/http"
 	"github.com/coze-dev/coze-studio/backend/infra/embedding/impl/wrap"
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/ptr"
+	"github.com/coze-dev/coze-studio/backend/pkg/openaiproxy"
 )
 
 func GetEmbedding(ctx context.Context, cfg *config.EmbeddingConfig) (embedding.Embedder, error) {
@@ -50,6 +51,14 @@ func GetEmbedding(ctx context.Context, cfg *config.EmbeddingConfig) (embedding.E
 			Model:      connInfo.Model,
 			ByAzure:    openaiConnCfg.ByAzure,
 			APIVersion: openaiConnCfg.APIVersion,
+		}
+
+		httpClient, err := openaiproxy.NewHTTPClientFromEnv()
+		if err != nil {
+			return nil, fmt.Errorf("build openai proxy client failed, err=%w", err)
+		}
+		if httpClient != nil {
+			openAICfg.HTTPClient = httpClient
 		}
 
 		if embeddingInfo.Dims > 0 {
