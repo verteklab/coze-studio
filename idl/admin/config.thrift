@@ -152,7 +152,7 @@ struct CreateModelReq {
     2: string model_name
     3: Connection connection
     4: bool enable_base64_url
-
+    5: optional developer_api.ModelAbility capability  // when set, overrides model_meta.json default
 
     255: optional base.Base Base
 }
