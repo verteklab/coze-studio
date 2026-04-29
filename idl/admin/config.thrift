@@ -356,5 +356,6 @@ service ConfigService {
     UpdateKnowledgeConfigResp UpdateKnowledgeConfig(1:UpdateKnowledgeConfigReq req)(api.post='/api/admin/config/knowledge/save', api.category="admin")
     GetModelListResp GetModelList(1:GetModelListReq req)(api.get='/api/admin/config/model/list', api.category="admin")
     CreateModelResp CreateModel(1:CreateModelReq req)(api.post='/api/admin/config/model/create', api.category="admin")
+    UpdateModelResp UpdateModel(1:UpdateModelReq req)(api.post='/api/admin/config/model/update', api.category="admin")
     DeleteModelResp DeleteModel(1:DeleteModelReq req)(api.post='/api/admin/config/model/delete', api.category="admin")
 }
