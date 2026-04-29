@@ -38,7 +38,7 @@ type ModelmgrApplicationService struct {
 var ModelmgrApplicationSVC = &ModelmgrApplicationService{}
 
 const (
-	deprecatedModelTimeAfterDelete = 7 * 24 * time.Hour
+	deprecatedModelTimeAfterDelete = 2 * 24 * time.Hour
 )
 
 func (m *ModelmgrApplicationService) GetModelList(ctx context.Context, _ *developer_api.GetTypeListRequest) (

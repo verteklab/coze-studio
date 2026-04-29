@@ -2233,10 +2233,10 @@
         },
         "capability": {
           "function_call": true,
-          "image_understanding": true,
-          "video_understanding": true,
+          "image_understanding": false,
+          "video_understanding": false,
           "audio_understanding": false,
-          "support_multi_modal": true
+          "support_multi_modal": false
         },
         "parameters": [
           {
