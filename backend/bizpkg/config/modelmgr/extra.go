@@ -16,6 +16,11 @@
 
 package modelmgr
 
+import (
+	"github.com/coze-dev/coze-studio/backend/api/model/app/developer_api"
+)
+
 type ModelExtra struct {
-	EnableBase64URL bool `json:"enable_base64_url"`
+	EnableBase64URL bool                        `json:"enable_base64_url"`
+	Capability      *developer_api.ModelAbility `json:"-"` // when non-nil, overrides modelMeta.Capability
 }
