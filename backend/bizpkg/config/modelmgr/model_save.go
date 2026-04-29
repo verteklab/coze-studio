@@ -149,3 +149,38 @@ func extraCapability(e *ModelExtra) *developer_api.ModelAbility {
 	}
 	return e.Capability
 }
+
+// UpdateModel patches an existing ModelInstance row. Currently supports
+// updating capability, connection, and display_info. Other fields
+// (provider, parameters, extra) are intentionally NOT modified by this path.
+//
+// The route /api/admin/config/model/update was declared in idl/admin/config.thrift
+// but had no implementation; this function is the bizpkg backing.
+func (c *ModelConfig) UpdateModel(ctx context.Context, m *config.Model) error {
+	if m == nil || m.ID == 0 {
+		return fmt.Errorf("UpdateModel: model id is required")
+	}
+
+	q := query.ModelInstance.WithContext(ctx)
+	existing, err := q.Where(query.ModelInstance.ID.Eq(m.ID)).First()
+	if err != nil {
+		return fmt.Errorf("UpdateModel: lookup id=%d failed: %w", m.ID, err)
+	}
+
+	updated := *existing
+	if m.Capability != nil {
+		updated.Capability = m.Capability
+	}
+	if m.Connection != nil {
+		updated.Connection = m.Connection
+	}
+	if m.DisplayInfo != nil {
+		updated.DisplayInfo = m.DisplayInfo
+	}
+
+	_, err = q.Where(query.ModelInstance.ID.Eq(m.ID)).Updates(&updated)
+	if err != nil {
+		return fmt.Errorf("UpdateModel: save id=%d failed: %w", m.ID, err)
+	}
+	return nil
+}
