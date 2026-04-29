@@ -58,7 +58,7 @@ import { SystemPrompt } from './system-prompt';
 import { type BoundSkills } from './skills/types';
 import { Skills } from './skills';
 import { useResetCustomHTTPFields } from './hooks/use-reset-custom-http-fields';
-import { isCustomHTTPModel } from './custom-http-utils';
+import { showsLLMFields } from './custom-http-utils';
 import { sortOutputs } from './cot';
 import { ChatHistory } from './chat-history';
 
@@ -73,7 +73,6 @@ export const Render = ({ form }: FormRenderProps<FormData>) => {
   );
   const selectedModelType = form.getValueIn<number>('model.modelType');
   const selectedModel = modelsService.getModelByType(selectedModelType);
-  const isCurrentCustomHTTPModel = isCustomHTTPModel(selectedModel);
   const resetCustomHTTPFields = useResetCustomHTTPFields(form, modelsService);
 
   return (
@@ -112,7 +111,7 @@ export const Render = ({ form }: FormRenderProps<FormData>) => {
           )}
         </Field>
         <Batch batchModeName={'batchMode'} name={'batch'} />
-        {!isBindDouyin && !isCurrentCustomHTTPModel ? (
+        {!isBindDouyin && showsLLMFields(selectedModel) ? (
           <Field name="fcParam">
             {({ field }: FieldRenderProps<BoundSkills | undefined>) => (
               <Skills {...field} />
@@ -240,8 +239,8 @@ export const Render = ({ form }: FormRenderProps<FormData>) => {
             </FormCard>
           )}
         </FieldArray>
-        {!isBindDouyin && !isCurrentCustomHTTPModel ? <Vision /> : null}
-        {!isCurrentCustomHTTPModel ? (
+        {!isBindDouyin && showsLLMFields(selectedModel) ? <Vision /> : null}
+        {showsLLMFields(selectedModel) ? (
           <>
             <Field
               name="$$prompt_decorator$$.systemPrompt"
@@ -282,7 +281,7 @@ export const Render = ({ form }: FormRenderProps<FormData>) => {
               onChange={field.onChange}
               batchMode={form.getValueIn('batchMode')}
               withDescription
-              showResponseFormat={!isCurrentCustomHTTPModel}
+              showResponseFormat={showsLLMFields(selectedModel)}
               titleTooltip={I18n.t('workflow_detail_llm_output_tooltip')}
               disabledTypes={[]}
               needErrorBody={form.getValueIn(
