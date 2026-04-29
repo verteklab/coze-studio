@@ -53,7 +53,7 @@ import {
   formatFcParamOnSubmit,
 } from './skills/data-transformer';
 import { Render } from './llm-form-render';
-import { isCustomHTTPModel } from './custom-http-utils';
+import { showsLLMFields } from './custom-http-utils';
 import {
   formatReasoningContentOnInit,
   formatReasoningContentOnSubmit,
@@ -160,7 +160,7 @@ export const LLM_FORM_META: FormMetaV2<FormData> = {
       const curModel = playgroundContext?.models?.find(
         model => model.model_type === modelType,
       );
-      if (isCustomHTTPModel(curModel)) {
+      if (!showsLLMFields(curModel)) {
         return undefined;
       }
       const isUserPromptRequired = curModel?.is_up_required ?? false;
@@ -246,14 +246,14 @@ export const LLM_FORM_META: FormMetaV2<FormData> = {
     const { model } = value;
     const modelMeta = models.find(m => m.model_type === model.modelType);
 
-    const isCurrentCustomHTTPModel = isCustomHTTPModel(modelMeta);
+    const showsLLM = showsLLMFields(modelMeta);
     const llmParam = modelItemToBlockInput(model, modelMeta);
     const { batchMode } = value;
     const batchDTO = nodeUtils.batchToDTO(value.batch, context);
 
     const prompt = BlockInput.createString(
       'prompt',
-      isCurrentCustomHTTPModel ? '' : value.$$prompt_decorator$$.prompt,
+      showsLLM ? value.$$prompt_decorator$$.prompt : '',
     );
 
     const enableChatHistory = BlockInput.createBoolean(
@@ -275,9 +275,7 @@ export const LLM_FORM_META: FormMetaV2<FormData> = {
     );
     const systemPrompt = BlockInput.createString(
       'systemPrompt',
-      isCurrentCustomHTTPModel
-        ? ''
-        : get(value, '$$prompt_decorator$$.systemPrompt'),
+      showsLLM ? get(value, '$$prompt_decorator$$.systemPrompt') : '',
     );
     llmParam.push(prompt, enableChatHistory, chatHistoryRound, systemPrompt);
     const isBatch = batchMode === 'batch';
@@ -286,9 +284,9 @@ export const LLM_FORM_META: FormMetaV2<FormData> = {
       inputs: {
         inputParameters: get(value, '$$input_decorator$$.inputParameters'),
         llmParam,
-        fcParam: isCurrentCustomHTTPModel
-          ? undefined
-          : formatFcParamOnSubmit(value.fcParam),
+        fcParam: showsLLM
+          ? formatFcParamOnSubmit(value.fcParam)
+          : undefined,
         batch: isBatch
           ? {
               batchEnable: batchMode === 'batch',
