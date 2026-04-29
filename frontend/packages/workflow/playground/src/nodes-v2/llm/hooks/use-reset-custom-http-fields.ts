@@ -21,7 +21,7 @@ import { type FormRenderProps } from '@flowgram-adapter/free-layout-editor';
 import { type WorkflowModelsService } from '@/services';
 
 import { type FormData } from '../types';
-import { isCustomHTTPModel } from '../custom-http-utils';
+import { showsLLMFields } from '../custom-http-utils';
 
 export const useResetCustomHTTPFields = (
   form: FormRenderProps<FormData>['form'],
@@ -34,7 +34,7 @@ export const useResetCustomHTTPFields = (
           ? (nextValue.modelType as number | undefined)
           : undefined;
       const nextModel = modelsService.getModelByType(nextModelType);
-      if (!isCustomHTTPModel(nextModel)) {
+      if (showsLLMFields(nextModel)) {
         return;
       }
       form.setValueIn('$$prompt_decorator$$.prompt', '');
