@@ -94,7 +94,7 @@ func (c *ModelConfig) createModel(ctx context.Context, id *int64, modelClass dev
 		Type:        int32(config.ModelType_LLM),
 		Provider:    provider,
 		Connection:  conn,
-		Capability:  modelMeta.Capability,
+		Capability:  pickCapability(extraCapability(extra), modelMeta.Capability),
 		Parameters:  modelMeta.Parameters,
 		DisplayInfo: modelMeta.DisplayInfo,
 		Extra:       extraStr,
@@ -129,4 +129,23 @@ func encryptConn(ctx context.Context, conn *config.Connection) (*config.Connecti
 
 func decryptConn(ctx context.Context, conn *config.Connection) (*config.Connection, error) {
 	return conn, nil
+}
+
+// pickCapability returns reqCap when non-nil; otherwise metaCap.
+// Used by createModel/UpdateModel to honor caller-supplied capability over
+// the default from model_meta.json.
+func pickCapability(reqCap, metaCap *developer_api.ModelAbility) *developer_api.ModelAbility {
+	if reqCap != nil {
+		return reqCap
+	}
+	return metaCap
+}
+
+// extraCapability returns the Capability field of e, or nil if e is nil.
+// Helper for use in createModel where extra may be nil.
+func extraCapability(e *ModelExtra) *developer_api.ModelAbility {
+	if e == nil {
+		return nil
+	}
+	return e.Capability
 }
