@@ -295,6 +295,7 @@ func CreateModel(ctx context.Context, c *app.RequestContext) {
 
 	id, err := bizConf.ModelConf().CreateModel(ctx, req.ModelClass, req.ModelName, req.Connection, &modelmgr.ModelExtra{
 		EnableBase64URL: req.EnableBase64URL,
+		Capability:      req.Capability,
 	})
 	if err != nil {
 		invalidParamRequestResponse(c, fmt.Sprintf("create model failed: %v", err))
