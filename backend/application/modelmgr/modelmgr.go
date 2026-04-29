@@ -96,7 +96,9 @@ func modelDo2To(m *modelmgr.Model, locale i18n.Locale) (*developer_api.Model, er
 
 	var customHTTP *developer_api.CustomHTTPModelConfig
 	if model.Connection != nil && model.Connection.CustomHTTP != nil {
-		customHTTP = &developer_api.CustomHTTPModelConfig{}
+		customHTTP = &developer_api.CustomHTTPModelConfig{
+			PayloadTemplate: model.Connection.CustomHTTP.PayloadTemplate,
+		}
 	}
 
 	return &developer_api.Model{

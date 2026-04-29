@@ -4487,6 +4487,12 @@ export interface ModelAbility {
 export interface CustomHTTPModelConfig {
   input_schema_json?: string;
   output_schema_json?: string;
+  /**
+   * Mirror of model_instance.connection.custom_http.payload_template so the
+   * workflow LLM node can detect chat-shape custom_http models on the
+   * frontend (template containing {{messages}}) without an extra round trip.
+   */
+  payload_template?: string;
 }
 
 export interface ModelDescGroup {

@@ -30,7 +30,11 @@ const MESSAGES_TOKEN = /\{\{\s*messages\s*\}\}/;
  */
 export const isChatShapedCustomHTTP = (model?: Model): boolean => {
   if (!isCustomHTTPModel(model)) return false;
-  const template = model?.connection?.custom_http?.payload_template ?? '';
+  // The workflow Model exposes payload_template directly on custom_http
+  // (mirrored by application/modelmgr from model_instance.connection in coze
+  // backend). The admin Model nests it under connection — these are
+  // different IDL types; do not collapse them.
+  const template = model?.custom_http?.payload_template ?? '';
   return MESSAGES_TOKEN.test(template);
 };
 
