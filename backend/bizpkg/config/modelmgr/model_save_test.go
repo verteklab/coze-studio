@@ -17,10 +17,12 @@
 package modelmgr
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 
+	"github.com/coze-dev/coze-studio/backend/api/model/admin/config"
 	"github.com/coze-dev/coze-studio/backend/api/model/app/developer_api"
 )
 
@@ -44,4 +46,13 @@ func TestPickCapability_FallbackToMeta(t *testing.T) {
 func TestPickCapability_BothNil(t *testing.T) {
 	got := pickCapability(nil, nil)
 	assert.Nil(t, got)
+}
+
+func TestUpdateModel_RejectsNilOrZeroID(t *testing.T) {
+	c := &ModelConfig{}
+	err := c.UpdateModel(context.Background(), nil)
+	assert.Error(t, err, "nil model must be rejected")
+
+	err = c.UpdateModel(context.Background(), &config.Model{ID: 0})
+	assert.Error(t, err, "id=0 must be rejected")
 }
