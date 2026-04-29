@@ -21,6 +21,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"gorm.io/gen/field"
+
 	"github.com/coze-dev/coze-studio/backend/api/model/admin/config"
 	"github.com/coze-dev/coze-studio/backend/api/model/app/developer_api"
 	"github.com/coze-dev/coze-studio/backend/bizpkg/config/modelmgr/internal/model"
@@ -162,24 +164,38 @@ func (c *ModelConfig) UpdateModel(ctx context.Context, m *config.Model) error {
 	}
 
 	q := query.ModelInstance.WithContext(ctx)
+
+	// Verify the row exists; surface a clear error if it doesn't.
 	existing, err := q.Where(query.ModelInstance.ID.Eq(m.ID)).First()
 	if err != nil {
 		return fmt.Errorf("UpdateModel: lookup id=%d failed: %w", m.ID, err)
 	}
 
+	// Build the field-list of columns to update so GORM writes ONLY what the
+	// caller patched — Provider/Parameters/Extra are not touched even if they
+	// have zero values in the in-memory copy.
 	updated := *existing
+	selectFields := []field.Expr{}
 	if m.Capability != nil {
 		updated.Capability = m.Capability
+		selectFields = append(selectFields, query.ModelInstance.Capability)
 	}
 	if m.Connection != nil {
 		updated.Connection = m.Connection
+		selectFields = append(selectFields, query.ModelInstance.Connection)
 	}
 	if m.DisplayInfo != nil {
 		updated.DisplayInfo = m.DisplayInfo
+		selectFields = append(selectFields, query.ModelInstance.DisplayInfo)
 	}
 
-	_, err = q.Where(query.ModelInstance.ID.Eq(m.ID)).Updates(&updated)
-	if err != nil {
+	if len(selectFields) == 0 {
+		return nil // empty patch is a no-op
+	}
+
+	if _, err = q.Where(query.ModelInstance.ID.Eq(m.ID)).
+		Select(selectFields...).
+		Updates(&updated); err != nil {
 		return fmt.Errorf("UpdateModel: save id=%d failed: %w", m.ID, err)
 	}
 	return nil
