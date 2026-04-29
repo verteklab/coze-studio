@@ -662,6 +662,10 @@ struct ModelAbility {
 struct CustomHTTPModelConfig {
     1: string input_schema_json
     2: string output_schema_json
+    // Mirror of model_instance.connection.custom_http.payload_template so the
+    // workflow LLM node can detect chat-shape ({{messages}} token) without an
+    // extra round trip. Only set on responses; not consumed on request.
+    3: string payload_template
 }
 
 struct Model {

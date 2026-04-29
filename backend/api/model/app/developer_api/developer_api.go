@@ -22574,6 +22574,10 @@ func (p *Model) GetModelAbility() (v *ModelAbility) {
 type CustomHTTPModelConfig struct {
 	InputSchemaJSON  string `json:"input_schema_json"`
 	OutputSchemaJSON string `json:"output_schema_json"`
+	// PayloadTemplate mirrors model_instance.connection.custom_http.payload_template
+	// so the workflow LLM node can detect chat-shape custom_http (template
+	// containing {{messages}}) and render the prompt area accordingly.
+	PayloadTemplate string `json:"payload_template,omitempty"`
 }
 
 var fieldIDToName_Model = map[int16]string{

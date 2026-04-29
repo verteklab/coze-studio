@@ -17,10 +17,11 @@
 import { describe, it, expect } from 'vitest';
 import { isCustomHTTPModel, isChatShapedCustomHTTP, showsLLMFields } from './custom-http-utils';
 
+// The workflow Model interface exposes custom_http.payload_template directly
+// (no nested `connection` wrapper — that shape belongs to the admin Model).
 const buildModel = (template: string | undefined) =>
   ({
     custom_http: { payload_template: template ?? '' },
-    connection: { custom_http: { payload_template: template ?? '' } },
   }) as any;
 
 describe('isChatShapedCustomHTTP', () => {
