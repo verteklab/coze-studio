@@ -17,3 +17,27 @@
 import { type Model } from '@coze-arch/bot-api/developer_api';
 
 export const isCustomHTTPModel = (model?: Model) => Boolean(model?.custom_http);
+
+const MESSAGES_TOKEN = /\{\{\s*messages\s*\}\}/;
+
+/**
+ * A custom_http model is "chat-shaped" when its payload_template contains the
+ * {{messages}} token. The coze-studio backend template engine fills this token
+ * with workflow node's system_prompt + user_prompt + chat_history, so the
+ * frontend must show the corresponding prompt input fields.
+ *
+ * Strict regex: does NOT match {{messages_count}}, {{messagesArray}}, etc.
+ */
+export const isChatShapedCustomHTTP = (model?: Model): boolean => {
+  if (!isCustomHTTPModel(model)) return false;
+  const template = model?.connection?.custom_http?.payload_template ?? '';
+  return MESSAGES_TOKEN.test(template);
+};
+
+/**
+ * True when the LLM-style fields (system/user prompt, skills, vision, response
+ * format) should be rendered for this model. Built-in models always show these;
+ * custom_http only shows them when chat-shaped.
+ */
+export const showsLLMFields = (model?: Model): boolean =>
+  !isCustomHTTPModel(model) || isChatShapedCustomHTTP(model);
