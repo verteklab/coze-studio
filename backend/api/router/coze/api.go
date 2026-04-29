@@ -54,6 +54,7 @@ func Register(r *server.Hertz) {
 					_model.POST("/create", append(_createmodelMw(), coze.CreateModel)...)
 					_model.POST("/delete", append(_deletemodelMw(), coze.DeleteModel)...)
 					_model.GET("/list", append(_getmodellistMw(), coze.GetModelList)...)
+					_model.POST("/update", append(_updatemodelMw(), coze.UpdateModel)...)
 				}
 			}
 		}

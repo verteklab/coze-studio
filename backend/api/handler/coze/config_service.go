@@ -308,6 +308,29 @@ func CreateModel(ctx context.Context, c *app.RequestContext) {
 	c.JSON(consts.StatusOK, resp)
 }
 
+// UpdateModel .
+// @router /api/admin/config/model/update [POST]
+func UpdateModel(ctx context.Context, c *app.RequestContext) {
+	var err error
+	var req config.UpdateModelReq
+	if err = c.BindAndValidate(&req); err != nil {
+		c.String(consts.StatusBadRequest, err.Error())
+		return
+	}
+	if req.Model == nil || req.Model.ID == 0 {
+		invalidParamRequestResponse(c, "model id is required")
+		return
+	}
+
+	if err = bizConf.ModelConf().UpdateModel(ctx, req.Model); err != nil {
+		invalidParamRequestResponse(c, fmt.Sprintf("update model failed: %v", err))
+		return
+	}
+
+	resp := new(config.UpdateModelResp)
+	c.JSON(consts.StatusOK, resp)
+}
+
 // DeleteModel .
 // @router /api/admin/config/model/delete [POST]
 func DeleteModel(ctx context.Context, c *app.RequestContext) {
