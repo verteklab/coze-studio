@@ -15,7 +15,45 @@
           "audio_understanding": false,
           "support_multi_modal": false
         },
-        "parameters": []
+        "parameters": [
+          {
+            "name": "temperature",
+            "label": "Temperature",
+            "desc": "**Temperature**:\n\n- When you increase this value, the model outputs more diverse and innovative content; when you decrease it, the model outputs less diverse content that strictly follows the given instructions.\n- It is recommended not to adjust this value with \"Top p\" at the same time.",
+            "type": 1,
+            "min": "0",
+            "max": "2",
+            "precision": 2,
+            "default_val": {
+              "default_val": "1",
+              "creative": "0.8",
+              "balance": "0.5",
+              "precise": "0.1"
+            },
+            "options": [],
+            "param_class": {
+              "class_id": 1,
+              "label": "Generation diversity"
+            }
+          },
+          {
+            "name": "max_tokens",
+            "label": "Response max length",
+            "desc": "You can specify the maximum length of the tokens output through this value. Typically, 100 tokens are approximately equal to 150 Chinese characters.",
+            "type": 2,
+            "min": "1",
+            "max": "1000000",
+            "precision": 0,
+            "default_val": {
+              "default_val": "4096"
+            },
+            "options": [],
+            "param_class": {
+              "class_id": 2,
+              "label": "Input and output settings"
+            }
+          }
+        ]
       }
     },
     "Claude": {
