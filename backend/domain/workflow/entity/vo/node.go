@@ -561,6 +561,8 @@ type NodeProperty struct {
 	IsEnableChatHistory bool
 	IsEnableUserQuery   bool
 	IsRefGlobalVariable bool
+	Invalid             bool
+	InvalidReason       string
 	SubWorkflow         map[string]*NodeProperty
 }
 

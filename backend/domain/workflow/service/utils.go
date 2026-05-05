@@ -99,6 +99,14 @@ func validateWorkflowTree(ctx context.Context, config vo.ValidateTreeConfig) ([]
 		return issues, nil
 	}
 
+	issues, err = validator.CheckPluginNodeValidity(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check plugin validity: %w", err)
+	}
+	if len(issues) > 0 {
+		return issues, nil
+	}
+
 	return issues, nil
 }
 

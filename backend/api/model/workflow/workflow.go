@@ -29779,6 +29779,8 @@ type NodeProps struct {
 	IsEnableChatHistory bool   `thrift:"is_enable_chat_history,3" form:"is_enable_chat_history" json:"is_enable_chat_history" query:"is_enable_chat_history"`
 	IsEnableUserQuery   bool   `thrift:"is_enable_user_query,4" form:"is_enable_user_query" json:"is_enable_user_query" query:"is_enable_user_query"`
 	IsRefGlobalVariable bool   `thrift:"is_ref_global_variable,5" form:"is_ref_global_variable" json:"is_ref_global_variable" query:"is_ref_global_variable"`
+	Invalid             bool   `thrift:"invalid,6" form:"invalid" json:"invalid" query:"invalid"`
+	InvalidReason       string `thrift:"invalid_reason,7" form:"invalid_reason" json:"invalid_reason" query:"invalid_reason"`
 }
 
 func NewNodeProps() *NodeProps {
@@ -29808,12 +29810,22 @@ func (p *NodeProps) GetIsRefGlobalVariable() (v bool) {
 	return p.IsRefGlobalVariable
 }
 
+func (p *NodeProps) GetInvalid() (v bool) {
+	return p.Invalid
+}
+
+func (p *NodeProps) GetInvalidReason() (v string) {
+	return p.InvalidReason
+}
+
 var fieldIDToName_NodeProps = map[int16]string{
 	1: "id",
 	2: "type",
 	3: "is_enable_chat_history",
 	4: "is_enable_user_query",
 	5: "is_ref_global_variable",
+	6: "invalid",
+	7: "invalid_reason",
 }
 
 func (p *NodeProps) Read(iprot thrift.TProtocol) (err error) {
@@ -29869,6 +29881,22 @@ func (p *NodeProps) Read(iprot thrift.TProtocol) (err error) {
 		case 5:
 			if fieldTypeId == thrift.BOOL {
 				if err = p.ReadField5(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 6:
+			if fieldTypeId == thrift.BOOL {
+				if err = p.ReadField6(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 7:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField7(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -29958,6 +29986,28 @@ func (p *NodeProps) ReadField5(iprot thrift.TProtocol) error {
 	p.IsRefGlobalVariable = _field
 	return nil
 }
+func (p *NodeProps) ReadField6(iprot thrift.TProtocol) error {
+
+	var _field bool
+	if v, err := iprot.ReadBool(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Invalid = _field
+	return nil
+}
+func (p *NodeProps) ReadField7(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.InvalidReason = _field
+	return nil
+}
 
 func (p *NodeProps) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -29983,6 +30033,14 @@ func (p *NodeProps) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField5(oprot); err != nil {
 			fieldId = 5
+			goto WriteFieldError
+		}
+		if err = p.writeField6(oprot); err != nil {
+			fieldId = 6
+			goto WriteFieldError
+		}
+		if err = p.writeField7(oprot); err != nil {
+			fieldId = 7
 			goto WriteFieldError
 		}
 	}
@@ -30082,6 +30140,38 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 5 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 5 end error: ", p), err)
+}
+func (p *NodeProps) writeField6(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("invalid", thrift.BOOL, 6); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteBool(p.Invalid); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 6 end error: ", p), err)
+}
+func (p *NodeProps) writeField7(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("invalid_reason", thrift.STRING, 7); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.InvalidReason); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
 }
 
 func (p *NodeProps) String() string {

@@ -39,6 +39,8 @@ import (
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/canvas/convert"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/repo"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/schema"
+	workflowplugin "github.com/coze-dev/coze-studio/backend/domain/workflow/plugin"
+	"github.com/coze-dev/coze-studio/backend/domain/workflow/pluginref"
 	"github.com/coze-dev/coze-studio/backend/infra/cache"
 	"github.com/coze-dev/coze-studio/backend/infra/idgen"
 	"github.com/coze-dev/coze-studio/backend/infra/storage"
@@ -472,6 +474,19 @@ func (i *impl) collectNodePropertyMap(ctx context.Context, canvas *vo.Canvas) (m
 			prop.SubWorkflow = ret
 
 		} else {
+			invalidReason, invalid, err := i.invalidPluginReferenceReason(ctx, n)
+			if err != nil {
+				return nil, err
+			}
+			if invalid {
+				nodePropertyMap[n.ID] = &vo.NodeProperty{
+					Type:          entity.IDStrToNodeType(n.Type).IDStr(),
+					Invalid:       true,
+					InvalidReason: invalidReason,
+				}
+				continue
+			}
+
 			nodeSchemas, _, err := adaptor.NodeToNodeSchema(ctx, n, canvas)
 			if err != nil {
 				return nil, err
@@ -488,6 +503,31 @@ func (i *impl) collectNodePropertyMap(ctx context.Context, canvas *vo.Canvas) (m
 		}
 	}
 	return nodePropertyMap, nil
+}
+
+func (i *impl) invalidPluginReferenceReason(ctx context.Context, node *vo.Node) (string, bool, error) {
+	refs, err := pluginref.CollectFromCanvas(&vo.Canvas{Nodes: []*vo.Node{node}})
+	if err != nil {
+		return "", false, err
+	}
+	if len(refs) == 0 {
+		return "", false, nil
+	}
+	checkResult, err := workflowplugin.CheckReferences(ctx, refs)
+	if err != nil {
+		return "", false, err
+	}
+	if len(checkResult.InvalidReferences) == 0 {
+		return "", false, nil
+	}
+	switch checkResult.InvalidReferences[0].Code {
+	case int32(errno.ErrPluginIDNotFound):
+		return "plugin_deleted", true, nil
+	case int32(errno.ErrToolIDNotFound):
+		return "tool_deleted", true, nil
+	default:
+		return "plugin_invalid", true, nil
+	}
 }
 
 func isEnableUserQuery(s *schema.NodeSchema) bool {

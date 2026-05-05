@@ -70,6 +70,9 @@ func getSaasPluginWithTools(ctx context.Context, pluginEntity *vo.PluginEntity, 
 			toolsInfo = append(toolsInfo, t)
 		}
 	}
+	if missingToolID, ok := firstMissingToolID(toolIDs, toolsInfo); ok {
+		return nil, nil, vo.NewError(errno.ErrToolIDNotFound, errorx.KV("id", strconv.FormatInt(missingToolID, 10)))
+	}
 	return &pluginInfo{PluginInfo: plugin[pluginEntity.PluginID]}, toolsInfo, nil
 }
 
@@ -160,11 +163,34 @@ func getPluginsWithTools(ctx context.Context, pluginEntity *vo.PluginEntity, too
 		toolsInfo = tools
 	}
 
+	if missingToolID, ok := firstMissingToolID(toolIDs, toolsInfo); ok {
+		return nil, nil, vo.NewError(errno.ErrToolIDNotFound, errorx.KV("id", strconv.FormatInt(missingToolID, 10)))
+	}
+
 	if latestPluginInfo != nil {
 		return &pluginInfo{PluginInfo: pInfo, LatestVersion: latestPluginInfo.Version}, toolsInfo, nil
 	}
 
 	return &pluginInfo{PluginInfo: pInfo}, toolsInfo, nil
+}
+
+func firstMissingToolID(toolIDs []int64, toolsInfo []*entity.ToolInfo) (int64, bool) {
+	if len(toolIDs) == 0 {
+		return 0, false
+	}
+	existing := make(map[int64]struct{}, len(toolsInfo))
+	for _, tool := range toolsInfo {
+		if tool == nil {
+			continue
+		}
+		existing[tool.ID] = struct{}{}
+	}
+	for _, toolID := range toolIDs {
+		if _, ok := existing[toolID]; !ok {
+			return toolID, true
+		}
+	}
+	return 0, false
 }
 
 func GetPluginToolsInfo(ctx context.Context, req *ToolsInfoRequest) (_ *ToolsInfoResponse, err error) {

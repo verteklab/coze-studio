@@ -47,6 +47,7 @@ const (
 	ErrPluginParseCozeSearchAPIResponseFailed     = 109000019
 	ErrPluginCallCozeCategoriesAPIFailed          = 109000020
 	ErrPluginParseCozeCategoriesAPIResponseFailed = 109000021
+	ErrPluginReferencedByWorkflow                 = 109000022
 )
 
 const (
@@ -176,6 +177,11 @@ func init() {
 	code.Register(
 		ErrPluginParseCozeCategoriesAPIResponseFailed,
 		fmt.Sprintf("failed to parse coze.cn categories API response : {%s}", PluginMsgKey),
+		code.WithAffectStability(false),
+	)
+	code.Register(
+		ErrPluginReferencedByWorkflow,
+		fmt.Sprintf("plugin is used by workflow : {%s}", PluginMsgKey),
 		code.WithAffectStability(false),
 	)
 }

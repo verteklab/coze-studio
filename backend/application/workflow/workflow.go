@@ -2124,6 +2124,8 @@ func (w *ApplicationService) QueryWorkflowNodeTypes(ctx context.Context, req *wo
 					IsEnableChatHistory: nodeProp.IsEnableChatHistory,
 					IsEnableUserQuery:   nodeProp.IsEnableUserQuery,
 					IsRefGlobalVariable: nodeProp.IsRefGlobalVariable,
+					Invalid:             nodeProp.Invalid,
+					InvalidReason:       nodeProp.InvalidReason,
 				})
 
 				response.Data.NodeTypes = append(response.Data.NodeTypes, nodeProp.Type)
@@ -2134,6 +2136,8 @@ func (w *ApplicationService) QueryWorkflowNodeTypes(ctx context.Context, req *wo
 					IsEnableChatHistory: nodeProp.IsEnableChatHistory,
 					IsEnableUserQuery:   nodeProp.IsEnableUserQuery,
 					IsRefGlobalVariable: nodeProp.IsRefGlobalVariable,
+					Invalid:             nodeProp.Invalid,
+					InvalidReason:       nodeProp.InvalidReason,
 				})
 				deepestSubWorkflowNodeTypes = append(deepestSubWorkflowNodeTypes, nodeProp.Type)
 

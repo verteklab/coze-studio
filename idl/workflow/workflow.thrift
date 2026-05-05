@@ -893,6 +893,8 @@ struct NodeProps {
     3: bool   is_enable_chat_history,
     4: bool   is_enable_user_query  ,
     5: bool   is_ref_global_variable,
+    6: bool   invalid               ,
+    7: string invalid_reason        ,
 }
 
 struct WorkflowNodeTypeData{

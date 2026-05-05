@@ -18,6 +18,9 @@ package plugin
 
 import (
 	"context"
+	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	pluginAPI "github.com/coze-dev/coze-studio/backend/api/model/plugin_develop"
@@ -25,9 +28,14 @@ import (
 	resCommon "github.com/coze-dev/coze-studio/backend/api/model/resource/common"
 	"github.com/coze-dev/coze-studio/backend/application/base/ctxutil"
 	"github.com/coze-dev/coze-studio/backend/crossdomain/plugin/model"
+	workflowModel "github.com/coze-dev/coze-studio/backend/crossdomain/workflow/model"
 	"github.com/coze-dev/coze-studio/backend/domain/plugin/dto"
 	"github.com/coze-dev/coze-studio/backend/domain/plugin/entity"
 	searchEntity "github.com/coze-dev/coze-studio/backend/domain/search/entity"
+	workflowDomain "github.com/coze-dev/coze-studio/backend/domain/workflow"
+	workflowDomainEntity "github.com/coze-dev/coze-studio/backend/domain/workflow/entity"
+	"github.com/coze-dev/coze-studio/backend/domain/workflow/entity/vo"
+	"github.com/coze-dev/coze-studio/backend/domain/workflow/pluginref"
 	"github.com/coze-dev/coze-studio/backend/pkg/errorx"
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/ptr"
 	"github.com/coze-dev/coze-studio/backend/pkg/logs"
@@ -68,9 +76,20 @@ func (p *PluginApplicationService) PublishPlugin(ctx context.Context, req *plugi
 }
 
 func (p *PluginApplicationService) DelPlugin(ctx context.Context, req *pluginAPI.DelPluginRequest) (resp *pluginAPI.DelPluginResponse, err error) {
-	_, err = p.validateDraftPluginAccess(ctx, req.PluginID)
+	draftPlugin, err := p.validateDraftPluginAccess(ctx, req.PluginID)
 	if err != nil {
 		return nil, errorx.Wrapf(err, "validateDelPluginRequest failed")
+	}
+
+	referencingWorkflowIDs, err := p.findWorkflowsReferencingPlugin(ctx, draftPlugin)
+	if err != nil {
+		return nil, errorx.Wrapf(err, "find workflow references failed, pluginID=%d", req.PluginID)
+	}
+	if len(referencingWorkflowIDs) > 0 {
+		return nil, errorx.New(
+			errno.ErrPluginReferencedByWorkflow,
+			errorx.KV(errno.PluginMsgKey, fmt.Sprintf("plugin %d is used by workflow(s): %s", req.PluginID, joinInt64s(referencingWorkflowIDs))),
+		)
 	}
 
 	err = p.DomainSVC.DeleteDraftPlugin(ctx, req.PluginID)
@@ -93,6 +112,77 @@ func (p *PluginApplicationService) DelPlugin(ctx context.Context, req *pluginAPI
 	resp = &pluginAPI.DelPluginResponse{}
 
 	return resp, nil
+}
+
+func (p *PluginApplicationService) findWorkflowsReferencingPlugin(ctx context.Context, plugin *entity.PluginInfo) ([]int64, error) {
+	repo := workflowDomain.GetRepository()
+	if repo == nil {
+		return nil, fmt.Errorf("workflow repository is not initialized")
+	}
+
+	const pageSize int32 = 100
+	seen := make(map[int64]struct{})
+	referencingWorkflowIDs := make([]int64, 0)
+	scan := func(qType workflowModel.Locator, fetch func(context.Context, *vo.MGetPolicy) ([]*workflowDomainEntity.Workflow, int64, error)) error {
+		for page := int32(1); ; page++ {
+			query := vo.MetaQuery{
+				Page: &vo.Page{
+					Size: pageSize,
+					Page: page,
+				},
+			}
+			if plugin.APPID != nil {
+				query.AppID = plugin.APPID
+			} else {
+				query.SpaceID = ptr.Of(plugin.SpaceID)
+			}
+
+			workflows, _, err := fetch(ctx, &vo.MGetPolicy{
+				MetaQuery: query,
+				QType:    qType,
+			})
+			if err != nil {
+				return err
+			}
+			if len(workflows) == 0 {
+				break
+			}
+			for _, wf := range workflows {
+				if wf == nil || wf.CanvasInfo == nil {
+					continue
+				}
+				refs, err := pluginref.CollectFromCanvasString(wf.Canvas)
+				if err != nil {
+					return fmt.Errorf("parse workflow %d plugin references failed: %w", wf.ID, err)
+				}
+				if pluginref.ContainsPluginID(refs, plugin.ID) {
+					if _, ok := seen[wf.ID]; !ok {
+						seen[wf.ID] = struct{}{}
+						referencingWorkflowIDs = append(referencingWorkflowIDs, wf.ID)
+					}
+				}
+			}
+			if len(workflows) < int(pageSize) {
+				break
+			}
+		}
+		return nil
+	}
+	if err := scan(workflowModel.FromDraft, repo.MGetDrafts); err != nil {
+		return nil, err
+	}
+	if err := scan(workflowModel.FromLatestVersion, repo.MGetLatestVersion); err != nil {
+		return nil, err
+	}
+	return referencingWorkflowIDs, nil
+}
+
+func joinInt64s(values []int64) string {
+	parts := make([]string, 0, len(values))
+	for _, value := range values {
+		parts = append(parts, strconv.FormatInt(value, 10))
+	}
+	return strings.Join(parts, ",")
 }
 
 func (p *PluginApplicationService) GetPluginNextVersion(ctx context.Context, req *pluginAPI.GetPluginNextVersionRequest) (resp *pluginAPI.GetPluginNextVersionResponse, err error) {

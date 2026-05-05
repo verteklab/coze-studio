@@ -28,6 +28,8 @@ import (
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/entity/vo"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/canvas/convert"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/nodes"
+	workflowplugin "github.com/coze-dev/coze-studio/backend/domain/workflow/plugin"
+	"github.com/coze-dev/coze-studio/backend/domain/workflow/pluginref"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/schema"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/variable"
 	"github.com/coze-dev/coze-studio/backend/pkg/errorx"
@@ -441,6 +443,31 @@ func (cv *CanvasValidator) CheckSubWorkFlowTerminatePlanType(ctx context.Context
 			}
 
 		}
+	}
+	return issues, nil
+}
+
+func (cv *CanvasValidator) CheckPluginNodeValidity(ctx context.Context) (issues []*Issue, err error) {
+	issues = make([]*Issue, 0)
+	refs, err := pluginref.CollectFromCanvas(cv.cfg.Canvas)
+	if err != nil {
+		return nil, err
+	}
+	if len(refs) == 0 {
+		return issues, nil
+	}
+	checkResult, err := workflowplugin.CheckReferences(ctx, refs)
+	if err != nil {
+		return nil, err
+	}
+	for _, invalidRef := range checkResult.InvalidReferences {
+		issues = append(issues, &Issue{
+			NodeErr: &NodeErr{
+				NodeID:   invalidRef.NodeID,
+				NodeName: invalidRef.NodeName,
+			},
+			Message: invalidRef.Message,
+		})
 	}
 	return issues, nil
 }

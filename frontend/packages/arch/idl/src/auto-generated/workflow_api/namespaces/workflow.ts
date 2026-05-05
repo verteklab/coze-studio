@@ -3012,6 +3012,8 @@ export interface NodeProps {
   is_enable_chat_history?: boolean;
   is_enable_user_query?: boolean;
   is_ref_global_variable?: boolean;
+  invalid?: boolean;
+  invalid_reason?: string;
 }
 
 export interface NodeResult {

@@ -4750,6 +4750,8 @@ export interface NodeProps {
   type?: string;
   is_enable_chat_history?: boolean;
   is_enable_user_query?: boolean;
+  invalid?: boolean;
+  invalid_reason?: string;
 }
 
 export interface NodeResult {
