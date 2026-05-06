@@ -779,6 +779,85 @@ func (r *RepositoryImpl) GetVersion(ctx context.Context, id int64, version strin
 	}, true, nil
 }
 
+func (r *RepositoryImpl) GetVersionByCommitID(ctx context.Context, workflowID int64, commitID string) (_ *vo.VersionInfo, existed bool, err error) {
+	defer func() {
+		if err != nil {
+			err = vo.WrapIfNeeded(errno.ErrDatabaseError, err)
+		}
+	}()
+
+	wfVersion, err := r.query.WorkflowVersion.WithContext(ctx).
+		Where(r.query.WorkflowVersion.WorkflowID.Eq(workflowID), r.query.WorkflowVersion.CommitID.Eq(commitID)).
+		First()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, false, nil
+		}
+		return nil, false, fmt.Errorf("failed to get workflow version by commit_id %s for workflow %d: %w", commitID, workflowID, err)
+	}
+
+	return &vo.VersionInfo{
+		VersionMeta: &vo.VersionMeta{
+			Version:            wfVersion.Version,
+			VersionDescription: wfVersion.VersionDescription,
+			VersionCreatedAt:   time.UnixMilli(wfVersion.CreatedAt),
+			VersionCreatorID:   wfVersion.CreatorID,
+		},
+		CanvasInfo: vo.CanvasInfo{
+			Canvas:          wfVersion.Canvas,
+			InputParamsStr:  wfVersion.InputParams,
+			OutputParamsStr: wfVersion.OutputParams,
+		},
+		CommitID: wfVersion.CommitID,
+	}, true, nil
+}
+
+func (r *RepositoryImpl) ListVersions(ctx context.Context, workflowID int64, cursor int64, limit int, commitIDs []string) (_ []*vo.VersionInfo, err error) {
+	defer func() {
+		if err != nil {
+			err = vo.WrapIfNeeded(errno.ErrDatabaseError, err)
+		}
+	}()
+
+	q := r.query.WorkflowVersion.WithContext(ctx).
+		Where(r.query.WorkflowVersion.WorkflowID.Eq(workflowID))
+
+	if len(commitIDs) > 0 {
+		q = q.Where(r.query.WorkflowVersion.CommitID.In(commitIDs...))
+	}
+
+	if cursor > 0 {
+		q = q.Where(r.query.WorkflowVersion.CreatedAt.Lt(cursor))
+	}
+
+	versions, err := q.Order(r.query.WorkflowVersion.CreatedAt.Desc()).
+		Limit(limit).
+		Find()
+	if err != nil {
+		return nil, fmt.Errorf("failed to list workflow versions for workflow %d: %w", workflowID, err)
+	}
+
+	result := make([]*vo.VersionInfo, 0, len(versions))
+	for _, v := range versions {
+		result = append(result, &vo.VersionInfo{
+			VersionMeta: &vo.VersionMeta{
+				Version:            v.Version,
+				VersionDescription: v.VersionDescription,
+				VersionCreatedAt:   time.UnixMilli(v.CreatedAt),
+				VersionCreatorID:   v.CreatorID,
+			},
+			CanvasInfo: vo.CanvasInfo{
+				Canvas:          v.Canvas,
+				InputParamsStr:  v.InputParams,
+				OutputParamsStr: v.OutputParams,
+			},
+			CommitID: v.CommitID,
+		})
+	}
+
+	return result, nil
+}
+
 func (r *RepositoryImpl) GetVersionListByConnectorAndWorkflowID(ctx context.Context, connectorID, workflowID int64, limit int) (_ []string, err error) {
 	if limit <= 0 {
 		return nil, vo.WrapError(errno.ErrInvalidParameter, errors.New("limit must be greater than 0"))

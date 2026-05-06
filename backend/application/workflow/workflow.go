@@ -3322,6 +3322,171 @@ func (w *ApplicationService) GetHistorySchema(ctx context.Context, req *workflow
 	}, nil
 }
 
+func (w *ApplicationService) VersionHistoryList(ctx context.Context, req *workflow.VersionHistoryListRequest) (
+	_ *workflow.VersionHistoryListResponse, err error,
+) {
+	defer func() {
+		if panicErr := recover(); panicErr != nil {
+			err = safego.NewPanicErr(panicErr, debug.Stack())
+		}
+
+		if err != nil {
+			err = vo.WrapIfNeeded(errno.ErrWorkflowOperationFail, err, errorx.KV("cause", vo.UnwrapRootErr(err).Error()))
+		}
+	}()
+
+	if err = checkUserSpace(ctx, ctxutil.MustGetUIDFromCtx(ctx), mustParseInt64(req.SpaceID)); err != nil {
+		return nil, err
+	}
+
+	workflowID := mustParseInt64(req.WorkflowID)
+
+	// OperateType filter: open-source only has Publish versions
+	// type=4 (all) and type=2 (publish) return all versions; type=1 (submit) and type=3 (ppe) return empty
+	// Exception: when commit_ids is provided, skip type filter (used by resetToCommitById which defaults to type=1)
+	if len(req.CommitIDs) == 0 &&
+		(req.Type == workflow.OperateType_SubmitOperate || req.Type == workflow.OperateType_PubPPEOperate) {
+		return &workflow.VersionHistoryListResponse{
+			Data: &workflow.VersionHistoryListData{
+				VersionList: []*workflow.VersionMetaInfo{},
+				HasMore:     false,
+			},
+		}, nil
+	}
+
+	limit := 10
+	if req.Limit != nil && *req.Limit > 0 {
+		limit = *req.Limit
+	}
+
+	var cursor int64
+	if req.Cursor != nil && *req.Cursor != "" {
+		cursor, _ = strconv.ParseInt(*req.Cursor, 10, 64)
+	}
+
+	// Fetch limit+1 to determine has_more
+	repo := domainWorkflow.GetRepository()
+	versions, err := repo.ListVersions(ctx, workflowID, cursor, limit+1, req.CommitIDs)
+	if err != nil {
+		return nil, err
+	}
+
+	hasMore := len(versions) > limit
+	if hasMore {
+		versions = versions[:limit]
+	}
+
+	// Collect creator IDs for batch user info lookup
+	creatorIDs := make([]string, 0, len(versions))
+	for _, v := range versions {
+		creatorIDs = append(creatorIDs, strconv.FormatInt(v.VersionCreatorID, 10))
+	}
+
+	userInfoMap := map[string]*playground.UserBasicInfo{}
+	if len(creatorIDs) > 0 {
+		userResp, userErr := user.UserApplicationSVC.MGetUserBasicInfo(ctx, &playground.MGetUserBasicInfoRequest{
+			UserIds: slices.Unique(creatorIDs),
+		})
+		if userErr != nil {
+			logs.CtxWarnf(ctx, "failed to get user basic info for version history: %v", userErr)
+		} else if userResp != nil {
+			userInfoMap = userResp.UserBasicInfoMap
+		}
+	}
+
+	versionList := make([]*workflow.VersionMetaInfo, 0, len(versions))
+	for _, v := range versions {
+		item := &workflow.VersionMetaInfo{
+			WorkflowID:  req.WorkflowID,
+			SpaceID:     req.SpaceID,
+			CommitID:    v.CommitID,
+			CreateTime:  v.VersionCreatedAt.UnixMilli(),
+			UpdateTime:  v.VersionCreatedAt.UnixMilli(),
+			Desc:        v.VersionDescription,
+			Type:        workflow.OperateType_PublishOperate,
+			Version:     v.Version,
+			VersionType: 1, // WorkflowVersion
+		}
+
+		creatorIDStr := strconv.FormatInt(v.VersionCreatorID, 10)
+		if u, ok := userInfoMap[creatorIDStr]; ok {
+			item.User = &workflow.VersionUser{
+				UserID:     u.UserId,
+				UserName:   u.Username,
+				UserAvatar: u.UserAvatar,
+			}
+		} else {
+			item.User = &workflow.VersionUser{
+				UserID: v.VersionCreatorID,
+			}
+		}
+
+		versionList = append(versionList, item)
+	}
+
+	var nextCursor string
+	if hasMore && len(versions) > 0 {
+		lastVersion := versions[len(versions)-1]
+		nextCursor = strconv.FormatInt(lastVersion.VersionCreatedAt.UnixMilli(), 10)
+	}
+
+	return &workflow.VersionHistoryListResponse{
+		Data: &workflow.VersionHistoryListData{
+			VersionList: versionList,
+			Cursor:      nextCursor,
+			HasMore:     hasMore,
+		},
+	}, nil
+}
+
+func (w *ApplicationService) RevertDraft(ctx context.Context, req *workflow.RevertDraftRequest) (
+	_ *workflow.RevertDraftResponse, err error,
+) {
+	defer func() {
+		if panicErr := recover(); panicErr != nil {
+			err = safego.NewPanicErr(panicErr, debug.Stack())
+		}
+
+		if err != nil {
+			err = vo.WrapIfNeeded(errno.ErrWorkflowOperationFail, err, errorx.KV("cause", vo.UnwrapRootErr(err).Error()))
+		}
+	}()
+
+	if err = checkUserSpace(ctx, ctxutil.MustGetUIDFromCtx(ctx), mustParseInt64(req.SpaceID)); err != nil {
+		return nil, err
+	}
+
+	workflowID := mustParseInt64(req.WorkflowID)
+
+	// Find the target version by commit_id
+	repo := domainWorkflow.GetRepository()
+	versionInfo, existed, err := repo.GetVersionByCommitID(ctx, workflowID, req.CommitID)
+	if err != nil {
+		return nil, err
+	}
+	if !existed {
+		return nil, vo.WrapError(errno.ErrWorkflowNotFound,
+			fmt.Errorf("version not found for workflow %d commit_id %s", workflowID, req.CommitID))
+	}
+
+	// Overwrite current draft with the historical version's canvas
+	if err = GetWorkflowDomainSVC().Save(ctx, workflowID, versionInfo.Canvas); err != nil {
+		return nil, err
+	}
+
+	// Read the new draft to get its commit_id
+	draft, err := repo.DraftV2(ctx, workflowID, "")
+	if err != nil {
+		return nil, err
+	}
+
+	return &workflow.RevertDraftResponse{
+		Data: &workflow.RevertDraftData{
+			SubmitCommitID: draft.CommitID,
+		},
+	}, nil
+}
+
 func (w *ApplicationService) GetExampleWorkFlowList(ctx context.Context, req *workflow.GetExampleWorkFlowListRequest) (
 	resp *workflow.GetExampleWorkFlowListResponse, err error,
 ) {

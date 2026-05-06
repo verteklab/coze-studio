@@ -1769,3 +1769,13 @@ func _createdatasetopenapiMw() []app.HandlerFunc {
 	// your code...
 	return nil
 }
+
+func _versionhistorylistMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
+func _revertdraftMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}

@@ -31,9 +31,9 @@ import (
 
 	compose "github.com/cloudwego/eino/compose"
 	schema "github.com/cloudwego/eino/schema"
-	workflow "github.com/coze-dev/coze-studio/backend/crossdomain/workflow/model"
 	workflow0 "github.com/coze-dev/coze-studio/backend/api/model/workflow"
 	"github.com/coze-dev/coze-studio/backend/bizpkg/llm/modelbuilder"
+	workflow "github.com/coze-dev/coze-studio/backend/crossdomain/workflow/model"
 	workflow1 "github.com/coze-dev/coze-studio/backend/domain/workflow"
 	config "github.com/coze-dev/coze-studio/backend/domain/workflow/config"
 	entity "github.com/coze-dev/coze-studio/backend/domain/workflow/entity"
@@ -1625,6 +1625,37 @@ func (m *MockRepository) GetVersion(ctx context.Context, id int64, version strin
 func (mr *MockRepositoryMockRecorder) GetVersion(ctx, id, version any) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVersion", reflect.TypeOf((*MockRepository)(nil).GetVersion), ctx, id, version)
+}
+
+// GetVersionByCommitID mocks base method.
+func (m *MockRepository) GetVersionByCommitID(ctx context.Context, workflowID int64, commitID string) (*vo.VersionInfo, bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetVersionByCommitID", ctx, workflowID, commitID)
+	ret0, _ := ret[0].(*vo.VersionInfo)
+	ret1, _ := ret[1].(bool)
+	ret2, _ := ret[2].(error)
+	return ret0, ret1, ret2
+}
+
+// GetVersionByCommitID indicates an expected call of GetVersionByCommitID.
+func (mr *MockRepositoryMockRecorder) GetVersionByCommitID(ctx, workflowID, commitID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetVersionByCommitID", reflect.TypeOf((*MockRepository)(nil).GetVersionByCommitID), ctx, workflowID, commitID)
+}
+
+// ListVersions mocks base method.
+func (m *MockRepository) ListVersions(ctx context.Context, workflowID int64, cursor int64, limit int, commitIDs []string) ([]*vo.VersionInfo, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "ListVersions", ctx, workflowID, cursor, limit, commitIDs)
+	ret0, _ := ret[0].([]*vo.VersionInfo)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// ListVersions indicates an expected call of ListVersions.
+func (mr *MockRepositoryMockRecorder) ListVersions(ctx, workflowID, cursor, limit, commitIDs any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "ListVersions", reflect.TypeOf((*MockRepository)(nil).ListVersions), ctx, workflowID, cursor, limit, commitIDs)
 }
 
 // GetVersionListByConnectorAndWorkflowID mocks base method.
