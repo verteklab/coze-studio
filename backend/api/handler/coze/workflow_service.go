@@ -1242,6 +1242,46 @@ func GetHistorySchema(ctx context.Context, c *app.RequestContext) {
 	c.JSON(consts.StatusOK, resp)
 }
 
+// VersionHistoryList .
+// @router /api/workflow_api/version_list [POST]
+func VersionHistoryList(ctx context.Context, c *app.RequestContext) {
+	var err error
+	var req workflow.VersionHistoryListRequest
+	err = c.BindAndValidate(&req)
+	if err != nil {
+		invalidParamRequestResponse(c, err.Error())
+		return
+	}
+
+	resp, err := appworkflow.SVC.VersionHistoryList(ctx, &req)
+	if err != nil {
+		internalServerErrorResponse(ctx, c, err)
+		return
+	}
+
+	c.JSON(consts.StatusOK, resp)
+}
+
+// RevertDraft .
+// @router /api/workflow_api/revert [POST]
+func RevertDraft(ctx context.Context, c *app.RequestContext) {
+	var err error
+	var req workflow.RevertDraftRequest
+	err = c.BindAndValidate(&req)
+	if err != nil {
+		invalidParamRequestResponse(c, err.Error())
+		return
+	}
+
+	resp, err := appworkflow.SVC.RevertDraft(ctx, &req)
+	if err != nil {
+		internalServerErrorResponse(ctx, c, err)
+		return
+	}
+
+	c.JSON(consts.StatusOK, resp)
+}
+
 // GetExampleWorkFlowList .
 // @router /api/workflow_api/example_workflow_list [POST]
 func GetExampleWorkFlowList(ctx context.Context, c *app.RequestContext) {
