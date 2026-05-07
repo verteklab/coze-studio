@@ -88,13 +88,17 @@ export const HistoryDrawer: FC<HistoryDrawerProps> = ({
     viewCommitNewPage,
   } = useCommitAction();
   const tabOptions = useMemo(() => {
-    if (enablePublishPPE) {
-      return defaultTabOptions;
+    let options = enablePublishPPE
+      ? defaultTabOptions
+      : defaultTabOptions.filter(
+          item => item.value !== OperateType.PubPPEOperate,
+        );
+    if (IS_OPEN_SOURCE) {
+      options = options.filter(
+        item => item.value !== OperateType.SubmitOperate,
+      );
     }
-
-    return defaultTabOptions.filter(
-      item => item.value !== OperateType.PubPPEOperate,
-    );
+    return options;
   }, [enablePublishPPE]);
   const [optType, setOptType] = useState(tabOptions[0].value);
   const [activeItem, setActiveItem] = useState(defaultActiveItem);
