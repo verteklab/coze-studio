@@ -78,12 +78,12 @@ const WorkFlowHeader: React.FC = () => {
         {/* will support soon */}
         {IS_OPEN_SOURCE ? null : <ReferenceButton workflowId={workflowId} />}
 
+        {!IS_OPEN_SOURCE && !readonly && <CreditButton />}
+
+        <HistoryButton />
+
         {IS_OPEN_SOURCE ? null : (
           <>
-            {!readonly && <CreditButton />}
-
-            <HistoryButton />
-
             <CollaboratorsButton />
 
             <SubmitButton />
