@@ -3264,6 +3264,54 @@ func (w *ApplicationService) GetHistorySchema(ctx context.Context, req *workflow
 	}
 
 	workflowID := mustParseInt64(req.GetWorkflowID())
+
+	// Branch 1: commit-id-only path (history drawer "view this version" click).
+	// ExecuteID is optional in the request schema; when it's empty, look up the
+	// version row by commit_id and load the schema directly via the
+	// FromSpecificVersion policy. This mirrors the behavior of the
+	// execution-based path below, but skips the WorkflowExecution lookup that
+	// has no record for a published-only version view.
+	if req.GetExecuteID() == "" {
+		commitID := req.GetCommitID()
+		if commitID == "" {
+			return nil, fmt.Errorf("either execute_id or commit_id must be provided")
+		}
+
+		repo := domainWorkflow.GetRepository()
+		versions, vErr := repo.ListVersions(ctx, workflowID, 0, 1, []string{commitID})
+		if vErr != nil {
+			return nil, vErr
+		}
+		if len(versions) == 0 {
+			return nil, fmt.Errorf("version not found for commit_id: %s", commitID)
+		}
+		v := versions[0]
+
+		policy := &vo.GetPolicy{
+			ID:       workflowID,
+			QType:    workflowModel.FromSpecificVersion,
+			Version:  v.Version,
+			CommitID: commitID,
+		}
+		wfEntity, gErr := GetWorkflowDomainSVC().Get(ctx, policy)
+		if gErr != nil {
+			return nil, gErr
+		}
+
+		return &workflow.GetHistorySchemaResponse{
+			Data: &workflow.GetHistorySchemaData{
+				Name:       wfEntity.Name,
+				Describe:   wfEntity.Desc,
+				URL:        wfEntity.IconURL,
+				Schema:     wfEntity.Canvas,
+				FlowMode:   wfEntity.Mode,
+				WorkflowID: req.GetWorkflowID(),
+				CommitID:   wfEntity.CommitID,
+			},
+		}, nil
+	}
+
+	// Branch 2: execution-based path (existing behavior, unchanged).
 	executeID := mustParseInt64(req.GetExecuteID())
 
 	var subExecuteID *int64
