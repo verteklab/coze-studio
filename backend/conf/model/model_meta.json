@@ -39,13 +39,13 @@
           {
             "name": "max_tokens",
             "label": "Response max length",
-            "desc": "You can specify the maximum length of the tokens output through this value. Typically, 100 tokens are approximately equal to 150 Chinese characters.",
+            "desc": "You can specify the maximum length of the tokens output through this value. Typically, 100 tokens are approximately equal to 150 Chinese characters. Set 0 to use the upstream model's own default (no cap from Coze).",
             "type": 2,
-            "min": "1",
+            "min": "0",
             "max": "1000000",
             "precision": 0,
             "default_val": {
-              "default_val": "4096"
+              "default_val": "0"
             },
             "options": [],
             "param_class": {
