@@ -183,16 +183,22 @@ func TestExtractFileName(t *testing.T) {
 }
 
 func TestSupportedMimeTypes(t *testing.T) {
-	if !supportedMimeTypes["application/pdf"] {
+	if !allSupportedMimeTypes["application/pdf"] {
 		t.Error("PDF should be supported")
 	}
-	if !supportedMimeTypes["image/png"] {
+	if !allSupportedMimeTypes["image/png"] {
 		t.Error("PNG should be supported")
 	}
-	if !supportedMimeTypes["image/jpeg"] {
+	if !allSupportedMimeTypes["image/jpeg"] {
 		t.Error("JPEG should be supported")
 	}
-	if supportedMimeTypes["text/plain"] {
+	if allSupportedMimeTypes["text/plain"] {
 		t.Error("text/plain should not be supported")
+	}
+	if !imageMimeTypes["image/png"] {
+		t.Error("PNG should be in image types")
+	}
+	if imageMimeTypes["application/pdf"] {
+		t.Error("PDF should not be in image-only types")
 	}
 }

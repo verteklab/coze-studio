@@ -24,6 +24,7 @@ import { I18n } from '@coze-arch/i18n';
 import { provideNodeOutputVariablesEffect } from '@/nodes-v2/materials/provide-node-output-variables';
 import { nodeMetaValidate } from '@/nodes-v2/materials/node-meta-validate';
 import { fireNodeTitleChange } from '@/nodes-v2/materials/fire-node-title-change';
+import { createValueExpressionInputValidate } from '@/node-registries/common/validators';
 
 import { OCRProviderType } from './types';
 import FormRender from './form-render';
@@ -36,6 +37,9 @@ export const OCR_FORM_META: FormMetaV2<FormData> = {
 
   validate: {
     nodeMeta: nodeMetaValidate,
+    'inputs.inputParameters.0.input': createValueExpressionInputValidate({
+      emptyMessage: I18n.t('node_ocr_file_required', {}, 'Please select a file'),
+    }),
     'inputs.providerType': ({ value }) => {
       if (!value) {
         return I18n.t(
