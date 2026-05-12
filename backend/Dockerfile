@@ -1,5 +1,5 @@
 # Stage 1: Builder for Go application
-FROM golang:1.24.13-alpine3.23 AS builder
+FROM golang:1.24.4-alpine3.21 AS builder
 
 RUN sed -i 's|https://dl-cdn.alpinelinux.org/alpine|https://mirrors.tuna.tsinghua.edu.cn/alpine|g' /etc/apk/repositories
 
