@@ -17,6 +17,7 @@
 package vo
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/coze-dev/coze-studio/backend/api/model/app/bot_common"
@@ -143,6 +144,7 @@ type Inputs struct {
 	*Batch              // exclusive configurations for NodeTypeBatch
 	*Comment            // exclusive configurations for NodeTypeComment
 	*InputReceiver      // exclusive configurations for NodeTypeInputReceiver
+	*OCRNode            // exclusive configurations for NodeTypeOCR
 }
 
 type OutputEmitter struct {
@@ -379,6 +381,17 @@ type Auth struct {
 }
 
 type HttpRequestSetting struct {
+	Timeout    int64 `json:"timeout"`
+	RetryTimes int64 `json:"retryTimes"`
+}
+
+type OCRNode struct {
+	ProviderType string          `json:"providerType"`
+	OCRConfig    json.RawMessage `json:"ocrConfig"`
+	Setting      *OCRSetting     `json:"ocrSetting,omitempty"`
+}
+
+type OCRSetting struct {
 	Timeout    int64 `json:"timeout"`
 	RetryTimes int64 `json:"retryTimes"`
 }

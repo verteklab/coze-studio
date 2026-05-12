@@ -145,6 +145,7 @@ enum NodeType{
     JsonSerialization   = 58,
     JsonDeserialization = 59,
     DatasetDelete       = 60,
+    OCR                 = 61,
 }
 
 //The node template type is basically the same as NodeType. One copy is due to the addition of an Imageflow type to avoid affecting the business semantics of the original NodeType
@@ -187,6 +188,7 @@ enum NodeTemplateType{
     JsonSerialization   = 58,
     JsonDeserialization = 59,
     DatasetDelete       = 60,
+    OCR                 = 61,
 }
 
 enum IfConditionRelation {

@@ -44,6 +44,7 @@ import (
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/nodes/json"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/nodes/knowledge"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/nodes/llm"
+	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/nodes/ocr"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/nodes/loop"
 	_break "github.com/coze-dev/coze-studio/backend/domain/workflow/internal/nodes/loop/break"
 	_continue "github.com/coze-dev/coze-studio/backend/domain/workflow/internal/nodes/loop/continue"
@@ -680,6 +681,9 @@ func RegisterAllNodeAdaptors() {
 	})
 	nodes.RegisterNodeAdaptor(entity.NodeTypeLLM, func() nodes.NodeAdaptor {
 		return &llm.Config{}
+	})
+	nodes.RegisterNodeAdaptor(entity.NodeTypeOCR, func() nodes.NodeAdaptor {
+		return &ocr.Config{}
 	})
 	nodes.RegisterNodeAdaptor(entity.NodeTypeCreateConversation, func() nodes.NodeAdaptor {
 		return &conversation.CreateConversationConfig{}
