@@ -259,8 +259,8 @@ func (e *OCRExecutor) Invoke(ctx context.Context, input map[string]any) (map[str
 		}
 	}
 
-	// Fetch file and convert to base64 data URI
-	fileData, err := urltobase64url.URLToBase64(fileURLStr)
+	// Fetch file with context, timeout, and size limit to prevent SSRF/resource exhaustion
+	fileData, err := fetchFileSecure(ctx, fileURLStr, e.client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch and convert file: %w", err)
 	}

@@ -17,11 +17,17 @@
 package ocr
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
+	"io"
+	"mime"
+	"net/http"
 	"net/url"
 	"path/filepath"
 	"strings"
+
+	"github.com/coze-dev/coze-studio/backend/pkg/urltobase64url"
 )
 
 // extractJSONPath extracts a nested value from a map using variadic keys.
@@ -172,4 +178,58 @@ func extractFileName(fileURL string) string {
 		return "file"
 	}
 	return name
+}
+
+const maxFileSize = 20 * 1024 * 1024 // 20MB
+
+// fetchFileSecure downloads a file with context propagation and size limit,
+// then converts it to a base64 data URI. Uses the provided HTTP client which
+// inherits the node's timeout configuration.
+func fetchFileSecure(ctx context.Context, fileURL string, client *http.Client) (*urltobase64url.FileData, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", fileURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("invalid file URL: %w", err)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("file download failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("file download returned status %d", resp.StatusCode)
+	}
+
+	limitedReader := io.LimitReader(resp.Body, maxFileSize+1)
+	fileContent, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %w", err)
+	}
+	if int64(len(fileContent)) > maxFileSize {
+		return nil, fmt.Errorf("file exceeds maximum size of %dMB", maxFileSize/(1024*1024))
+	}
+
+	var mimeType string
+	if ct := resp.Header.Get("Content-Type"); ct != "" {
+		if mt, _, err := mime.ParseMediaType(ct); err == nil && mt != "" {
+			mimeType = mt
+		}
+	}
+	if mimeType == "" {
+		mimeType = http.DetectContentType(fileContent)
+	}
+	if mimeType == "" || mimeType == "application/octet-stream" {
+		if ext := filepath.Ext(fileURL); ext != "" {
+			mimeType = mime.TypeByExtension(ext)
+		}
+	}
+
+	b64 := base64.StdEncoding.EncodeToString(fileContent)
+	dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, b64)
+
+	return &urltobase64url.FileData{
+		Base64Url: dataURI,
+		MimeType:  mimeType,
+	}, nil
 }

@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { ViewVariableType } from '@coze-workflow/base';
 import { I18n } from '@coze-arch/i18n';
 
 import { NodeConfigForm } from '@/node-registries/common/components';
@@ -25,7 +26,7 @@ import {
   TextareaField,
   useWatch,
 } from '@/form';
-import { OutputsField } from '../common/fields';
+import { OutputsField, ValueExpressionInputField } from '../common/fields';
 
 import { OCRProviderType } from './types';
 
@@ -230,6 +231,18 @@ const ProviderFields = () => {
 
 const Render = () => (
   <NodeConfigForm>
+    <Section title={I18n.t('node_ocr_file_input', {}, 'File Input')}>
+      <ValueExpressionInputField
+        name="inputs.file"
+        inputType={ViewVariableType.File}
+        availableFileTypes={[
+          ViewVariableType.File,
+          ViewVariableType.Image,
+          ViewVariableType.Doc,
+        ]}
+      />
+    </Section>
+
     <Section title={I18n.t('node_ocr_provider', {}, 'OCR Provider')}>
       <SelectField
         name="inputs.providerType"

@@ -972,7 +972,7 @@ var NodeTypeMetas = map[NodeType]*NodeTypeMeta{
 		EnUSDescription: "The delete node can delete a document in knowledge base.",
 	},
 	NodeTypeOCR: {
-		ID:              61,
+		ID:              68,
 		Key:             NodeTypeOCR,
 		DisplayKey:      "OCR",
 		Name:            "OCR 文字识别",

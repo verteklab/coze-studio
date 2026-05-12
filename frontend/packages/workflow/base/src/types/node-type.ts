@@ -106,7 +106,7 @@ export enum StandardNodeType {
   JsonParser = '59',
 
   // OCR Node
-  Ocr = '61',
+  Ocr = '68',
 }
 
 /**
