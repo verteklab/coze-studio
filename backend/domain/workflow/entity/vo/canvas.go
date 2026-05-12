@@ -388,7 +388,7 @@ type HttpRequestSetting struct {
 type OCRNode struct {
 	ProviderType string          `json:"providerType"`
 	OCRConfig    json.RawMessage `json:"ocrConfig"`
-	Setting      *OCRSetting     `json:"ocrSetting,omitempty"`
+	OCRSetting   *OCRSetting     `json:"ocrSetting,omitempty"`
 }
 
 type OCRSetting struct {
