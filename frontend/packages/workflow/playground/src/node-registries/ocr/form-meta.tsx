@@ -38,7 +38,8 @@ export const OCR_FORM_META: FormMetaV2<FormData> = {
   validate: {
     nodeMeta: nodeMetaValidate,
     'inputs.inputParameters.0.input': createValueExpressionInputValidate({
-      emptyMessage: I18n.t('node_ocr_file_required', {}, 'Please select a file'),
+      required: true,
+      emptyErrorMessage: I18n.t('node_ocr_file_required', {}, 'Please select a file'),
     }),
     'inputs.providerType': ({ value }) => {
       if (!value) {

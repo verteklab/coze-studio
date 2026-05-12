@@ -35,14 +35,18 @@ export const transformOnInit = (
   const { inputs = {}, outputs } = value || {};
   const rawInputs = inputs as Record<string, unknown>;
 
-  const inputParameters = (rawInputs.inputParameters as any[]) || [
-    {
-      key: nanoid(),
-      name: 'file',
-      type: ViewVariableType.File,
-      input: undefined,
-    },
-  ];
+  const existingParams = rawInputs.inputParameters as any[] | undefined;
+  const inputParameters =
+    Array.isArray(existingParams) && existingParams.length > 0
+      ? existingParams
+      : [
+          {
+            key: nanoid(),
+            name: 'file',
+            type: ViewVariableType.File,
+            input: undefined,
+          },
+        ];
 
   const initValue = {
     nodeMeta: value?.nodeMeta,

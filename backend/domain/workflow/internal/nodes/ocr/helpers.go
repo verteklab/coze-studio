@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"path/filepath"
@@ -182,16 +183,67 @@ func extractFileName(fileURL string) string {
 
 const maxFileSize = 20 * 1024 * 1024 // 20MB
 
-// fetchFileSecure downloads a file with context propagation and size limit,
-// then converts it to a base64 data URI. Uses the provided HTTP client which
-// inherits the node's timeout configuration.
+func isPrivateIP(ip net.IP) bool {
+	privateRanges := []net.IPNet{
+		{IP: net.IPv4(10, 0, 0, 0), Mask: net.CIDRMask(8, 32)},
+		{IP: net.IPv4(172, 16, 0, 0), Mask: net.CIDRMask(12, 32)},
+		{IP: net.IPv4(192, 168, 0, 0), Mask: net.CIDRMask(16, 32)},
+		{IP: net.IPv4(127, 0, 0, 0), Mask: net.CIDRMask(8, 32)},
+		{IP: net.IPv4(169, 254, 0, 0), Mask: net.CIDRMask(16, 32)},
+	}
+	for _, r := range privateRanges {
+		if r.Contains(ip) {
+			return true
+		}
+	}
+	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
+}
+
+func validateURLSafety(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid URL: %w", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("unsupported URL scheme: %s (only http/https allowed)", u.Scheme)
+	}
+	host := u.Hostname()
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return fmt.Errorf("cannot resolve host %s: %w", host, err)
+	}
+	for _, ip := range ips {
+		if isPrivateIP(ip) {
+			return fmt.Errorf("access to private/internal network address is not allowed")
+		}
+	}
+	return nil
+}
+
+// fetchFileSecure downloads a file with context propagation, size limit,
+// and SSRF protection (scheme/IP validation, no redirect to private nets).
 func fetchFileSecure(ctx context.Context, fileURL string, client *http.Client) (*urltobase64url.FileData, error) {
+	if err := validateURLSafety(fileURL); err != nil {
+		return nil, err
+	}
+
+	safeClient := *client
+	safeClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 {
+			return fmt.Errorf("too many redirects")
+		}
+		if err := validateURLSafety(req.URL.String()); err != nil {
+			return fmt.Errorf("redirect blocked: %w", err)
+		}
+		return nil
+	}
+
 	req, err := http.NewRequestWithContext(ctx, "GET", fileURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("invalid file URL: %w", err)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := safeClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("file download failed: %w", err)
 	}
