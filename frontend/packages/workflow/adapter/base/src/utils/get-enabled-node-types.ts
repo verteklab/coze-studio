@@ -64,6 +64,7 @@ export const getEnabledNodeTypes = (_params: {
     [StandardNodeType.CreateMessage]: true,
     [StandardNodeType.UpdateMessage]: true,
     [StandardNodeType.DeleteMessage]: true,
+    [StandardNodeType.Ocr]: true,
   };
   const enabledNodeTypes: StandardNodeType[] = Object.keys(nodesMap)
     .filter(key => nodesMap[key])
