@@ -413,6 +413,7 @@ export enum NodeTemplateType {
   VideoGeneration = 65,
   LTMWrite = 66,
   LTMRead = 67,
+  OCR = 68,
 }
 
 /** 节点结构 */
@@ -466,6 +467,7 @@ export enum NodeType {
   VideoGeneration = 65,
   LTMWrite = 66,
   LTMRead = 67,
+  OCR = 68,
 }
 
 export enum OAuthStatus {

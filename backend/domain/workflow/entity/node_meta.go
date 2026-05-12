@@ -189,6 +189,7 @@ const (
 	NodeTypeClearConversationHistory   NodeType = "ClearConversationHistory"
 	NodeTypeConversationHistory        NodeType = "ConversationHistory"
 	NodeTypeComment                    NodeType = "Comment"
+	NodeTypeOCR                        NodeType = "OCR"
 )
 
 const (
@@ -969,6 +970,23 @@ var NodeTypeMetas = map[NodeType]*NodeTypeMeta{
 		},
 		EnUSName:        "Knowledge delete",
 		EnUSDescription: "The delete node can delete a document in knowledge base.",
+	},
+	NodeTypeOCR: {
+		ID:              68,
+		Key:             NodeTypeOCR,
+		DisplayKey:      "OCR",
+		Name:            "OCR 文字识别",
+		Category:        "utilities",
+		Desc:            "调用 OCR 服务识别图片或文档中的文字内容",
+		Color:           "#3071F2",
+		IconURI:         "default_icon/workflow_icon/icon-http.jpg",
+		SupportBatch:    false,
+		EnUSName:        "OCR",
+		EnUSDescription: "Call OCR service to recognize text from images or documents",
+		ExecutableMeta: ExecutableMeta{
+			PreFillZero: true,
+			PostFillNil: true,
+		},
 	},
 	NodeTypeLambda: {
 		ID:       1000,

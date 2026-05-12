@@ -497,6 +497,7 @@ const (
 	NodeType_JsonSerialization   NodeType = 58
 	NodeType_JsonDeserialization NodeType = 59
 	NodeType_DatasetDelete       NodeType = 60
+	NodeType_OCR                 NodeType = 68
 )
 
 func (p NodeType) String() string {
@@ -567,6 +568,8 @@ func (p NodeType) String() string {
 		return "JsonDeserialization"
 	case NodeType_DatasetDelete:
 		return "DatasetDelete"
+	case NodeType_OCR:
+		return "OCR"
 	}
 	return "<UNSET>"
 }
@@ -639,6 +642,8 @@ func NodeTypeFromString(s string) (NodeType, error) {
 		return NodeType_JsonDeserialization, nil
 	case "DatasetDelete":
 		return NodeType_DatasetDelete, nil
+	case "OCR":
+		return NodeType_OCR, nil
 	}
 	return NodeType(0), fmt.Errorf("not a valid NodeType string")
 }
@@ -700,6 +705,7 @@ const (
 	NodeTemplateType_JsonSerialization   NodeTemplateType = 58
 	NodeTemplateType_JsonDeserialization NodeTemplateType = 59
 	NodeTemplateType_DatasetDelete       NodeTemplateType = 60
+	NodeTemplateType_OCR                 NodeTemplateType = 68
 )
 
 func (p NodeTemplateType) String() string {
@@ -780,6 +786,8 @@ func (p NodeTemplateType) String() string {
 		return "JsonDeserialization"
 	case NodeTemplateType_DatasetDelete:
 		return "DatasetDelete"
+	case NodeTemplateType_OCR:
+		return "OCR"
 	}
 	return "<UNSET>"
 }
@@ -862,6 +870,8 @@ func NodeTemplateTypeFromString(s string) (NodeTemplateType, error) {
 		return NodeTemplateType_JsonDeserialization, nil
 	case "DatasetDelete":
 		return NodeTemplateType_DatasetDelete, nil
+	case "OCR":
+		return NodeTemplateType_OCR, nil
 	}
 	return NodeTemplateType(0), fmt.Errorf("not a valid NodeTemplateType string")
 }

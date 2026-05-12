@@ -47,3 +47,4 @@ export { PLUGIN_NODE_REGISTRY } from './plugin';
 export { SUB_WORKFLOW_NODE_REGISTRY } from './sub-workflow';
 export { VARIABLE_NODE_REGISTRY } from './variable';
 export { JSON_STRINGIFY_NODE_REGISTRY } from './json-stringify';
+export { OCR_NODE_REGISTRY } from './ocr';
