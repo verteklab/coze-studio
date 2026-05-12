@@ -82,6 +82,25 @@ export const OCR_FORM_META: FormMetaV2<FormData> = {
         return I18n.t('node_ocr_url_required', {}, 'URL is required');
       }
     },
+    'inputs.ocrConfig.body_template': ({ value, formValues }) => {
+      const providerType = get(formValues, 'inputs.providerType');
+      const contentType = get(
+        formValues,
+        'inputs.ocrConfig.content_type',
+        'application/json',
+      );
+      if (
+        providerType === OCRProviderType.Custom &&
+        contentType === 'application/json' &&
+        !value
+      ) {
+        return I18n.t(
+          'node_ocr_body_template_required',
+          {},
+          'Body template is required for JSON content type',
+        );
+      }
+    },
   },
 
   effect: {

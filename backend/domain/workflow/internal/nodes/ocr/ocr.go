@@ -24,6 +24,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -595,7 +596,11 @@ func (e *OCRExecutor) invokeCustomHTTP(ctx context.Context, fileData *urltobase6
 
 		var buf bytes.Buffer
 		writer := multipart.NewWriter(&buf)
-		part, err := writer.CreateFormFile("file", fileName+ext)
+		formFileName := fileName
+		if filepath.Ext(fileName) == "" {
+			formFileName = fileName + ext
+		}
+		part, err := writer.CreateFormFile("file", formFileName)
 		if err != nil {
 			return "", nil, fmt.Errorf("failed to create multipart form: %w", err)
 		}

@@ -17,7 +17,13 @@
 package ocr
 
 import (
+	"context"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestExtractJSONPath(t *testing.T) {
@@ -200,5 +206,116 @@ func TestSupportedMimeTypes(t *testing.T) {
 	}
 	if imageMimeTypes["application/pdf"] {
 		t.Error("PDF should not be in image-only types")
+	}
+}
+
+func TestIsPublicIP(t *testing.T) {
+	tests := []struct {
+		name   string
+		ip     string
+		expect bool
+	}{
+		// Public IPs — should be allowed
+		{"Google DNS", "8.8.8.8", true},
+		{"Cloudflare DNS", "1.1.1.1", true},
+		{"Random public", "203.0.114.1", true},
+
+		// Private ranges — should be blocked
+		{"10.x private", "10.0.0.1", false},
+		{"172.16 private", "172.16.0.1", false},
+		{"192.168 private", "192.168.1.1", false},
+
+		// Special use — should be blocked
+		{"Loopback", "127.0.0.1", false},
+		{"Link-local", "169.254.1.1", false},
+		{"CGNAT", "100.64.0.1", false},
+		{"Benchmark", "198.18.0.1", false},
+		{"TEST-NET-1", "192.0.2.1", false},
+		{"TEST-NET-2", "198.51.100.1", false},
+		{"TEST-NET-3", "203.0.113.1", false},
+		{"Reserved", "240.0.0.1", false},
+		{"Broadcast", "255.255.255.255", false},
+		{"Unspecified", "0.0.0.0", false},
+		{"Multicast", "224.0.0.1", false},
+
+		// IPv6 — should be blocked
+		{"IPv6 loopback", "::1", false},
+		{"IPv6 link-local", "fe80::1", false},
+		{"IPv6 ULA", "fc00::1", false},
+		{"IPv6 multicast", "ff02::1", false},
+		{"IPv6 unspecified", "::", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ip := net.ParseIP(tt.ip)
+			if ip == nil {
+				t.Fatalf("failed to parse IP: %s", tt.ip)
+			}
+			got := isPublicIP(ip)
+			if got != tt.expect {
+				t.Errorf("isPublicIP(%s) = %v, want %v", tt.ip, got, tt.expect)
+			}
+		})
+	}
+}
+
+func TestValidateURLScheme(t *testing.T) {
+	tests := []struct {
+		url     string
+		wantErr bool
+	}{
+		{"https://example.com/file.png", false},
+		{"http://example.com/file.png", false},
+		{"ftp://example.com/file.png", true},
+		{"file:///etc/passwd", true},
+		{"gopher://evil.com", true},
+		{"javascript:alert(1)", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.url, func(t *testing.T) {
+			err := validateURLScheme(tt.url)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("validateURLScheme(%s) error = %v, wantErr %v", tt.url, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestFetchFileSecure_PrivateIP(t *testing.T) {
+	// Start a local HTTP server (will be on 127.0.0.1)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "image/png")
+		w.Write([]byte("fake-image-data"))
+	}))
+	defer ts.Close()
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	_, err := fetchFileSecure(context.Background(), ts.URL+"/test.png", client)
+	if err == nil {
+		t.Error("expected error when fetching from localhost, got nil")
+	}
+	if !strings.Contains(err.Error(), "private") && !strings.Contains(err.Error(), "not allowed") {
+		t.Errorf("expected SSRF error message, got: %v", err)
+	}
+}
+
+func TestFetchFileSecure_RedirectToPrivate(t *testing.T) {
+	// Server that redirects to a private IP
+	privateServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("secret"))
+	}))
+	defer privateServer.Close()
+
+	redirectServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, privateServer.URL+"/secret", http.StatusFound)
+	}))
+	defer redirectServer.Close()
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	_, err := fetchFileSecure(context.Background(), redirectServer.URL+"/redirect", client)
+	if err == nil {
+		t.Error("expected error when redirect targets localhost, got nil")
 	}
 }
