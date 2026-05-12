@@ -233,7 +233,7 @@ const Render = () => (
   <NodeConfigForm>
     <Section title={I18n.t('node_ocr_file_input', {}, 'File Input')}>
       <ValueExpressionInputField
-        name="inputs.file"
+        name="inputs.inputParameters.0.input"
         inputType={ViewVariableType.File}
         availableFileTypes={[
           ViewVariableType.File,

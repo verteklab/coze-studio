@@ -37,6 +37,7 @@ export const OCR_NODE_REGISTRY: WorkflowNodeRegistry<NodeTestMeta> = {
     size: { width: 360, height: 130.7 },
     nodeMetaPath: DEFAULT_NODE_META_PATH,
     outputsPath: DEFAULT_OUTPUTS_PATH,
+    inputParametersPath: 'inputs.inputParameters',
   },
   formMeta: OCR_FORM_META,
 };

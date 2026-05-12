@@ -147,8 +147,16 @@ func (c *Config) Adapt(_ context.Context, n *vo.Node, _ ...nodes.AdaptOption) (*
 	}
 
 	if ocrNode.Setting != nil {
-		c.Timeout = time.Duration(ocrNode.Setting.Timeout) * time.Second
-		c.RetryTimes = uint64(ocrNode.Setting.RetryTimes)
+		if ocrNode.Setting.Timeout > 0 {
+			c.Timeout = time.Duration(ocrNode.Setting.Timeout) * time.Second
+		}
+		retries := ocrNode.Setting.RetryTimes
+		if retries < 0 {
+			retries = 0
+		} else if retries > 10 {
+			retries = 10
+		}
+		c.RetryTimes = uint64(retries)
 	}
 
 	// Set input/output types from the node definition
@@ -219,8 +227,13 @@ type OCRExecutor struct {
 	customHTTP   *CustomHTTPConfig
 }
 
-// supportedMimeTypes lists the MIME types we accept for OCR.
-var supportedMimeTypes = map[string]bool{
+var imageMimeTypes = map[string]bool{
+	"image/png":  true,
+	"image/jpeg": true,
+	"image/jpg":  true,
+}
+
+var allSupportedMimeTypes = map[string]bool{
 	"application/pdf": true,
 	"image/png":       true,
 	"image/jpeg":      true,
@@ -265,8 +278,12 @@ func (e *OCRExecutor) Invoke(ctx context.Context, input map[string]any) (map[str
 		return nil, fmt.Errorf("failed to fetch and convert file: %w", err)
 	}
 
-	// Validate MIME type
-	if !supportedMimeTypes[fileData.MimeType] {
+	// Validate MIME type — OpenAI Vision only supports images (not PDF via image_url)
+	if e.provider == ProviderOpenAIVision {
+		if !imageMimeTypes[fileData.MimeType] {
+			return nil, fmt.Errorf("OpenAI Vision provider only supports image files (PNG, JPG), got: %s. For PDF, use MinerU, PaddleOCR, or Custom HTTP provider", fileData.MimeType)
+		}
+	} else if !allSupportedMimeTypes[fileData.MimeType] {
 		return nil, fmt.Errorf("unsupported file format: %s. Supported formats: PDF, PNG, JPG", fileData.MimeType)
 	}
 

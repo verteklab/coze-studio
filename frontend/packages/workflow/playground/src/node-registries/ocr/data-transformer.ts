@@ -28,20 +28,34 @@ interface FormData {
 /**
  * Node Backend Data -> Frontend Form Data
  */
-export const transformOnInit = (value: NodeDataDTO, _context: NodeFormContext) => {
+export const transformOnInit = (
+  value: NodeDataDTO,
+  _context: NodeFormContext,
+) => {
   const { inputs = {}, outputs } = value || {};
+  const rawInputs = inputs as Record<string, unknown>;
+
+  const inputParameters = (rawInputs.inputParameters as any[]) || [
+    {
+      key: nanoid(),
+      name: 'file',
+      type: ViewVariableType.File,
+      input: undefined,
+    },
+  ];
 
   const initValue = {
     nodeMeta: value?.nodeMeta,
-    inputParameters: [],
     inputs: {
+      inputParameters,
       providerType: OCRProviderType.OpenAIVision,
       ocrConfig: {},
       ocrSetting: {
         timeout: 120,
         retryTimes: 3,
       },
-      ...(inputs as Record<string, unknown>),
+      ...rawInputs,
+      inputParameters,
     },
     outputs: isEmpty(outputs)
       ? [
