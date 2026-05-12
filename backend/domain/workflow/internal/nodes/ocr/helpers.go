@@ -183,11 +183,61 @@ func extractFileName(fileURL string) string {
 
 const maxFileSize = 20 * 1024 * 1024 // 20MB
 
-// isUnsafeIP checks if an IP address belongs to a private, loopback,
-// link-local, unspecified, or multicast range.
-func isUnsafeIP(ip net.IP) bool {
-	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() ||
-		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast()
+// nonPublicRanges is the list of CIDR ranges that are NOT globally routable.
+var nonPublicRanges []*net.IPNet
+
+func init() {
+	cidrs := []string{
+		// IPv4
+		"0.0.0.0/8",          // "This host on this network" (RFC 1122)
+		"10.0.0.0/8",         // Private (RFC 1918)
+		"100.64.0.0/10",      // Carrier-grade NAT (RFC 6598)
+		"127.0.0.0/8",        // Loopback (RFC 1122)
+		"169.254.0.0/16",     // Link-local (RFC 3927)
+		"172.16.0.0/12",      // Private (RFC 1918)
+		"192.0.0.0/24",       // IANA special purpose (RFC 6890)
+		"192.0.2.0/24",       // Documentation TEST-NET-1 (RFC 5737)
+		"192.88.99.0/24",     // 6to4 relay anycast (RFC 7526)
+		"192.168.0.0/16",     // Private (RFC 1918)
+		"198.18.0.0/15",      // Benchmarking (RFC 2544)
+		"198.51.100.0/24",    // Documentation TEST-NET-2 (RFC 5737)
+		"203.0.113.0/24",     // Documentation TEST-NET-3 (RFC 5737)
+		"224.0.0.0/4",        // Multicast (RFC 5771)
+		"240.0.0.0/4",        // Reserved for future use (RFC 1112)
+		"255.255.255.255/32", // Limited broadcast (RFC 919)
+		// IPv6
+		"::/128",        // Unspecified
+		"::1/128",       // Loopback
+		"fc00::/7",      // Unique local (RFC 4193)
+		"fe80::/10",     // Link-local (RFC 4291)
+		"ff00::/8",      // Multicast (RFC 4291)
+		"64:ff9b::/96",  // NAT64 (RFC 6052)
+		"100::/64",      // Discard-only (RFC 6666)
+		"2001:db8::/32", // Documentation (RFC 3849)
+		"2001::/23",     // IETF protocol assignments (RFC 2928)
+	}
+	for _, cidr := range cidrs {
+		_, ipNet, err := net.ParseCIDR(cidr)
+		if err == nil {
+			nonPublicRanges = append(nonPublicRanges, ipNet)
+		}
+	}
+}
+
+// isPublicIP returns true only for globally routable public IP addresses.
+// It blocks private, loopback, link-local, multicast, unspecified, and all
+// special-use ranges (CGNAT, benchmarking, documentation, IANA reserved, etc.).
+func isPublicIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	for _, r := range nonPublicRanges {
+		if r.Contains(ip) {
+			return false
+		}
+	}
+	return !ip.IsUnspecified() && !ip.IsLoopback() && !ip.IsPrivate() &&
+		!ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() && !ip.IsMulticast()
 }
 
 // validateURLScheme checks that the URL uses http or https scheme only.
@@ -211,6 +261,7 @@ func fetchFileSecure(ctx context.Context, fileURL string, client *http.Client) (
 	}
 
 	safeTransport := &http.Transport{
+		DisableKeepAlives: true,
 		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
 			host, port, err := net.SplitHostPort(addr)
 			if err != nil {
@@ -220,14 +271,28 @@ func fetchFileSecure(ctx context.Context, fileURL string, client *http.Client) (
 			if err != nil {
 				return nil, fmt.Errorf("cannot resolve host %s: %w", host, err)
 			}
+
+			var safeIPs []net.IPAddr
 			for _, ipAddr := range ips {
-				if isUnsafeIP(ipAddr.IP) {
-					return nil, fmt.Errorf("access to private/internal network address is not allowed")
+				if isPublicIP(ipAddr.IP) {
+					safeIPs = append(safeIPs, ipAddr)
 				}
 			}
-			// Dial the first resolved IP directly to prevent rebinding.
+			if len(safeIPs) == 0 {
+				return nil, fmt.Errorf("access to private/internal network address is not allowed")
+			}
+
 			dialer := &net.Dialer{}
-			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+			var lastErr error
+			for _, ipAddr := range safeIPs {
+				conn, dialErr := dialer.DialContext(ctx, network, net.JoinHostPort(ipAddr.IP.String(), port))
+				if dialErr != nil {
+					lastErr = dialErr
+					continue
+				}
+				return conn, nil
+			}
+			return nil, lastErr
 		},
 	}
 
