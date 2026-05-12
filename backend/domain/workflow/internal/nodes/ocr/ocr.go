@@ -147,11 +147,11 @@ func (c *Config) Adapt(_ context.Context, n *vo.Node, _ ...nodes.AdaptOption) (*
 		return nil, fmt.Errorf("unsupported OCR provider type: %s", c.Provider)
 	}
 
-	if ocrNode.Setting != nil {
-		if ocrNode.Setting.Timeout > 0 {
-			c.Timeout = time.Duration(ocrNode.Setting.Timeout) * time.Second
+	if ocrNode.OCRSetting != nil {
+		if ocrNode.OCRSetting.Timeout > 0 {
+			c.Timeout = time.Duration(ocrNode.OCRSetting.Timeout) * time.Second
 		}
-		retries := ocrNode.Setting.RetryTimes
+		retries := ocrNode.OCRSetting.RetryTimes
 		if retries < 0 {
 			retries = 0
 		} else if retries > 10 {
