@@ -229,20 +229,27 @@ const ProviderFields = () => {
   }
 };
 
-const Render = () => (
-  <NodeConfigForm>
+const FileInputField = () => {
+  const providerType: string = useWatch('inputs.providerType');
+  const isVision = providerType === OCRProviderType.OpenAIVision;
+
+  return (
     <Section title={I18n.t('node_ocr_file_input', {}, 'File Input')}>
       <ValueExpressionInputField
         name="inputs.inputParameters.0.input"
         inputType={ViewVariableType.File}
-        availableFileTypes={[
-          ViewVariableType.File,
-          ViewVariableType.Image,
-          ViewVariableType.Doc,
-        ]}
+        availableFileTypes={
+          isVision
+            ? [ViewVariableType.Image]
+            : [ViewVariableType.File, ViewVariableType.Image, ViewVariableType.Doc]
+        }
       />
     </Section>
+  );
+};
 
+const Render = () => (
+  <NodeConfigForm>
     <Section title={I18n.t('node_ocr_provider', {}, 'OCR Provider')}>
       <SelectField
         name="inputs.providerType"
@@ -251,6 +258,8 @@ const Render = () => (
         className="w-full"
       />
     </Section>
+
+    <FileInputField />
 
     <ProviderFields />
 

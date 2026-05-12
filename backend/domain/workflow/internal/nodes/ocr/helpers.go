@@ -183,23 +183,15 @@ func extractFileName(fileURL string) string {
 
 const maxFileSize = 20 * 1024 * 1024 // 20MB
 
-func isPrivateIP(ip net.IP) bool {
-	privateRanges := []net.IPNet{
-		{IP: net.IPv4(10, 0, 0, 0), Mask: net.CIDRMask(8, 32)},
-		{IP: net.IPv4(172, 16, 0, 0), Mask: net.CIDRMask(12, 32)},
-		{IP: net.IPv4(192, 168, 0, 0), Mask: net.CIDRMask(16, 32)},
-		{IP: net.IPv4(127, 0, 0, 0), Mask: net.CIDRMask(8, 32)},
-		{IP: net.IPv4(169, 254, 0, 0), Mask: net.CIDRMask(16, 32)},
-	}
-	for _, r := range privateRanges {
-		if r.Contains(ip) {
-			return true
-		}
-	}
-	return ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
+// isUnsafeIP checks if an IP address belongs to a private, loopback,
+// link-local, unspecified, or multicast range.
+func isUnsafeIP(ip net.IP) bool {
+	return ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified() || ip.IsMulticast()
 }
 
-func validateURLSafety(rawURL string) error {
+// validateURLScheme checks that the URL uses http or https scheme only.
+func validateURLScheme(rawURL string) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %w", err)
@@ -207,35 +199,50 @@ func validateURLSafety(rawURL string) error {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("unsupported URL scheme: %s (only http/https allowed)", u.Scheme)
 	}
-	host := u.Hostname()
-	ips, err := net.LookupIP(host)
-	if err != nil {
-		return fmt.Errorf("cannot resolve host %s: %w", host, err)
-	}
-	for _, ip := range ips {
-		if isPrivateIP(ip) {
-			return fmt.Errorf("access to private/internal network address is not allowed")
-		}
-	}
 	return nil
 }
 
 // fetchFileSecure downloads a file with context propagation, size limit,
-// and SSRF protection (scheme/IP validation, no redirect to private nets).
+// and SSRF protection. DNS resolution and IP validation happen inside a
+// custom DialContext to prevent DNS rebinding TOCTOU attacks.
 func fetchFileSecure(ctx context.Context, fileURL string, client *http.Client) (*urltobase64url.FileData, error) {
-	if err := validateURLSafety(fileURL); err != nil {
+	if err := validateURLScheme(fileURL); err != nil {
 		return nil, err
 	}
 
-	safeClient := *client
-	safeClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 5 {
-			return fmt.Errorf("too many redirects")
-		}
-		if err := validateURLSafety(req.URL.String()); err != nil {
-			return fmt.Errorf("redirect blocked: %w", err)
-		}
-		return nil
+	safeTransport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, fmt.Errorf("cannot resolve host %s: %w", host, err)
+			}
+			for _, ipAddr := range ips {
+				if isUnsafeIP(ipAddr.IP) {
+					return nil, fmt.Errorf("access to private/internal network address is not allowed")
+				}
+			}
+			// Dial the first resolved IP directly to prevent rebinding.
+			dialer := &net.Dialer{}
+			return dialer.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+		},
+	}
+
+	safeClient := &http.Client{
+		Timeout:   client.Timeout,
+		Transport: safeTransport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("too many redirects")
+			}
+			if err := validateURLScheme(req.URL.String()); err != nil {
+				return fmt.Errorf("redirect blocked: %w", err)
+			}
+			return nil
+		},
 	}
 
 	req, err := http.NewRequestWithContext(ctx, "GET", fileURL, nil)
