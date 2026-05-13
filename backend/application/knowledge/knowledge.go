@@ -63,6 +63,17 @@ type KnowledgeApplicationService struct {
 
 var KnowledgeSVC = &KnowledgeApplicationService{}
 
+// ListRagModelProviders fetches the available embedding model providers from rag.
+// Returns ErrRagFeaturePendingCode when the active backend is legacy — the
+// frontend's create-KB modal uses this to decide whether to show the model
+// selector at all.
+func (k *KnowledgeApplicationService) ListRagModelProviders(ctx context.Context) (*ragcontract.ListModelProvidersResponse, error) {
+	if k.rag == nil {
+		return nil, errorx.New(errno.ErrRagFeaturePendingCode, errorx.KV("msg", "model providers proxy requires KNOWLEDGE_BACKEND=rag"))
+	}
+	return k.rag.ListModelProviders(ctx)
+}
+
 func (k *KnowledgeApplicationService) deleteKnowledgeInternal(ctx context.Context, knowledgeID int64) error {
 	err := k.DomainSVC.DeleteKnowledge(ctx, &service.DeleteKnowledgeRequest{
 		KnowledgeID: knowledgeID,

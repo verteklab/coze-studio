@@ -136,6 +136,9 @@ func Register(r *server.Hertz) {
 			_knowledge0.POST("/detail", append(_datasetdetailMw(), coze.DatasetDetail)...)
 			_knowledge0.POST("/list", append(_listdatasetMw(), coze.ListDataset)...)
 			_knowledge0.POST("/update", append(_updatedatasetMw(), coze.UpdateDataset)...)
+			// PR-1: rag-backend-only proxy. Not driven by the IDL; the handler
+			// short-circuits to ErrRagFeaturePendingCode when KNOWLEDGE_BACKEND=legacy.
+			_knowledge0.GET("/rag/model_providers", coze.ListRagModelProviders)
 			{
 				_document := _knowledge0.Group("/document", _documentMw()...)
 				_document.POST("/create", append(_createdocumentMw(), coze.CreateDocument)...)
