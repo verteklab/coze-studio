@@ -41,6 +41,49 @@ import { type MockSet } from '@coze-arch/bot-api/debugger_api';
 
 import s from './index.module.less';
 
+// 工作流页跳转插件详情时透传的 returnUrl 标记：
+// 一旦命中，layout 已渲染「返回工作流」按钮，此处的「返回」面包屑就不再重复展示
+const WORKFLOW_RETURN_URL_KEY = 'workflowReturnUrl';
+
+const isEmbeddedInIframe = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  try {
+    return window.self !== window.top;
+  } catch (error) {
+    void error;
+    return true;
+  }
+};
+
+const hasWorkflowReturnUrl = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('returnUrl')) {
+      return true;
+    }
+  } catch (error) {
+    void error;
+  }
+  try {
+    if (sessionStorage.getItem(WORKFLOW_RETURN_URL_KEY)) {
+      return true;
+    }
+  } catch (error) {
+    void error;
+  }
+  try {
+    return Boolean(localStorage.getItem(WORKFLOW_RETURN_URL_KEY));
+  } catch (error) {
+    void error;
+    return false;
+  }
+};
+
 export interface BreadCrumbProps extends SemiBreadcrumbProps {
   botInfo?: DraftBot;
   datasetInfo?: DataSetInfo;
@@ -139,6 +182,11 @@ export const UIBreadcrumb: React.FC<BreadCrumbProps> = ({
       if (mockSetInfo?.name) {
         onBackClick = goBackToMockSetList;
       }
+    }
+    // iframe 嵌入 + 工作流 returnUrl 场景下，layout 已经展示「返回工作流」按钮，
+    // 此处的「返回」会与之重复，直接隐藏
+    if (isEmbeddedInIframe() && hasWorkflowReturnUrl()) {
+      return [];
     }
     breadCrumbList = [
       <Button
