@@ -65,36 +65,32 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 		ragKBIDs = append(ragKBIDs, k.RagKBID)
 	}
 
-	// Optional doc scoping: translate coze doc ids to rag uuids.
-	var ragDocIDs []string
+	// Doc-level scoping is not yet supported: rag's /api/v1/retrieval has no
+	// top-level `doc_ids` parameter (verified against rag OpenAPI, May 2026).
+	// Once rag exposes filtering by doc ids — likely via Filters with a
+	// well-known metadata key — translate req.DocumentIDs and inject it
+	// there. For now, surface the limitation via a warning so callers that
+	// pass DocumentIDs notice their scope isn't enforced.
 	if len(req.DocumentIDs) > 0 {
-		docs, err := i.mapping.DocsByCozeIDs(ctx, req.DocumentIDs)
-		if err != nil {
-			return nil, err
-		}
-		ragDocIDs = make([]string, 0, len(docs))
-		for _, d := range docs {
-			ragDocIDs = append(ragDocIDs, d.RagDocID)
-		}
+		logs.CtxWarnf(ctx, "ragimpl.Retrieve: DocumentIDs scoping requested but rag /retrieval does not yet support doc-level filters; ignoring %d ids", len(req.DocumentIDs))
 	}
 
 	ragReq := &contract.RetrieveRequest{
-		TenantID:  tenant,
 		KBIDs:     ragKBIDs,
-		DocIDs:    ragDocIDs,
-		Query:     req.Query,
 		QueryMode: "text_input",
+	}
+	if req.Query != "" {
+		q := req.Query
+		ragReq.Query = &q
 	}
 	if req.Strategy != nil {
 		if req.Strategy.TopK != nil {
-			ragReq.TopK = int(*req.Strategy.TopK)
+			topK := int(*req.Strategy.TopK)
+			ragReq.TopK = &topK
 		}
-		if req.Strategy.MinScore != nil {
-			ragReq.MinScore = *req.Strategy.MinScore
-		}
-		if req.Strategy.MaxTokens != nil {
-			ragReq.MaxTokens = int(*req.Strategy.MaxTokens)
-		}
+		// MinScore / MaxTokens are coze-side post-filter knobs; rag does not
+		// accept them on /retrieval. We leave them un-applied here; the
+		// service-layer caller already trims by MinScore after the call.
 		switch req.Strategy.SearchType {
 		case knowledgeModel.SearchTypeFullText:
 			ragReq.SearchType = "fulltext"
@@ -104,23 +100,23 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 			ragReq.SearchType = "semantic"
 		}
 		if req.Strategy.EnableQueryRewrite {
-			ragReq.QueryStrat = map[string]any{"rewrite": true}
+			ragReq.QueryStrategy = map[string]any{"rewrite": true}
 		}
-		if req.Strategy.EnableRerank {
-			ragReq.Rerank = map[string]any{"enabled": true}
-		}
+		// EnableRerank is exposed through fusion_policy or retriever_params on
+		// rag; the precise mapping is pending (see rag/docs §10.5). Leaving
+		// the field un-translated keeps us forward-compatible.
 	}
 
-	resp, err := i.rag.Retrieve(ctx, ragReq)
+	resp, err := i.rag.Retrieve(ctx, tenant, ragReq)
 	if err != nil {
 		return nil, err
 	}
 
 	// Translate hits. Chunk-level int64 ids are not stable across rag yet
 	// (rag returns string chunk uuids), so Slice.Info.ID is left as 0 in v1.
-	slices := make([]*knowledgeModel.RetrieveSlice, 0, len(resp.Hits))
-	for idx := range resp.Hits {
-		h := resp.Hits[idx]
+	slices := make([]*knowledgeModel.RetrieveSlice, 0, len(resp.Items))
+	for idx := range resp.Items {
+		h := resp.Items[idx]
 		m, err := i.mapping.docByRagID(ctx, h.DocID)
 		if err != nil {
 			// Hit from a doc we don't have a coze handle for -- drift or another

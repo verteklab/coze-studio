@@ -19,33 +19,37 @@ package rag
 import "context"
 
 // Client is the abstraction over the rag HTTP service that ragimpl depends on.
-// All methods are tenant-scoped via the request bodies; the underlying HTTP
-// client never invents a tenant_id.
+// Every business-endpoint method takes an explicit tenantID — the HTTP impl
+// forwards it via the X-Tenant-Id request header. The interface intentionally
+// surfaces tenant as an argument (not a hidden context value) so the data flow
+// is visible at every call site.
 //
 //go:generate mockgen -destination ../../../internal/mock/infra/rag/client_mock.go -package mock -source client.go Client
 type Client interface {
-	// Health
+	// Health probes /ready. The tenant header is NOT sent.
 	Ready(ctx context.Context) error
 
-	// Model providers (used by the create-KB proxy)
-	ListModelProviders(ctx context.Context) (*ListModelProvidersResponse, error)
+	// Model providers (used by the create-KB proxy).
+	// rag's /api/v1/model-providers ignores tenant; we still pass the resolver's
+	// value so logs and traces correlate cleanly across endpoints.
+	ListModelProviders(ctx context.Context, tenantID string) (*ListModelProvidersResponse, error)
 
-	// Knowledge bases
-	CreateKB(ctx context.Context, req *CreateKBRequest) (*KB, error)
+	// Knowledge bases.
+	CreateKB(ctx context.Context, tenantID string, req *CreateKBRequest) (*KB, error)
 	GetKB(ctx context.Context, tenantID, kbID string) (*KB, error)
 	UpdateKB(ctx context.Context, tenantID, kbID string, req *UpdateKBRequest) (*KB, error)
 	DeleteKB(ctx context.Context, tenantID, kbID string) error
 	ListKBs(ctx context.Context, req *ListKBsRequest) (*ListKBsResponse, error)
 
-	// Documents
-	CreateDocument(ctx context.Context, kbID string, req *CreateDocumentRequest) (*CreateDocumentResponse, error)
-	GetDocument(ctx context.Context, tenantID, docID string) (*Document, error)
+	// Documents — all nested under their KB on the rag side.
+	CreateDocument(ctx context.Context, tenantID, kbID string, req *CreateDocumentRequest) (*CreateDocumentResponse, error)
+	GetDocument(ctx context.Context, tenantID, kbID, docID string) (*Document, error)
 	ListDocuments(ctx context.Context, tenantID, kbID string, page, pageSize int) (*ListDocumentsResponse, error)
-	DeleteDocument(ctx context.Context, tenantID, docID string) error
+	DeleteDocument(ctx context.Context, tenantID, kbID, docID string) error
 
-	// Tasks
+	// Tasks.
 	GetTask(ctx context.Context, tenantID, taskID string) (*Task, error)
 
-	// Retrieval
-	Retrieve(ctx context.Context, req *RetrieveRequest) (*RetrieveResponse, error)
+	// Retrieval.
+	Retrieve(ctx context.Context, tenantID string, req *RetrieveRequest) (*RetrieveResponse, error)
 }

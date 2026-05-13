@@ -33,8 +33,12 @@ import (
 // fakeClient implements contract.Client with overridable per-method hooks.
 // Methods without a hook return zero/nil values; tests set only the hooks they
 // care about and read back captured request fields via the F* fields.
+//
+// The captured-tenant fields exist so tests can assert that ragimpl forwards
+// the tenant from the resolver into every business call.
 type fakeClient struct {
 	// Capture: most recently received request payload for the relevant method.
+	createKBTenant  string
 	createKBReq     *contract.CreateKBRequest
 	updateKBTenant  string
 	updateKBID      string
@@ -44,41 +48,46 @@ type fakeClient struct {
 	deleteKBCalls   int
 	getKBTenant     string
 	listKBsReq      *contract.ListKBsRequest
+	createDocTenant string
 	createDocKBID   string
 	createDocReq    *contract.CreateDocumentRequest
 	deleteDocTenant string
+	deleteDocKBID   string
 	deleteDocID     string
 	listDocsTenant  string
 	listDocsKBID    string
 	getDocTenant    string
+	getDocKBID      string
 	getTaskTenant   string
 	getTaskID       string
+	retrieveTenant  string
 	retrieveReq     *contract.RetrieveRequest
 
 	// Stubs: override return values from the test.
-	createKBFunc  func(*contract.CreateKBRequest) (*contract.KB, error)
+	createKBFunc  func(tenantID string, req *contract.CreateKBRequest) (*contract.KB, error)
 	deleteKBFunc  func(tenantID, kbID string) error
 	getKBFunc     func(tenantID, kbID string) (*contract.KB, error)
 	updateKBFunc  func(tenantID, kbID string, req *contract.UpdateKBRequest) (*contract.KB, error)
 	listKBsFunc   func(*contract.ListKBsRequest) (*contract.ListKBsResponse, error)
-	createDocFunc func(kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error)
-	deleteDocFunc func(tenantID, docID string) error
+	createDocFunc func(tenantID, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error)
+	deleteDocFunc func(tenantID, kbID, docID string) error
 	listDocsFunc  func(tenantID, kbID string, page, pageSize int) (*contract.ListDocumentsResponse, error)
-	getDocFunc    func(tenantID, docID string) (*contract.Document, error)
+	getDocFunc    func(tenantID, kbID, docID string) (*contract.Document, error)
 	getTaskFunc   func(tenantID, taskID string) (*contract.Task, error)
-	retrieveFunc  func(*contract.RetrieveRequest) (*contract.RetrieveResponse, error)
+	retrieveFunc  func(tenantID string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error)
 }
 
 func (f *fakeClient) Ready(_ context.Context) error { return nil }
 
-func (f *fakeClient) ListModelProviders(_ context.Context) (*contract.ListModelProvidersResponse, error) {
+func (f *fakeClient) ListModelProviders(_ context.Context, _ string) (*contract.ListModelProvidersResponse, error) {
 	return &contract.ListModelProvidersResponse{}, nil
 }
 
-func (f *fakeClient) CreateKB(_ context.Context, req *contract.CreateKBRequest) (*contract.KB, error) {
+func (f *fakeClient) CreateKB(_ context.Context, tenantID string, req *contract.CreateKBRequest) (*contract.KB, error) {
+	f.createKBTenant = tenantID
 	f.createKBReq = req
 	if f.createKBFunc != nil {
-		return f.createKBFunc(req)
+		return f.createKBFunc(tenantID, req)
 	}
 	return &contract.KB{KBID: "rag-kb-default", Name: req.Name, Status: "active", CreatedAt: time.Now(), UpdatedAt: time.Now()}, nil
 }
@@ -116,18 +125,18 @@ func (f *fakeClient) ListKBs(_ context.Context, req *contract.ListKBsRequest) (*
 	return &contract.ListKBsResponse{}, nil
 }
 
-func (f *fakeClient) CreateDocument(_ context.Context, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
-	f.createDocKBID, f.createDocReq = kbID, req
+func (f *fakeClient) CreateDocument(_ context.Context, tenantID, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
+	f.createDocTenant, f.createDocKBID, f.createDocReq = tenantID, kbID, req
 	if f.createDocFunc != nil {
-		return f.createDocFunc(kbID, req)
+		return f.createDocFunc(tenantID, kbID, req)
 	}
 	return &contract.CreateDocumentResponse{DocID: "rag-doc-default", TaskID: "task-default", Status: "pending"}, nil
 }
 
-func (f *fakeClient) GetDocument(_ context.Context, tenantID, docID string) (*contract.Document, error) {
-	f.getDocTenant = tenantID
+func (f *fakeClient) GetDocument(_ context.Context, tenantID, kbID, docID string) (*contract.Document, error) {
+	f.getDocTenant, f.getDocKBID = tenantID, kbID
 	if f.getDocFunc != nil {
-		return f.getDocFunc(tenantID, docID)
+		return f.getDocFunc(tenantID, kbID, docID)
 	}
 	return &contract.Document{DocID: docID, Status: "ready"}, nil
 }
@@ -140,10 +149,10 @@ func (f *fakeClient) ListDocuments(_ context.Context, tenantID, kbID string, pag
 	return &contract.ListDocumentsResponse{}, nil
 }
 
-func (f *fakeClient) DeleteDocument(_ context.Context, tenantID, docID string) error {
-	f.deleteDocTenant, f.deleteDocID = tenantID, docID
+func (f *fakeClient) DeleteDocument(_ context.Context, tenantID, kbID, docID string) error {
+	f.deleteDocTenant, f.deleteDocKBID, f.deleteDocID = tenantID, kbID, docID
 	if f.deleteDocFunc != nil {
-		return f.deleteDocFunc(tenantID, docID)
+		return f.deleteDocFunc(tenantID, kbID, docID)
 	}
 	return nil
 }
@@ -156,10 +165,10 @@ func (f *fakeClient) GetTask(_ context.Context, tenantID, taskID string) (*contr
 	return &contract.Task{TaskID: taskID, Status: "success"}, nil
 }
 
-func (f *fakeClient) Retrieve(_ context.Context, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
-	f.retrieveReq = req
+func (f *fakeClient) Retrieve(_ context.Context, tenantID string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+	f.retrieveTenant, f.retrieveReq = tenantID, req
 	if f.retrieveFunc != nil {
-		return f.retrieveFunc(req)
+		return f.retrieveFunc(tenantID, req)
 	}
 	return &contract.RetrieveResponse{}, nil
 }
@@ -218,7 +227,7 @@ func newTestImpl(t *testing.T, fc *fakeClient, ids ...int64) *Impl {
 //   - a mapping row is inserted with the audit fields and the freshly-generated coze id
 func TestCreateKnowledge_HappyPath(t *testing.T) {
 	fc := &fakeClient{
-		createKBFunc: func(_ *contract.CreateKBRequest) (*contract.KB, error) {
+		createKBFunc: func(_ string, _ *contract.CreateKBRequest) (*contract.KB, error) {
 			return &contract.KB{
 				KBID: "rag-kb-7", Name: "n", Status: "active",
 				CreatedAt: time.Unix(1700000000, 0), UpdatedAt: time.Unix(1700000000, 0),
@@ -234,7 +243,8 @@ func TestCreateKnowledge_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(999), resp.KnowledgeID)
 	require.NotNil(t, fc.createKBReq)
-	require.Equal(t, "test-tenant", fc.createKBReq.TenantID, "tenant must come from resolver, not SpaceID")
+	// Tenant is passed as a header (argument), not as a request-body field.
+	require.Equal(t, "test-tenant", fc.createKBTenant, "tenant must come from resolver, not SpaceID")
 	require.Equal(t, "text-model-default", fc.createKBReq.TextEmbeddingModelID)
 	require.Equal(t, "image-model-default", fc.createKBReq.ImageEmbeddingModelID)
 	require.NotEmpty(t, fc.createKBReq.EnabledChunkTypes)
@@ -254,7 +264,7 @@ func TestCreateKnowledge_HappyPath(t *testing.T) {
 // on for forwarding optional CreateDatasetRequest fields into rag.
 func TestCreateKnowledge_ContextModelOverride(t *testing.T) {
 	fc := &fakeClient{
-		createKBFunc: func(_ *contract.CreateKBRequest) (*contract.KB, error) {
+		createKBFunc: func(_ string, _ *contract.CreateKBRequest) (*contract.KB, error) {
 			return &contract.KB{KBID: "u", Status: "active", CreatedAt: time.Unix(0, 0), UpdatedAt: time.Unix(0, 0)}, nil
 		},
 	}
@@ -272,7 +282,7 @@ func TestCreateKnowledge_ContextModelOverride(t *testing.T) {
 // instead of clobbering it to "".
 func TestCreateKnowledge_ContextModelOverridePartial(t *testing.T) {
 	fc := &fakeClient{
-		createKBFunc: func(_ *contract.CreateKBRequest) (*contract.KB, error) {
+		createKBFunc: func(_ string, _ *contract.CreateKBRequest) (*contract.KB, error) {
 			return &contract.KB{KBID: "u", Status: "active", CreatedAt: time.Unix(0, 0), UpdatedAt: time.Unix(0, 0)}, nil
 		},
 	}

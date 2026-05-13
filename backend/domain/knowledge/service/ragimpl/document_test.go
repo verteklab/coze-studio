@@ -34,7 +34,7 @@ import (
 // via RagStatusToEntity (rag "pending" -> coze DocumentStatusInit).
 func TestCreateDocument_InsertsMapping(t *testing.T) {
 	fc := &fakeClient{
-		createDocFunc: func(_ string, _ *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
+		createDocFunc: func(_, _ string, _ *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
 			return &contract.CreateDocumentResponse{DocID: "rag-doc-A", TaskID: "task-A", Status: "pending"}, nil
 		},
 	}
@@ -55,9 +55,10 @@ func TestCreateDocument_InsertsMapping(t *testing.T) {
 	require.Equal(t, int64(7777), resp.Documents[0].ID)
 	require.Equal(t, entity.DocumentStatusInit, resp.Documents[0].Status)
 
-	// rag.CreateDocument was called with tenant from resolver + correct modality.
+	// rag.CreateDocument was called with tenant from resolver (header arg) +
+	// correct modality. Tenant is no longer in the request body.
 	require.Equal(t, "rag-kb-100", fc.createDocKBID)
-	require.Equal(t, "test-tenant", fc.createDocReq.TenantID)
+	require.Equal(t, "test-tenant", fc.createDocTenant)
 	require.Equal(t, "text_source", fc.createDocReq.SourceModality)
 
 	// Mapping row inserted with rag_doc_id and last_task_id.
