@@ -144,3 +144,10 @@ const (
 	KnowledgeConfigSpace = "kv_knowledge_ns"
 	ModelConfigSpace     = "kv_model_ns"
 )
+
+const (
+	KnowledgeBackendEnv = "KNOWLEDGE_BACKEND" // "legacy" | "rag"
+	RagBaseURLEnv       = "RAG_BASE_URL"
+	RagTenantModeEnv    = "RAG_TENANT_MODE" // "env" (Phase 1) | "user" (Phase 2)
+	RagTenantIDEnv      = "RAG_TENANT_ID"   // used when RAG_TENANT_MODE=env
+)
