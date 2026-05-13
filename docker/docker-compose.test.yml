@@ -1,0 +1,72 @@
+# Ephemeral rag stack for CI / integration tests.
+#
+# Usage:
+#   docker compose -f docker-compose.test.yml up --build --abort-on-container-exit
+#
+# - All data lives in tmpfs (lost when containers stop).
+# - Port 8000 is exposed on the host so tests can hit rag-web directly.
+# - Isolated coze-test network (not coze-network) to avoid colliding with a
+#   running dev stack on the same machine.
+
+services:
+  rag-mongo-test:
+    image: mongo:7
+    tmpfs:
+      - /data/db
+    networks:
+      - coze-test
+
+  rag-es-test:
+    image: elasticsearch:8.11.4
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    tmpfs:
+      - /usr/share/elasticsearch/data
+    networks:
+      - coze-test
+
+  rag-redis-test:
+    image: redis:7-alpine
+    networks:
+      - coze-test
+
+  rag-minio-test:
+    image: minio/minio:latest
+    command: server /data
+    environment:
+      - MINIO_ROOT_USER=ragadmin
+      - MINIO_ROOT_PASSWORD=ragsecret123
+    tmpfs:
+      - /data
+    networks:
+      - coze-test
+
+  rag-web-test:
+    build:
+      context: ../../rag
+      dockerfile: Dockerfile
+    command: uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URL=mongodb://rag-mongo-test:27017
+      - MONGODB_DB_NAME=rag_test
+      - ES_URL=http://rag-es-test:9200
+      - REDIS_URL=redis://rag-redis-test:6379/0
+      - MINIO_ENDPOINT=rag-minio-test:9000
+      - MINIO_ACCESS_KEY=ragadmin
+      - MINIO_SECRET_KEY=ragsecret123
+      - MINIO_BUCKET=rag-test
+    depends_on:
+      - rag-mongo-test
+      - rag-es-test
+      - rag-redis-test
+      - rag-minio-test
+    networks:
+      - coze-test
+
+networks:
+  coze-test:
+    driver: bridge

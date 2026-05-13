@@ -1,0 +1,108 @@
+# Optional rag stack — overlay on top of docker-compose.yml.
+#
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.rag.yml up
+#
+# Build context assumes the sibling layout:
+#   <parent>/coze-studio/
+#   <parent>/rag/           <- the rag service repository
+#
+# All services join coze-network (declared in docker-compose.yml) so the coze
+# backend can resolve rag-web at http://rag-web:8000 when the feature flag
+# KNOWLEDGE_BACKEND=rag is enabled.
+
+services:
+  rag-mongo:
+    image: mongo:7
+    container_name: coze-rag-mongo
+    restart: always
+    volumes:
+      - rag-mongo-data:/data/db
+    networks:
+      - coze-network
+
+  rag-elasticsearch:
+    image: elasticsearch:8.11.4
+    container_name: coze-rag-elasticsearch
+    restart: always
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    volumes:
+      - rag-es-data:/usr/share/elasticsearch/data
+    networks:
+      - coze-network
+
+  rag-redis:
+    image: redis:7-alpine
+    container_name: coze-rag-redis
+    restart: always
+    networks:
+      - coze-network
+
+  rag-minio:
+    image: minio/minio:latest
+    container_name: coze-rag-minio
+    restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      - MINIO_ROOT_USER=ragadmin
+      - MINIO_ROOT_PASSWORD=${RAG_MINIO_PASSWORD:-ragsecret123}
+    volumes:
+      - rag-minio-data:/data
+    networks:
+      - coze-network
+
+  rag-web:
+    build:
+      context: ../../rag
+      dockerfile: Dockerfile
+    container_name: coze-rag-web
+    restart: always
+    command: uvicorn app.main:create_app --factory --host 0.0.0.0 --port 8000
+    environment:
+      - MONGODB_URL=mongodb://rag-mongo:27017
+      - MONGODB_DB_NAME=rag
+      - ES_URL=http://rag-elasticsearch:9200
+      - REDIS_URL=redis://rag-redis:6379/0
+      - MINIO_ENDPOINT=rag-minio:9000
+      - MINIO_ACCESS_KEY=ragadmin
+      - MINIO_SECRET_KEY=${RAG_MINIO_PASSWORD:-ragsecret123}
+      - MINIO_BUCKET=rag
+    depends_on:
+      - rag-mongo
+      - rag-elasticsearch
+      - rag-redis
+      - rag-minio
+    networks:
+      - coze-network
+
+  rag-worker:
+    build:
+      context: ../../rag
+      dockerfile: Dockerfile
+    container_name: coze-rag-worker
+    restart: always
+    command: celery -A app.infrastructure.queue.celery_app:celery_app worker --loglevel=info -Q rag.ingestion --concurrency=2
+    environment:
+      - MONGODB_URL=mongodb://rag-mongo:27017
+      - MONGODB_DB_NAME=rag
+      - ES_URL=http://rag-elasticsearch:9200
+      - REDIS_URL=redis://rag-redis:6379/0
+      - MINIO_ENDPOINT=rag-minio:9000
+      - MINIO_ACCESS_KEY=ragadmin
+      - MINIO_SECRET_KEY=${RAG_MINIO_PASSWORD:-ragsecret123}
+      - MINIO_BUCKET=rag
+    depends_on:
+      - rag-mongo
+      - rag-elasticsearch
+      - rag-redis
+      - rag-minio
+    networks:
+      - coze-network
+
+volumes:
+  rag-mongo-data:
+  rag-es-data:
+  rag-minio-data:
