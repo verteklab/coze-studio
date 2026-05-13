@@ -48,7 +48,10 @@ func TestUnsupported_AllReturnFeaturePending(t *testing.T) {
 		{"GetAlterTableSchema", func() error { _, e := i.GetAlterTableSchema(ctx, &service.AlterTableSchemaRequest{}); return e }},
 		{"ValidateTableSchema", func() error { _, e := i.ValidateTableSchema(ctx, &service.ValidateTableSchemaRequest{}); return e }},
 		{"GetDocumentTableInfo", func() error { _, e := i.GetDocumentTableInfo(ctx, &service.GetDocumentTableInfoRequest{}); return e }},
-		{"GetImportDataTableSchema", func() error { _, e := i.GetImportDataTableSchema(ctx, &service.ImportDataTableSchemaRequest{}); return e }},
+		{"GetImportDataTableSchema", func() error {
+			_, e := i.GetImportDataTableSchema(ctx, &service.ImportDataTableSchemaRequest{})
+			return e
+		}},
 		{"ExtractPhotoCaption", func() error { _, e := i.ExtractPhotoCaption(ctx, &service.ExtractPhotoCaptionRequest{}); return e }},
 		{"CreateDocumentReview", func() error { _, e := i.CreateDocumentReview(ctx, &service.CreateDocumentReviewRequest{}); return e }},
 		{"MGetDocumentReview", func() error { _, e := i.MGetDocumentReview(ctx, &service.MGetDocumentReviewRequest{}); return e }},
