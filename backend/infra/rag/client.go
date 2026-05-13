@@ -33,11 +33,7 @@ import (
 )
 
 // Compile-time check that *Client satisfies the rag contract.
-//
-// Intentionally commented out in Task 5: only Ready() is implemented at this
-// point. Tasks 6, 7, 8 add the remaining endpoint methods; Task 8 restores
-// this assertion once the full surface is in place.
-// var _ contract.Client = (*Client)(nil)
+var _ contract.Client = (*Client)(nil)
 
 // Client is the HTTP client used to talk to the rag service. It is safe for
 // concurrent use; the underlying *http.Client is shared across all requests.
@@ -236,6 +232,14 @@ func (c *Client) GetTask(ctx context.Context, tenantID, taskID string) (*contrac
 	out := &contract.Task{}
 	path := "/tasks/" + taskID + "?tenant_id=" + tenantID
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) Retrieve(ctx context.Context, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+	out := &contract.RetrieveResponse{}
+	if err := c.doJSON(ctx, http.MethodPost, "/retrieval", req, out, time.Duration(c.cfg.RetrievalTimeoutMs)*time.Millisecond); err != nil {
 		return nil, err
 	}
 	return out, nil
