@@ -1,0 +1,18 @@
+rag:
+  base_url: "${RAG_BASE_URL:http://rag-web:8000}"
+  timeout_ms: 10000
+  upload_timeout_ms: 60000
+  retrieval_timeout_ms: 15000
+  max_retries: 2
+  retry_backoff_ms: 200
+  default_text_embedding_model_id: "${RAG_DEFAULT_TEXT_EMBEDDING_MODEL_ID}"
+  default_image_embedding_model_id: "${RAG_DEFAULT_IMAGE_EMBEDDING_MODEL_ID}"
+
+# NOTE: no auth_token field. rag has no service-to-service auth; coze relies on
+# network isolation (rag bound to internal Docker network). See spec §11 risk #1.
+
+knowledge:
+  backend: "${KNOWLEDGE_BACKEND:legacy}"  # legacy | rag
+  tenant:
+    mode: "${RAG_TENANT_MODE:env}"               # env (Phase 1) | user (Phase 2; future)
+    default_tenant_id: "${RAG_TENANT_ID:coze}"   # used when mode=env
