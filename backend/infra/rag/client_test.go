@@ -160,3 +160,28 @@ func TestDeleteDocument_NotRetried(t *testing.T) {
 		t.Fatalf("expected 2 calls (1 + 1 retry), got %d", calls)
 	}
 }
+
+func TestRetrieve(t *testing.T) {
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/retrieval" || r.Method != http.MethodPost {
+			t.Fatalf("got %s %s", r.Method, r.URL.Path)
+		}
+		var req contract.RetrieveRequest
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		if req.TenantID != "42" || len(req.KBIDs) != 2 {
+			t.Fatalf("bad req: %+v", req)
+		}
+		_ = json.NewEncoder(w).Encode(contract.RetrieveResponse{
+			Hits: []contract.RetrieveHit{{ChunkID: "c1", DocID: "d1", Score: 0.9, Content: "hello"}},
+		})
+	}))
+	out, err := c.Retrieve(context.Background(), &contract.RetrieveRequest{
+		TenantID: "42", KBIDs: []string{"a", "b"}, Query: "hi", QueryMode: "text_input",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Hits) != 1 || out.Hits[0].Content != "hello" {
+		t.Fatalf("got %+v", out)
+	}
+}
