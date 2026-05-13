@@ -89,7 +89,7 @@ func (f *fakeClient) CreateKB(_ context.Context, tenantID string, req *contract.
 	if f.createKBFunc != nil {
 		return f.createKBFunc(tenantID, req)
 	}
-	return &contract.KB{KBID: "rag-kb-default", Name: req.Name, Status: "active", CreatedAt: time.Now(), UpdatedAt: time.Now()}, nil
+	return &contract.KB{KBID: "rag-kb-default", Name: req.Name, Status: "active", CreatedAt: contract.RagTime(time.Now()), UpdatedAt: contract.RagTime(time.Now())}, nil
 }
 
 func (f *fakeClient) GetKB(_ context.Context, tenantID, kbID string) (*contract.KB, error) {
@@ -97,7 +97,7 @@ func (f *fakeClient) GetKB(_ context.Context, tenantID, kbID string) (*contract.
 	if f.getKBFunc != nil {
 		return f.getKBFunc(tenantID, kbID)
 	}
-	return &contract.KB{KBID: kbID, Name: "stub", Status: "active", CreatedAt: time.Now(), UpdatedAt: time.Now()}, nil
+	return &contract.KB{KBID: kbID, Name: "stub", Status: "active", CreatedAt: contract.RagTime(time.Now()), UpdatedAt: contract.RagTime(time.Now())}, nil
 }
 
 func (f *fakeClient) UpdateKB(_ context.Context, tenantID, kbID string, req *contract.UpdateKBRequest) (*contract.KB, error) {
@@ -230,7 +230,7 @@ func TestCreateKnowledge_HappyPath(t *testing.T) {
 		createKBFunc: func(_ string, _ *contract.CreateKBRequest) (*contract.KB, error) {
 			return &contract.KB{
 				KBID: "rag-kb-7", Name: "n", Status: "active",
-				CreatedAt: time.Unix(1700000000, 0), UpdatedAt: time.Unix(1700000000, 0),
+				CreatedAt: contract.RagTime(time.Unix(1700000000, 0)), UpdatedAt: contract.RagTime(time.Unix(1700000000, 0)),
 			}, nil
 		},
 	}
@@ -265,7 +265,7 @@ func TestCreateKnowledge_HappyPath(t *testing.T) {
 func TestCreateKnowledge_ContextModelOverride(t *testing.T) {
 	fc := &fakeClient{
 		createKBFunc: func(_ string, _ *contract.CreateKBRequest) (*contract.KB, error) {
-			return &contract.KB{KBID: "u", Status: "active", CreatedAt: time.Unix(0, 0), UpdatedAt: time.Unix(0, 0)}, nil
+			return &contract.KB{KBID: "u", Status: "active", CreatedAt: contract.RagTime(time.Unix(0, 0)), UpdatedAt: contract.RagTime(time.Unix(0, 0))}, nil
 		},
 	}
 	i := newTestImpl(t, fc, 1)
@@ -283,7 +283,7 @@ func TestCreateKnowledge_ContextModelOverride(t *testing.T) {
 func TestCreateKnowledge_ContextModelOverridePartial(t *testing.T) {
 	fc := &fakeClient{
 		createKBFunc: func(_ string, _ *contract.CreateKBRequest) (*contract.KB, error) {
-			return &contract.KB{KBID: "u", Status: "active", CreatedAt: time.Unix(0, 0), UpdatedAt: time.Unix(0, 0)}, nil
+			return &contract.KB{KBID: "u", Status: "active", CreatedAt: contract.RagTime(time.Unix(0, 0)), UpdatedAt: contract.RagTime(time.Unix(0, 0))}, nil
 		},
 	}
 	i := newTestImpl(t, fc, 2)
