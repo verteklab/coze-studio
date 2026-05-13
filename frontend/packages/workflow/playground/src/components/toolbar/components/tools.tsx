@@ -36,6 +36,33 @@ import { AddNode } from './add-node';
 
 import css from './tools.module.less';
 
+// 与 start-test-run-button 中的可见性规则保持一致：
+// iframe 嵌入下，除非 URL 上携带 isManage=true，否则视为「只读预览」态，
+// 不仅试运行按钮要隐藏，承载它的整个右侧 section（含 OpenTrace、RoleButton）一并隐藏，
+// 避免空壳容器留下一个圆角矩形
+const isTestRunSectionHidden = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  let inIframe = false;
+  try {
+    inIframe = window.self !== window.top;
+  } catch (error) {
+    void error;
+    inIframe = true;
+  }
+  if (!inIframe) {
+    return false;
+  }
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('isManage') !== 'true';
+  } catch (error) {
+    void error;
+    return true;
+  }
+};
+
 export const Tools = (props: ITool) => {
   const templateState = useTemplateService();
 
@@ -43,6 +70,7 @@ export const Tools = (props: ITool) => {
   const { isChatflow } = useGlobalState();
   const enableAddNode = !playground.config.readonly;
   const toolbarRef = useRef<HTMLDivElement>();
+  const hideTestRunSection = isTestRunSectionHidden();
   return (
     <div
       className={cls(
@@ -64,26 +92,28 @@ export const Tools = (props: ITool) => {
           </>
         ) : null}
       </div>
-      <div className={cls(css['tools-section'], css['test-run'])}>
-        {isChatflow ? <RoleButton /> : null}
-        {/* The operation and maintenance platform does not need debugging and practice running, just need to view the information to troubleshoot problems */}
-        {IS_BOT_OP ? (
-          <OpenTraceButton />
-        ) : (
-          <>
-            {isChatflow ? (
-              <Divider
-                layout="vertical"
-                style={{ height: '16px' }}
-                margin={3}
-              />
-            ) : null}
-            {/* will support soon */}
-            {!IS_OPEN_SOURCE && <OpenTraceButton />}
-            <StartTestRunButton />
-          </>
-        )}
-      </div>
+      {hideTestRunSection ? null : (
+        <div className={cls(css['tools-section'], css['test-run'])}>
+          {isChatflow ? <RoleButton /> : null}
+          {/* The operation and maintenance platform does not need debugging and practice running, just need to view the information to troubleshoot problems */}
+          {IS_BOT_OP ? (
+            <OpenTraceButton />
+          ) : (
+            <>
+              {isChatflow ? (
+                <Divider
+                  layout="vertical"
+                  style={{ height: '16px' }}
+                  margin={3}
+                />
+              ) : null}
+              {/* will support soon */}
+              {!IS_OPEN_SOURCE && <OpenTraceButton />}
+              <StartTestRunButton />
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };

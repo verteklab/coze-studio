@@ -32,6 +32,59 @@ function getJumpDetailText() {
   return I18n.t('mkpl_plugin_detail', {}, 'Plugin Detail');
 }
 
+const isEmbeddedInIframe = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+};
+
+// 与 `agent-skill-plugin-modal` 保持一致的 returnUrl 约定，
+// 让插件详情页可在 iframe 内渲染「返回工作流」按钮
+const WORKFLOW_RETURN_URL_KEY = 'workflowReturnUrl';
+
+const persistWorkflowReturnUrl = () => {
+  const { pathname, search, hash } = window.location;
+  const returnUrlRaw = `${pathname}${search}${hash}`;
+  try {
+    sessionStorage.setItem(WORKFLOW_RETURN_URL_KEY, returnUrlRaw);
+  } catch (error) {
+    void error;
+  }
+  try {
+    localStorage.setItem(WORKFLOW_RETURN_URL_KEY, returnUrlRaw);
+  } catch (error) {
+    void error;
+  }
+  return returnUrlRaw;
+};
+
+const appendReturnUrl = (target: string, returnUrlRaw: string) => {
+  const sep = target.includes('?') ? '&' : '?';
+  return `${target}${sep}returnUrl=${encodeURIComponent(
+    returnUrlRaw,
+  )}&from=workflow`;
+};
+
+const openPluginDetail = (url: string, options?: { external?: boolean }) => {
+  if (!isEmbeddedInIframe()) {
+    window.open(url, '_blank');
+    return;
+  }
+  // 外站（如开源版 SaaS 商店）属于跨域，无法用 SPA 返回，
+  // 这里仅做同窗口跳转，不附 returnUrl
+  if (options?.external) {
+    window.location.href = url;
+    return;
+  }
+  const returnUrlRaw = persistWorkflowReturnUrl();
+  window.location.href = appendReturnUrl(url, returnUrlRaw);
+};
+
 export const PluginLink = ({
   identifier,
 }: {
@@ -76,7 +129,9 @@ export const PluginLink = ({
     const ideNavigate = getProjectApi()?.navigate;
     if (IS_OPEN_SOURCE && plugin_from === PluginFrom.FromSaas) {
       const url = window.atob('aHR0cHM6Ly93d3cuY296ZS5jbg==');
-      window.open(`${url}/store/plugin/${pluginId}?plugin_id=true`, '_blank');
+      openPluginDetail(`${url}/store/plugin/${pluginId}?plugin_id=true`, {
+        external: true,
+      });
     } else if (projectId && projectId !== '0' && ideNavigate) {
       ideNavigate(`/plugin/${pluginId}`);
     } else {
@@ -84,7 +139,7 @@ export const PluginLink = ({
         storePluginId && !noNeedQuery
           ? `/store/plugin/${storePluginId}` // Other status (on the shelves, off the shelves, under review)
           : `/space/${spaceId}/plugin/${pluginId}`; // Not on the shelves
-      window.open(url, '_blank');
+      openPluginDetail(url);
     }
     e.stopPropagation();
   };

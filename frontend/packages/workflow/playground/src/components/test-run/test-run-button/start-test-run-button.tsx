@@ -41,6 +41,21 @@ const isEmbeddedInIframe = () => {
   }
 };
 
+// 宿主在 iframe URL 上带 ?isManage=true 时，
+// 即便处于 iframe 嵌套中也允许展示「试运行」按钮（管理态）
+const hasManageFlag = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  try {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('isManage') === 'true';
+  } catch (error) {
+    void error;
+    return false;
+  }
+};
+
 export const StartTestRunButton: React.FC<StartTestRunButtonProps> = props => {
   const [loading, setLoading] = useState(false);
   const testFormState = useEntity<WorkflowTestFormStateEntity>(
@@ -55,7 +70,7 @@ export const StartTestRunButton: React.FC<StartTestRunButtonProps> = props => {
   const testRunReporterService = useTestRunReporterService();
   const { testRunFlow } = useTestRunFlowV2();
 
-  if (isEmbeddedInIframe()) {
+  if (isEmbeddedInIframe() && !hasManageFlag()) {
     return null;
   }
 
