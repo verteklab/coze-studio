@@ -40,6 +40,7 @@ import (
 	resourceEntity "github.com/coze-dev/coze-studio/backend/domain/search/entity"
 	cd "github.com/coze-dev/coze-studio/backend/infra/document"
 	"github.com/coze-dev/coze-studio/backend/infra/document/parser"
+	ragcontract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
 	"github.com/coze-dev/coze-studio/backend/infra/storage"
 	"github.com/coze-dev/coze-studio/backend/pkg/errorx"
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/conv"
@@ -54,6 +55,10 @@ type KnowledgeApplicationService struct {
 	DomainSVC service.Knowledge
 	eventBus  search.ResourceEventBus
 	storage   storage.Storage
+	// rag is non-nil only when KNOWLEDGE_BACKEND=rag. Endpoints that only make
+	// sense against the rag backend (e.g. /model_providers) MUST guard on this
+	// before dereferencing.
+	rag ragcontract.Client
 }
 
 var KnowledgeSVC = &KnowledgeApplicationService{}
