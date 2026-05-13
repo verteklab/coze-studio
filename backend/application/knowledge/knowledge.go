@@ -36,6 +36,7 @@ import (
 	model "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/entity"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
+	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service/ragimpl"
 	"github.com/coze-dev/coze-studio/backend/domain/permission"
 	resourceEntity "github.com/coze-dev/coze-studio/backend/domain/search/entity"
 	cd "github.com/coze-dev/coze-studio/backend/infra/document"
@@ -57,22 +58,67 @@ type KnowledgeApplicationService struct {
 	eventBus  search.ResourceEventBus
 	storage   storage.Storage
 	// rag is non-nil only when KNOWLEDGE_BACKEND=rag. Endpoints that only make
-	// sense against the rag backend (e.g. /model_providers) MUST guard on this
+	// sense against the rag backend (e.g. /model-providers) MUST guard on this
 	// before dereferencing.
-	rag ragcontract.Client
+	rag               ragcontract.Client
+	ragTenantResolver ragimpl.TenantResolver
 }
 
 var KnowledgeSVC = &KnowledgeApplicationService{}
 
-// ListRagModelProviders fetches the available embedding model providers from rag.
+// ragModelProvider is the wire shape consumed by the frontend create-KB modal
+// (frontend/.../model-selector.tsx). The selector only reads {id, name}, so
+// we strip the rest of rag's ModelProviderDTO at the application boundary;
+// the additional fields would force the frontend type to track every rag
+// schema bump without buying anything for the current UI.
+type ragModelProvider struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// ListRagModelProvidersResponse is the application-level response shape
+// returned to the frontend. We split rag's flat {items: [{type, ...}]} list
+// into the {text_models, image_models} buckets the modal expects, so the
+// frontend stays unaware of rag's transport schema.
+type ListRagModelProvidersResponse struct {
+	TextModels  []ragModelProvider `json:"text_models"`
+	ImageModels []ragModelProvider `json:"image_models"`
+}
+
+// ListRagModelProviders fetches the available embedding model providers from
+// rag and translates them into the legacy `{text_models, image_models}` shape
+// the create-KB modal consumes.
+//
 // Returns ErrRagFeaturePendingCode when the active backend is legacy — the
-// frontend's create-KB modal uses this to decide whether to show the model
-// selector at all.
-func (k *KnowledgeApplicationService) ListRagModelProviders(ctx context.Context) (*ragcontract.ListModelProvidersResponse, error) {
+// frontend uses that signal to hide the model selector entirely.
+func (k *KnowledgeApplicationService) ListRagModelProviders(ctx context.Context) (*ListRagModelProvidersResponse, error) {
 	if k.rag == nil {
 		return nil, errorx.New(errno.ErrRagFeaturePendingCode, errorx.KV("msg", "model providers proxy requires KNOWLEDGE_BACKEND=rag"))
 	}
-	return k.rag.ListModelProviders(ctx)
+	tenant := ""
+	if k.ragTenantResolver != nil {
+		// Tenant header is sent on every rag call for trace correlation; the
+		// model-providers endpoint itself is tenant-agnostic on the server.
+		if v, err := k.ragTenantResolver.Resolve(ctx); err == nil {
+			tenant = v
+		}
+	}
+	raw, err := k.rag.ListModelProviders(ctx, tenant)
+	if err != nil {
+		return nil, err
+	}
+	textItems, imageItems := raw.Split()
+	out := &ListRagModelProvidersResponse{
+		TextModels:  make([]ragModelProvider, 0, len(textItems)),
+		ImageModels: make([]ragModelProvider, 0, len(imageItems)),
+	}
+	for _, m := range textItems {
+		out.TextModels = append(out.TextModels, ragModelProvider{ID: m.ModelID, Name: m.Name})
+	}
+	for _, m := range imageItems {
+		out.ImageModels = append(out.ImageModels, ragModelProvider{ID: m.ModelID, Name: m.Name})
+	}
+	return out, nil
 }
 
 func (k *KnowledgeApplicationService) deleteKnowledgeInternal(ctx context.Context, knowledgeID int64) error {

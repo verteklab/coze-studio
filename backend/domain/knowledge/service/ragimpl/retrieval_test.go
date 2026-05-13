@@ -47,12 +47,13 @@ func TestRetrieve_RejectsNL2SQL(t *testing.T) {
 //   - returned hits are re-keyed via docByRagID to coze int64 DocumentIDs
 //   - chunk content lands in Slice.RawContent as a Text entry
 func TestRetrieve_HappyPath(t *testing.T) {
-	var captured *contract.RetrieveRequest
+	var capturedTenant string
+	var capturedReq *contract.RetrieveRequest
 	fc := &fakeClient{
-		retrieveFunc: func(req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
-			captured = req
+		retrieveFunc: func(tenantID string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			capturedTenant, capturedReq = tenantID, req
 			return &contract.RetrieveResponse{
-				Hits: []contract.RetrieveHit{
+				Items: []contract.RetrieveHit{
 					{ChunkID: "c1", DocID: "rag-doc-X", Score: 0.87, Content: "hello world"},
 				},
 			}, nil
@@ -77,8 +78,10 @@ func TestRetrieve_HappyPath(t *testing.T) {
 	require.NotNil(t, rs.Slice.RawContent[0].Text)
 	require.Equal(t, "hello world", *rs.Slice.RawContent[0].Text)
 
-	// Tenant came from the resolver, not from any request field.
-	require.NotNil(t, captured)
-	require.Equal(t, "test-tenant", captured.TenantID)
-	require.Equal(t, []string{"rag-kb-100"}, captured.KBIDs)
+	// Tenant came from the resolver, passed as a header (argument), not body.
+	require.Equal(t, "test-tenant", capturedTenant)
+	require.NotNil(t, capturedReq)
+	require.Equal(t, []string{"rag-kb-100"}, capturedReq.KBIDs)
+	require.NotNil(t, capturedReq.Query)
+	require.Equal(t, "hi", *capturedReq.Query)
 }

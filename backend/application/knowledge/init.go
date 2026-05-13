@@ -111,6 +111,7 @@ func initRag(ctx context.Context, c *ServiceComponents, bus search.ResourceEvent
 	KnowledgeSVC.eventBus = bus
 	KnowledgeSVC.storage = c.Storage
 	KnowledgeSVC.rag = client
+	KnowledgeSVC.ragTenantResolver = resolver
 	return KnowledgeSVC, nil
 }
 

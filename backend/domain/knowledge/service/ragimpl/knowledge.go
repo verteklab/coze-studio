@@ -141,16 +141,15 @@ func (i *Impl) CreateKnowledge(ctx context.Context, req *service.CreateKnowledge
 	}
 
 	ragReq := &contract.CreateKBRequest{
-		TenantID:                  tenant,
 		Name:                      req.Name,
 		Description:               req.Description,
 		TextEmbeddingModelID:      textModel,
 		ImageEmbeddingModelID:     imageModel,
 		EnabledChunkTypes:         defaultChunkTypesFor(req.FormatType),
 		SupportedSourceModalities: defaultSourceModalitiesFor(req.FormatType),
-		DefaultFusionPolicy:       contract.FusionPolicy{Mode: "rrf", RrfK: 60},
+		DefaultFusionPolicy:       contract.FusionPolicy{Mode: "weighted_rrf", RrfK: 60},
 	}
-	kb, err := i.rag.CreateKB(ctx, ragReq)
+	kb, err := i.rag.CreateKB(ctx, tenant, ragReq)
 	if err != nil {
 		return nil, err
 	}

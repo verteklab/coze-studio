@@ -18,27 +18,59 @@ package rag
 
 import "time"
 
+// ModelProvider mirrors rag's ModelProviderDTO. The wire fields kept here are
+// the ones coze actually consumes; rag may serialise additional fields and Go's
+// JSON decoder silently ignores them.
 type ModelProvider struct {
-	ID       string `json:"id"`
-	Kind     string `json:"kind"` // "text" | "image"
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
-	Dim      int    `json:"dim"`
+	ModelID      string    `json:"model_id"`
+	Type         string    `json:"type"` // "text" | "image"
+	Name         string    `json:"name"`
+	ModelName    string    `json:"model_name"`
+	Dimensions   *int      `json:"dimensions,omitempty"`
+	Capabilities []string  `json:"capabilities,omitempty"`
+	Modalities   []string  `json:"modalities,omitempty"`
+	Provider     string    `json:"provider,omitempty"`
+	IsActive     bool      `json:"is_active"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+// ListModelProvidersResponse mirrors rag's ModelProviderListResponse — a single
+// flat list with a discriminating Type field. Callers wanting a split view
+// (text vs image) should call Split.
 type ListModelProvidersResponse struct {
-	TextModels  []ModelProvider `json:"text_models"`
-	ImageModels []ModelProvider `json:"image_models"`
+	Items []ModelProvider `json:"items"`
+}
+
+// Split partitions the flat list by Type. Items with an unknown type are
+// dropped; that is intentional — surfacing an unrecognised provider to the UI
+// would just confuse a user who can't pick it anyway.
+func (r *ListModelProvidersResponse) Split() (textModels, imageModels []ModelProvider) {
+	if r == nil {
+		return nil, nil
+	}
+	for _, m := range r.Items {
+		switch m.Type {
+		case "text":
+			textModels = append(textModels, m)
+		case "image":
+			imageModels = append(imageModels, m)
+		}
+	}
+	return textModels, imageModels
 }
 
 type FusionPolicy struct {
 	Mode    string             `json:"mode"`
 	RrfK    int                `json:"rrf_k"`
-	Weights map[string]float64 `json:"weights"`
+	Weights map[string]float64 `json:"weights,omitempty"`
 }
 
+// CreateKBRequest is the JSON body sent on POST /api/v1/knowledgebases. The
+// tenant is carried by the X-Tenant-Id header and is intentionally NOT a
+// field here — putting it in the body would be silently ignored by rag and
+// mask a misconfigured header.
 type CreateKBRequest struct {
-	TenantID                  string         `json:"tenant_id"`
 	Name                      string         `json:"name"`
 	Description               string         `json:"description,omitempty"`
 	TextEmbeddingModelID      string         `json:"text_embedding_model_id"`
@@ -52,6 +84,11 @@ type CreateKBRequest struct {
 	DefaultFusionPolicy       FusionPolicy   `json:"default_fusion_policy"`
 }
 
+// KB is the trimmed view of rag's KnowledgeBaseDetail that coze persists
+// downstream. Rag returns many additional fields (default chunk size,
+// supported modes, etc.) which Go silently drops on unmarshal — DO NOT add
+// fields here unless coze actually needs them: every field is a contract
+// surface we have to keep aligned.
 type KB struct {
 	KBID                  string    `json:"kb_id"`
 	Name                  string    `json:"name"`
@@ -80,8 +117,10 @@ type ListKBsResponse struct {
 	Total int  `json:"total"`
 }
 
+// CreateDocumentRequest is the JSON body for POST
+// /api/v1/knowledgebases/{kb_id}/documents. Tenant comes from the
+// X-Tenant-Id header.
 type CreateDocumentRequest struct {
-	TenantID         string         `json:"tenant_id"`
 	SourceURI        string         `json:"source_uri"`
 	SourceModality   string         `json:"source_modality"` // text_source | image_source | scanned_document_source
 	ParsingStrategy  map[string]any `json:"parsing_strategy,omitempty"`
@@ -118,34 +157,55 @@ type Task struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// RetrieveRequest mirrors rag's RetrievalRequest. Tenant comes from the
+// X-Tenant-Id header, not the body. Doc-level filtering is intentionally not
+// exposed as a top-level field — rag's /retrieval endpoint has no `doc_ids`
+// parameter; callers that need it must place it under Filters and rely on
+// rag's metadata-filter behaviour (see rag/docs §10.4).
 type RetrieveRequest struct {
-	TenantID   string         `json:"tenant_id"`
-	KBIDs      []string       `json:"kb_ids"`
-	DocIDs     []string       `json:"doc_ids,omitempty"`
-	Query      string         `json:"query"`
-	QueryMode  string         `json:"query_mode"` // text_input | image_input | mixed_input
-	TopK       int            `json:"top_k,omitempty"`
-	MinScore   float64        `json:"min_score,omitempty"`
-	MaxTokens  int            `json:"max_tokens,omitempty"`
-	SearchType string         `json:"search_type,omitempty"` // semantic | fulltext | hybrid
-	QueryStrat map[string]any `json:"query_strategy,omitempty"`
-	Rerank     map[string]any `json:"rerank,omitempty"`
+	KBIDs            []string       `json:"kb_ids"`
+	Query            *string        `json:"query,omitempty"`
+	QueryImage       *string        `json:"query_image,omitempty"`
+	QueryMode        string         `json:"query_mode,omitempty"`
+	SearchType       string         `json:"search_type,omitempty"`
+	TopK             *int           `json:"top_k,omitempty"`
+	CandidateK       *int           `json:"candidate_k,omitempty"`
+	Filters          map[string]any `json:"filters,omitempty"`
+	TargetChunkTypes []string       `json:"target_chunk_types,omitempty"`
+	Retrievers       []string       `json:"retrievers,omitempty"`
+	FusionPolicy     map[string]any `json:"fusion_policy,omitempty"`
+	RetrieverParams  map[string]any `json:"retriever_params,omitempty"`
+	QueryStrategy    map[string]any `json:"query_strategy,omitempty"`
 }
 
+// RetrieveHit mirrors RetrievalHitDTO. Only the fields coze consumes are
+// declared; rag may return more (modality_payload, hit_modalities, etc.)
+// and Go will drop them silently on unmarshal.
 type RetrieveHit struct {
 	ChunkID  string         `json:"chunk_id"`
+	KBID     string         `json:"kb_id"`
 	DocID    string         `json:"doc_id"`
+	DocName  string         `json:"doc_name,omitempty"`
 	Score    float64        `json:"score"`
-	Content  string         `json:"content"`
+	Content  string         `json:"content,omitempty"`
 	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 type RetrieveResponse struct {
-	Hits  []RetrieveHit  `json:"hits"`
+	Items []RetrieveHit  `json:"items"`
 	Debug map[string]any `json:"debug,omitempty"`
 }
 
+// ErrorBody matches FastAPI's default HTTPException envelope:
+//
+//	{"detail": {"code": int, "message": str}}
+//
+// MapRagError unwraps Detail before classifying.
 type ErrorBody struct {
+	Detail ErrorDetail `json:"detail"`
+}
+
+type ErrorDetail struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 }

@@ -32,6 +32,15 @@ import (
 	contract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
 )
 
+// apiPrefix is the rag API base path. /health and /ready sit at the service
+// root, all business endpoints sit under /api/v1.
+const apiPrefix = "/api/v1"
+
+// tenantHeader is the HTTP header rag reads for tenant isolation. Every
+// business-endpoint request MUST set this; the impl never derives a tenant
+// from anywhere else.
+const tenantHeader = "X-Tenant-Id"
+
 // Compile-time check that *Client satisfies the rag contract.
 var _ contract.Client = (*Client)(nil)
 
@@ -54,23 +63,39 @@ func New(cfg ragconf.Config) *Client {
 }
 
 // Ready probes the rag /ready endpoint. Returns nil when the upstream reports
-// 2xx; otherwise a mapped error (see errors.go).
+// 2xx; otherwise a mapped error (see errors.go). The tenant header is omitted
+// — /ready is not tenant-scoped.
 func (c *Client) Ready(ctx context.Context) error {
-	return c.doJSON(ctx, http.MethodGet, "/ready", nil, nil, c.cfg.Timeout)
+	return c.doJSON(ctx, http.MethodGet, "/ready", "", nil, nil, c.cfg.Timeout)
 }
 
-// doJSON executes a JSON-in/JSON-out request.
+// envelope mirrors rag's ResponseEnvelope[T] wrapper. data is held as raw JSON
+// so the caller can unmarshal into the typed business DTO after envelope-level
+// validation (code, message). request_id is preserved on the wire but not
+// surfaced here — logging it would require threading correlation into every
+// call site, which we'd rather do in a single middleware pass than per-method.
+type envelope struct {
+	Code      int             `json:"code"`
+	Message   string          `json:"message"`
+	Data      json.RawMessage `json:"data"`
+	RequestID string          `json:"request_id"`
+}
+
+// doJSON executes a JSON-in/JSON-out request against the rag service.
 //
-//   - If body == nil no request body is sent.
-//   - If out  == nil the response body is discarded.
+//   - tenantID == "" means "do not send X-Tenant-Id". Currently only /ready
+//     uses this; every other endpoint requires it.
+//   - body == nil means "no request body".
+//   - out  == nil means "discard response data". The envelope is still parsed
+//     so a non-zero envelope.code surfaces as an error.
 //   - Retries are applied only to idempotent methods (GET/DELETE). POST/PATCH
 //     callers must implement their own retry strategy if they want one,
 //     because we cannot safely re-send a non-idempotent request.
-func (c *Client) doJSON(ctx context.Context, method, path string, body, out any, timeout time.Duration) error {
+func (c *Client) doJSON(ctx context.Context, method, path, tenantID string, body, out any, timeout time.Duration) error {
 	var lastErr error
 	attempts := 1 + c.cfg.MaxRetries
 	for attempt := 0; attempt < attempts; attempt++ {
-		err := c.doOnce(ctx, method, path, body, out, timeout)
+		err := c.doOnce(ctx, method, path, tenantID, body, out, timeout)
 		if err == nil {
 			return nil
 		}
@@ -92,7 +117,7 @@ func (c *Client) doJSON(ctx context.Context, method, path string, body, out any,
 	return lastErr
 }
 
-func (c *Client) doOnce(ctx context.Context, method, path string, body, out any, timeout time.Duration) error {
+func (c *Client) doOnce(ctx context.Context, method, path, tenantID string, body, out any, timeout time.Duration) error {
 	var reader io.Reader
 	if body != nil {
 		buf, err := json.Marshal(body)
@@ -111,6 +136,9 @@ func (c *Client) doOnce(ctx context.Context, method, path string, body, out any,
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
+	if tenantID != "" {
+		req.Header.Set(tenantHeader, tenantID)
+	}
 	// No Authorization header: rag has no service-to-service auth in current
 	// scope (spec §11 risk #1). If rag ever adds a token-check middleware,
 	// inject it here.
@@ -121,21 +149,53 @@ func (c *Client) doOnce(ctx context.Context, method, path string, body, out any,
 	}
 	defer resp.Body.Close()
 
+	raw, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return fmt.Errorf("read response body: %w", readErr)
+	}
+
 	if resp.StatusCode >= 400 {
-		raw, _ := io.ReadAll(resp.Body)
 		var errBody contract.ErrorBody
 		// Best-effort decode: if the upstream returns non-JSON the error body
 		// will be zero-valued and MapRagError will fall through to the
 		// upstream-unavailable bucket, which is what we want.
 		_ = json.Unmarshal(raw, &errBody)
-		return MapRagError(resp.StatusCode, errBody.Code, errBody.Message)
+		return MapRagError(resp.StatusCode, errBody.Detail.Code, errBody.Detail.Message)
 	}
 
+	// Endpoints that return JSON ALL wrap their payload in ResponseEnvelope.
+	// /ready is the only non-enveloped endpoint and uses out==nil + a separate
+	// branch below.
 	if out == nil {
+		// Still validate the envelope when present so that envelope.code != 0
+		// surfaces. A truly empty 2xx (e.g. /ready) is also accepted.
+		if len(bytes.TrimSpace(raw)) == 0 {
+			return nil
+		}
+		var env envelope
+		if err := json.Unmarshal(raw, &env); err != nil {
+			// /ready returns {"checks": ...}, not an envelope — accept silently.
+			return nil
+		}
+		if env.Code != 0 {
+			return MapRagError(resp.StatusCode, env.Code, env.Message)
+		}
 		return nil
 	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("decode response: %w", err)
+
+	var env envelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return fmt.Errorf("decode envelope: %w", err)
+	}
+	if env.Code != 0 {
+		return MapRagError(resp.StatusCode, env.Code, env.Message)
+	}
+	if len(env.Data) == 0 || string(env.Data) == "null" {
+		// rag returned code=0 but no data; treat as success-with-empty.
+		return nil
+	}
+	if err := json.Unmarshal(env.Data, out); err != nil {
+		return fmt.Errorf("decode response data: %w", err)
 	}
 	return nil
 }
@@ -148,17 +208,17 @@ func idempotent(method string) bool {
 	return method == http.MethodGet || method == http.MethodDelete
 }
 
-func (c *Client) ListModelProviders(ctx context.Context) (*contract.ListModelProvidersResponse, error) {
+func (c *Client) ListModelProviders(ctx context.Context, tenantID string) (*contract.ListModelProvidersResponse, error) {
 	out := &contract.ListModelProvidersResponse{}
-	if err := c.doJSON(ctx, http.MethodGet, "/model_providers", nil, out, c.cfg.Timeout); err != nil {
+	if err := c.doJSON(ctx, http.MethodGet, apiPrefix+"/model-providers", tenantID, nil, out, c.cfg.Timeout); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *Client) CreateKB(ctx context.Context, req *contract.CreateKBRequest) (*contract.KB, error) {
+func (c *Client) CreateKB(ctx context.Context, tenantID string, req *contract.CreateKBRequest) (*contract.KB, error) {
 	out := &contract.KB{}
-	if err := c.doJSON(ctx, http.MethodPost, "/knowledgebases", req, out, c.cfg.Timeout); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, apiPrefix+"/knowledgebases", tenantID, req, out, c.cfg.Timeout); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -166,8 +226,8 @@ func (c *Client) CreateKB(ctx context.Context, req *contract.CreateKBRequest) (*
 
 func (c *Client) GetKB(ctx context.Context, tenantID, kbID string) (*contract.KB, error) {
 	out := &contract.KB{}
-	path := "/knowledgebases/" + kbID + "?tenant_id=" + tenantID
-	if err := c.doJSON(ctx, http.MethodGet, path, nil, out, c.cfg.Timeout); err != nil {
+	path := apiPrefix + "/knowledgebases/" + kbID
+	if err := c.doJSON(ctx, http.MethodGet, path, tenantID, nil, out, c.cfg.Timeout); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -175,40 +235,40 @@ func (c *Client) GetKB(ctx context.Context, tenantID, kbID string) (*contract.KB
 
 func (c *Client) UpdateKB(ctx context.Context, tenantID, kbID string, req *contract.UpdateKBRequest) (*contract.KB, error) {
 	out := &contract.KB{}
-	path := "/knowledgebases/" + kbID + "?tenant_id=" + tenantID
-	if err := c.doJSON(ctx, http.MethodPatch, path, req, out, c.cfg.Timeout); err != nil {
+	path := apiPrefix + "/knowledgebases/" + kbID
+	if err := c.doJSON(ctx, http.MethodPatch, path, tenantID, req, out, c.cfg.Timeout); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
 func (c *Client) DeleteKB(ctx context.Context, tenantID, kbID string) error {
-	path := "/knowledgebases/" + kbID + "?tenant_id=" + tenantID
-	return c.doJSON(ctx, http.MethodDelete, path, nil, nil, c.cfg.Timeout)
+	path := apiPrefix + "/knowledgebases/" + kbID
+	return c.doJSON(ctx, http.MethodDelete, path, tenantID, nil, nil, c.cfg.Timeout)
 }
 
 func (c *Client) ListKBs(ctx context.Context, req *contract.ListKBsRequest) (*contract.ListKBsResponse, error) {
 	out := &contract.ListKBsResponse{}
-	path := fmt.Sprintf("/knowledgebases?tenant_id=%s&page=%d&page_size=%d", req.TenantID, req.Page, req.PageSize)
-	if err := c.doJSON(ctx, http.MethodGet, path, nil, out, c.cfg.Timeout); err != nil {
+	path := fmt.Sprintf("%s/knowledgebases?page=%d&page_size=%d", apiPrefix, req.Page, req.PageSize)
+	if err := c.doJSON(ctx, http.MethodGet, path, req.TenantID, nil, out, c.cfg.Timeout); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *Client) CreateDocument(ctx context.Context, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
+func (c *Client) CreateDocument(ctx context.Context, tenantID, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
 	out := &contract.CreateDocumentResponse{}
-	path := "/knowledgebases/" + kbID + "/documents"
-	if err := c.doJSON(ctx, http.MethodPost, path, req, out, time.Duration(c.cfg.UploadTimeoutMs)*time.Millisecond); err != nil {
+	path := apiPrefix + "/knowledgebases/" + kbID + "/documents"
+	if err := c.doJSON(ctx, http.MethodPost, path, tenantID, req, out, time.Duration(c.cfg.UploadTimeoutMs)*time.Millisecond); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *Client) GetDocument(ctx context.Context, tenantID, docID string) (*contract.Document, error) {
+func (c *Client) GetDocument(ctx context.Context, tenantID, kbID, docID string) (*contract.Document, error) {
 	out := &contract.Document{}
-	path := "/documents/" + docID + "?tenant_id=" + tenantID
-	if err := c.doJSON(ctx, http.MethodGet, path, nil, out, c.cfg.Timeout); err != nil {
+	path := apiPrefix + "/knowledgebases/" + kbID + "/documents/" + docID
+	if err := c.doJSON(ctx, http.MethodGet, path, tenantID, nil, out, c.cfg.Timeout); err != nil {
 		return nil, err
 	}
 	return out, nil
@@ -216,30 +276,30 @@ func (c *Client) GetDocument(ctx context.Context, tenantID, docID string) (*cont
 
 func (c *Client) ListDocuments(ctx context.Context, tenantID, kbID string, page, pageSize int) (*contract.ListDocumentsResponse, error) {
 	out := &contract.ListDocumentsResponse{}
-	path := fmt.Sprintf("/knowledgebases/%s/documents?tenant_id=%s&page=%d&page_size=%d", kbID, tenantID, page, pageSize)
-	if err := c.doJSON(ctx, http.MethodGet, path, nil, out, c.cfg.Timeout); err != nil {
+	path := fmt.Sprintf("%s/knowledgebases/%s/documents?page=%d&page_size=%d", apiPrefix, kbID, page, pageSize)
+	if err := c.doJSON(ctx, http.MethodGet, path, tenantID, nil, out, c.cfg.Timeout); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *Client) DeleteDocument(ctx context.Context, tenantID, docID string) error {
-	path := "/documents/" + docID + "?tenant_id=" + tenantID
-	return c.doJSON(ctx, http.MethodDelete, path, nil, nil, c.cfg.Timeout)
+func (c *Client) DeleteDocument(ctx context.Context, tenantID, kbID, docID string) error {
+	path := apiPrefix + "/knowledgebases/" + kbID + "/documents/" + docID
+	return c.doJSON(ctx, http.MethodDelete, path, tenantID, nil, nil, c.cfg.Timeout)
 }
 
 func (c *Client) GetTask(ctx context.Context, tenantID, taskID string) (*contract.Task, error) {
 	out := &contract.Task{}
-	path := "/tasks/" + taskID + "?tenant_id=" + tenantID
-	if err := c.doJSON(ctx, http.MethodGet, path, nil, out, c.cfg.Timeout); err != nil {
+	path := apiPrefix + "/tasks/" + taskID
+	if err := c.doJSON(ctx, http.MethodGet, path, tenantID, nil, out, c.cfg.Timeout); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *Client) Retrieve(ctx context.Context, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+func (c *Client) Retrieve(ctx context.Context, tenantID string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
 	out := &contract.RetrieveResponse{}
-	if err := c.doJSON(ctx, http.MethodPost, "/retrieval", req, out, time.Duration(c.cfg.RetrievalTimeoutMs)*time.Millisecond); err != nil {
+	if err := c.doJSON(ctx, http.MethodPost, apiPrefix+"/retrieval", tenantID, req, out, time.Duration(c.cfg.RetrievalTimeoutMs)*time.Millisecond); err != nil {
 		return nil, err
 	}
 	return out, nil

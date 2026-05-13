@@ -95,26 +95,25 @@ func (i *Impl) CreateDocument(ctx context.Context, req *service.CreateDocumentRe
 			return nil, err
 		}
 		ragReq := &contract.CreateDocumentRequest{
-			TenantID:       tenant,
 			SourceURI:      d.URI,
 			SourceModality: sourceModalityFor(d),
 			Metadata:       buildDocMetadata(d),
 		}
-		ragResp, err := i.rag.CreateDocument(ctx, m.RagKBID, ragReq)
+		ragResp, err := i.rag.CreateDocument(ctx, tenant, m.RagKBID, ragReq)
 		if err != nil {
 			return nil, err
 		}
 		cozeID, err := i.idgen.GenID(ctx)
 		if err != nil {
 			// Best-effort cleanup: rag has accepted the doc but we can't track it.
-			if delErr := i.rag.DeleteDocument(ctx, tenant, ragResp.DocID); delErr != nil {
+			if delErr := i.rag.DeleteDocument(ctx, tenant, m.RagKBID, ragResp.DocID); delErr != nil {
 				logs.CtxWarnf(ctx, "ragimpl: rollback DeleteDocument after idgen failure: %v", delErr)
 			}
 			return nil, err
 		}
 		nowMs := time.Now().UnixMilli()
 		if err := i.mapping.InsertDoc(ctx, cozeID, ragResp.DocID, d.KnowledgeID, d.CreatorID, ragResp.TaskID, nowMs); err != nil {
-			if delErr := i.rag.DeleteDocument(ctx, tenant, ragResp.DocID); delErr != nil {
+			if delErr := i.rag.DeleteDocument(ctx, tenant, m.RagKBID, ragResp.DocID); delErr != nil {
 				logs.CtxWarnf(ctx, "ragimpl: rollback DeleteDocument after InsertDoc failure: %v", delErr)
 			}
 			return nil, err
@@ -133,8 +132,16 @@ func (i *Impl) CreateDocument(ctx context.Context, req *service.CreateDocumentRe
 
 // DeleteDocument soft-deletes the mapping row first, then rag, then restores
 // the mapping on rag failure — mirrors DeleteKnowledge's invariant.
+//
+// rag's document endpoints are nested under the KB
+// (DELETE /api/v1/knowledgebases/{kb_id}/documents/{doc_id}), so we resolve
+// the coze KB id from the doc mapping to its rag UUID before issuing the call.
 func (i *Impl) DeleteDocument(ctx context.Context, req *service.DeleteDocumentRequest) error {
 	m, err := i.mapping.DocByCozeID(ctx, req.DocumentID)
+	if err != nil {
+		return err
+	}
+	kb, err := i.mapping.KBByCozeID(ctx, m.KBID)
 	if err != nil {
 		return err
 	}
@@ -145,7 +152,7 @@ func (i *Impl) DeleteDocument(ctx context.Context, req *service.DeleteDocumentRe
 	if err := i.mapping.SoftDeleteDoc(ctx, req.DocumentID); err != nil {
 		return err
 	}
-	if err := i.rag.DeleteDocument(ctx, tenant, m.RagDocID); err != nil {
+	if err := i.rag.DeleteDocument(ctx, tenant, kb.RagKBID, m.RagDocID); err != nil {
 		if restoreErr := i.mapping.RestoreDoc(ctx, req.DocumentID); restoreErr != nil {
 			logs.CtxErrorf(ctx, "ragimpl: RestoreDoc after rag DeleteDocument failure also failed: %v (original: %v)", restoreErr, err)
 		}
@@ -222,7 +229,15 @@ func (i *Impl) MGetDocument(ctx context.Context, req *service.MGetDocumentReques
 		if err != nil {
 			continue
 		}
-		rd, err := i.rag.GetDocument(ctx, tenant, m.RagDocID)
+		kb, err := i.mapping.KBByCozeID(ctx, m.KBID)
+		if err != nil {
+			// Doc mapping references a KB we no longer track; skip rather than
+			// fail the batch — consistent with the docByRagID drift handling
+			// elsewhere in this file.
+			logs.CtxWarnf(ctx, "ragimpl: MGetDocument: KBByCozeID(%d) failed: %v", m.KBID, err)
+			continue
+		}
+		rd, err := i.rag.GetDocument(ctx, tenant, kb.RagKBID, m.RagDocID)
 		if err != nil {
 			logs.CtxWarnf(ctx, "ragimpl: MGetDocument: GetDocument(%s) failed: %v", m.RagDocID, err)
 			continue
