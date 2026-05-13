@@ -13,6 +13,10 @@ struct CreateDatasetRequest  {
     6: i64 biz_id (agw.js_conv="str", api.js_conv="true") // Open to third-party business identity, coze pass 0 or no pass
     7: i64 project_id (agw.js_conv="str", api.js_conv="true") // Project ID
 
+    // PR-1: forwarded to rag at KB creation time. Optional; absent → backend uses defaults.
+    8: optional string text_embedding_model_id
+    9: optional string image_embedding_model_id
+
     255: optional base.Base Base
 }
 
