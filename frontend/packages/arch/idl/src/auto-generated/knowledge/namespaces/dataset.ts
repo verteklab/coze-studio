@@ -166,6 +166,9 @@ export interface CreateDatasetRequest {
   project_id?: string;
   /** 存储位置，0: byterag，1: opensearch，2: douyin */
   storage_location?: common.StorageLocation;
+  /** PR-1: forwarded to rag at KB creation time. Optional; absent → backend uses defaults. */
+  text_embedding_model_id?: string;
+  image_embedding_model_id?: string;
   Base?: base.Base;
 }
 

@@ -385,6 +385,8 @@ export default class KnowledgeService<T> {
       biz_id: _req['biz_id'],
       project_id: _req['project_id'],
       storage_location: _req['storage_location'],
+      text_embedding_model_id: _req['text_embedding_model_id'],
+      image_embedding_model_id: _req['image_embedding_model_id'],
       Base: _req['Base'],
     };
     return this.request({ url, method, data }, options);
