@@ -24,18 +24,24 @@ import (
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
 	contract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
 	"github.com/coze-dev/coze-studio/backend/pkg/logs"
+	"github.com/coze-dev/coze-studio/backend/types/consts"
 )
 
-// modelOverride lets a caller (Task 18: workflow-level model override) supply a
-// non-default embedding model for a specific CreateKB call. Phase 1 has no
-// caller-side wiring yet, so getModelOverride always returns `(_, false)`.
+// modelOverride lets a caller (the CreateDataset application handler) supply a
+// non-default embedding model for a specific CreateKB call. Wiring lives in
+// the application layer, which attaches a consts.RagModelOverride to ctx
+// before calling into the domain.
 type modelOverride struct {
 	TextModelID  string
 	ImageModelID string
 }
 
-func getModelOverride(_ context.Context) (modelOverride, bool) {
-	return modelOverride{}, false
+func getModelOverride(ctx context.Context) (modelOverride, bool) {
+	v, ok := consts.RagModelOverrideFromContext(ctx)
+	if !ok {
+		return modelOverride{}, false
+	}
+	return modelOverride{TextModelID: v.TextModelID, ImageModelID: v.ImageModelID}, true
 }
 
 // defaultChunkTypesFor maps a coze DocumentType to the rag-side chunk types we

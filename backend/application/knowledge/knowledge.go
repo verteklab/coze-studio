@@ -48,6 +48,7 @@ import (
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/ptr"
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/slices"
 	"github.com/coze-dev/coze-studio/backend/pkg/logs"
+	"github.com/coze-dev/coze-studio/backend/types/consts"
 	"github.com/coze-dev/coze-studio/backend/types/errno"
 )
 
@@ -252,6 +253,12 @@ func (k *KnowledgeApplicationService) CreateKnowledge(ctx context.Context, req *
 	if err != nil {
 		return dataset.NewCreateDatasetResponse(), err
 	}
+
+	// PR-1: forward optional embedding model ids to ragimpl via context.
+	// Legacy backend ignores this; rag backend reads it in CreateKnowledge.
+	// Helper is a no-op when both fields are empty, so legacy callers see no
+	// behaviour change.
+	ctx = consts.WithRagModelOverride(ctx, req.GetTextEmbeddingModelID(), req.GetImageEmbeddingModelID())
 
 	domainResp, err := k.createKnowledgeInternal(ctx, req.Name, req.Description, req.SpaceID, ptr.From(uid), req.GetProjectID(), req.FormatType, req.IconURI)
 	if err != nil {
