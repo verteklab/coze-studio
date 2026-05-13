@@ -151,3 +151,51 @@ func (c *Client) doOnce(ctx context.Context, method, path string, body, out any,
 func idempotent(method string) bool {
 	return method == http.MethodGet || method == http.MethodDelete
 }
+
+func (c *Client) ListModelProviders(ctx context.Context) (*contract.ListModelProvidersResponse, error) {
+	out := &contract.ListModelProvidersResponse{}
+	if err := c.doJSON(ctx, http.MethodGet, "/model_providers", nil, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) CreateKB(ctx context.Context, req *contract.CreateKBRequest) (*contract.KB, error) {
+	out := &contract.KB{}
+	if err := c.doJSON(ctx, http.MethodPost, "/knowledgebases", req, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) GetKB(ctx context.Context, tenantID, kbID string) (*contract.KB, error) {
+	out := &contract.KB{}
+	path := "/knowledgebases/" + kbID + "?tenant_id=" + tenantID
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) UpdateKB(ctx context.Context, tenantID, kbID string, req *contract.UpdateKBRequest) (*contract.KB, error) {
+	out := &contract.KB{}
+	path := "/knowledgebases/" + kbID + "?tenant_id=" + tenantID
+	if err := c.doJSON(ctx, http.MethodPatch, path, req, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) DeleteKB(ctx context.Context, tenantID, kbID string) error {
+	path := "/knowledgebases/" + kbID + "?tenant_id=" + tenantID
+	return c.doJSON(ctx, http.MethodDelete, path, nil, nil, c.cfg.Timeout)
+}
+
+func (c *Client) ListKBs(ctx context.Context, req *contract.ListKBsRequest) (*contract.ListKBsResponse, error) {
+	out := &contract.ListKBsResponse{}
+	path := fmt.Sprintf("/knowledgebases?tenant_id=%s&page=%d&page_size=%d", req.TenantID, req.Page, req.PageSize)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
