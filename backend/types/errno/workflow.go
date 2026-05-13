@@ -40,6 +40,8 @@ const (
 	ErrPluginAPIErr                                = 720701004
 	ErrConversationNameIsDuplicated                = 720702200
 	ErrConversationOfAppNotFound                   = 720702201
+	ErrWorkflowNameIsDuplicated                    = 720702202
+	ErrWorkflowVersionNotIncremental               = 720702203
 	ErrConversationNodeInvalidOperation            = 720702250
 	ErrOnlyDefaultConversationAllowInAgentScenario = 720712033
 	ErrConversationNodesNotAvailable               = 702093204
@@ -283,6 +285,18 @@ func init() {
 	code.Register(
 		ErrConversationNameIsDuplicated,
 		"conversation name {name} is duplicated",
+		code.WithAffectStability(false),
+	)
+
+	code.Register(
+		ErrWorkflowNameIsDuplicated,
+		"工作流名称『{name}』已存在，请换一个名称",
+		code.WithAffectStability(false),
+	)
+
+	code.Register(
+		ErrWorkflowVersionNotIncremental,
+		"版本号必须递增，线上版本 {old_version}，当前版本 {new_version}",
 		code.WithAffectStability(false),
 	)
 

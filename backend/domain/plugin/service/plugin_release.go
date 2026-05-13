@@ -85,7 +85,7 @@ func (p *pluginServiceImpl) PublishPlugin(ctx context.Context, req *model.Publis
 	if exist && onlinePlugin.Version != nil {
 		if semver.Compare(req.Version, *onlinePlugin.Version) != 1 {
 			return errorx.New(errno.ErrPluginInvalidParamCode,
-				errorx.KVf(errno.PluginMsgKey, "version must be greater than the online version '%s' and format like 'v1.0.0'",
+				errorx.KVf(errno.PluginMsgKey, "版本号必须大于在线版本『%s』，且格式形如 'v1.0.0'",
 					*onlinePlugin.Version))
 		}
 	}
