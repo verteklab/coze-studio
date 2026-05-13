@@ -34,38 +34,38 @@ import (
 // care about and read back captured request fields via the F* fields.
 type fakeClient struct {
 	// Capture: most recently received request payload for the relevant method.
-	createKBReq       *contract.CreateKBRequest
-	updateKBTenant    string
-	updateKBID        string
-	updateKBReq       *contract.UpdateKBRequest
-	deleteKBTenant    string
-	deleteKBID        string
-	deleteKBCalls     int
-	getKBTenant       string
-	listKBsReq        *contract.ListKBsRequest
-	createDocKBID     string
-	createDocReq      *contract.CreateDocumentRequest
-	deleteDocTenant   string
-	deleteDocID       string
-	listDocsTenant    string
-	listDocsKBID      string
-	getDocTenant      string
-	getTaskTenant     string
-	getTaskID         string
-	retrieveReq       *contract.RetrieveRequest
+	createKBReq     *contract.CreateKBRequest
+	updateKBTenant  string
+	updateKBID      string
+	updateKBReq     *contract.UpdateKBRequest
+	deleteKBTenant  string
+	deleteKBID      string
+	deleteKBCalls   int
+	getKBTenant     string
+	listKBsReq      *contract.ListKBsRequest
+	createDocKBID   string
+	createDocReq    *contract.CreateDocumentRequest
+	deleteDocTenant string
+	deleteDocID     string
+	listDocsTenant  string
+	listDocsKBID    string
+	getDocTenant    string
+	getTaskTenant   string
+	getTaskID       string
+	retrieveReq     *contract.RetrieveRequest
 
 	// Stubs: override return values from the test.
-	createKBFunc   func(*contract.CreateKBRequest) (*contract.KB, error)
-	deleteKBFunc   func(tenantID, kbID string) error
-	getKBFunc      func(tenantID, kbID string) (*contract.KB, error)
-	updateKBFunc   func(tenantID, kbID string, req *contract.UpdateKBRequest) (*contract.KB, error)
-	listKBsFunc    func(*contract.ListKBsRequest) (*contract.ListKBsResponse, error)
-	createDocFunc  func(kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error)
-	deleteDocFunc  func(tenantID, docID string) error
-	listDocsFunc   func(tenantID, kbID string, page, pageSize int) (*contract.ListDocumentsResponse, error)
-	getDocFunc     func(tenantID, docID string) (*contract.Document, error)
-	getTaskFunc    func(tenantID, taskID string) (*contract.Task, error)
-	retrieveFunc   func(*contract.RetrieveRequest) (*contract.RetrieveResponse, error)
+	createKBFunc  func(*contract.CreateKBRequest) (*contract.KB, error)
+	deleteKBFunc  func(tenantID, kbID string) error
+	getKBFunc     func(tenantID, kbID string) (*contract.KB, error)
+	updateKBFunc  func(tenantID, kbID string, req *contract.UpdateKBRequest) (*contract.KB, error)
+	listKBsFunc   func(*contract.ListKBsRequest) (*contract.ListKBsResponse, error)
+	createDocFunc func(kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error)
+	deleteDocFunc func(tenantID, docID string) error
+	listDocsFunc  func(tenantID, kbID string, page, pageSize int) (*contract.ListDocumentsResponse, error)
+	getDocFunc    func(tenantID, docID string) (*contract.Document, error)
+	getTaskFunc   func(tenantID, taskID string) (*contract.Task, error)
+	retrieveFunc  func(*contract.RetrieveRequest) (*contract.RetrieveResponse, error)
 }
 
 func (f *fakeClient) Ready(_ context.Context) error { return nil }
