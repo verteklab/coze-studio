@@ -16,8 +16,6 @@
 
 package rag
 
-import "time"
-
 // ModelProvider mirrors rag's ModelProviderDTO. The wire fields kept here are
 // the ones coze actually consumes; rag may serialise additional fields and Go's
 // JSON decoder silently ignores them.
@@ -31,8 +29,8 @@ type ModelProvider struct {
 	Modalities   []string  `json:"modalities,omitempty"`
 	Provider     string    `json:"provider,omitempty"`
 	IsActive     bool      `json:"is_active"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	CreatedAt    RagTime `json:"created_at"`
+	UpdatedAt    RagTime `json:"updated_at"`
 }
 
 // ListModelProvidersResponse mirrors rag's ModelProviderListResponse — a single
@@ -96,8 +94,8 @@ type KB struct {
 	TextEmbeddingModelID  string    `json:"text_embedding_model_id"`
 	ImageEmbeddingModelID string    `json:"image_embedding_model_id"`
 	Status                string    `json:"status"`
-	CreatedAt             time.Time `json:"created_at"`
-	UpdatedAt             time.Time `json:"updated_at"`
+	CreatedAt             RagTime `json:"created_at"`
+	UpdatedAt             RagTime `json:"updated_at"`
 }
 
 type UpdateKBRequest struct {
@@ -139,8 +137,8 @@ type Document struct {
 	KBID      string    `json:"kb_id"`
 	Name      string    `json:"name"`
 	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	CreatedAt RagTime `json:"created_at"`
+	UpdatedAt RagTime `json:"updated_at"`
 }
 
 type ListDocumentsResponse struct {
@@ -154,7 +152,7 @@ type Task struct {
 	Status    string    `json:"status"` // pending | running | retrying | success | failed
 	Progress  int       `json:"progress"`
 	Error     string    `json:"error,omitempty"`
-	UpdatedAt time.Time `json:"updated_at"`
+	UpdatedAt RagTime `json:"updated_at"`
 }
 
 // RetrieveRequest mirrors rag's RetrievalRequest. Tenant comes from the
