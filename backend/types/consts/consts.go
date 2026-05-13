@@ -147,7 +147,7 @@ const (
 
 const (
 	KnowledgeBackendEnv = "KNOWLEDGE_BACKEND" // "legacy" | "rag"
-	RagBaseURLEnv       = "RAG_BASE_URL"
-	RagTenantModeEnv    = "RAG_TENANT_MODE" // "env" (Phase 1) | "user" (Phase 2)
-	RagTenantIDEnv      = "RAG_TENANT_ID"   // used when RAG_TENANT_MODE=env
+	RAGBaseURLEnv       = "RAG_BASE_URL"
+	RAGTenantModeEnv    = "RAG_TENANT_MODE" // "env" (Phase 1) | "user" (Phase 2)
+	RAGTenantIDEnv      = "RAG_TENANT_ID"   // used when RAG_TENANT_MODE=env
 )

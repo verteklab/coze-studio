@@ -72,9 +72,19 @@ type TenantConfig struct {
 // anything but '}' so URLs and paths with colons (e.g. http://) are fine.
 var envVarRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(?::([^}]*))?\}`)
 
-// expandEnv replaces ${VAR} and ${VAR:default} occurrences in s with the
-// corresponding environment values. Unset (or empty) variables with no default
-// expand to the empty string, matching docker-compose semantics.
+// expandEnv substitutes ${VAR} and ${VAR:default} occurrences in s with the
+// corresponding os env value.
+//
+// Semantics:
+//   - ${VAR}           -> value of VAR; empty string if VAR is unset or empty.
+//   - ${VAR:default}   -> value of VAR if set and non-empty; otherwise "default".
+//
+// NOT supported (will be treated as part of the default literal):
+//   - ${VAR:-default}  -> expands to "-default" if VAR is unset (footgun)
+//   - ${VAR:?error}    -> expands to "?error" if VAR is unset
+//
+// Use the bare-colon syntax in YAML; docker-compose-style modifiers will not
+// work and produce silent garbage.
 func expandEnv(s string) string {
 	return envVarRe.ReplaceAllStringFunc(s, func(match string) string {
 		m := envVarRe.FindStringSubmatch(match)
