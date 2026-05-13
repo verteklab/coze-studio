@@ -52,6 +52,16 @@ export const useCreateKnowledgeModalV2 = (
 
   const createDataset = async () => {
     await formRef.current?.formApi.validate();
+    // TODO(knowledge-rag): render <ModelSelector /> (from
+    // '@coze-data/knowledge-modal-base/create-knowledge-modal-v2') alongside
+    // the CozeKnowledgeAddTypeContent form, capture its selection into
+    // component state, and pass it through here as
+    //   text_embedding_model_id: selectedModels.textModelId,
+    //   image_embedding_model_id: selectedModels.imageModelId,
+    // The backend IDL already accepts these optional fields (see
+    // idl/data/knowledge/knowledge.thrift), but the frontend IDL has not been
+    // regenerated yet — run codegen and update CreateDatasetRequest before
+    // wiring this call site.
     const { dataset_id: datasetId } = await KnowledgeApi.CreateDataset({
       project_id: projectID || undefined,
       name: formRef.current?.formApi.getValue('name'),
