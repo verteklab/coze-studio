@@ -125,6 +125,26 @@ func TestMapping_KBsByCozeIDs(t *testing.T) {
 	require.Len(t, res, 2)
 }
 
+// Batch fetcher contract: zero matches is not an error -- the caller diffs
+// the returned slice against the input ids to decide. Mirrors DocsByCozeIDs.
+func TestMapping_KBsByCozeIDs_NoneFound(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+	res, err := m.KBsByCozeIDs(context.Background(), []int64{999, 1000})
+	require.NoError(t, err)
+	require.Len(t, res, 0)
+}
+
+func TestMapping_KBsByCozeIDs_PartialFound(t *testing.T) {
+	db := setupDB(t)
+	db.Create(&kbRow{CozeKBID: 1, RagKBID: "a"})
+	m := NewMappingRepo(db)
+	res, err := m.KBsByCozeIDs(context.Background(), []int64{1, 999})
+	require.NoError(t, err)
+	require.Len(t, res, 1)
+	require.Equal(t, int64(1), res[0].CozeID)
+}
+
 func TestMapping_KBByRagID(t *testing.T) {
 	db := setupDB(t)
 	db.Create(&kbRow{CozeKBID: 200, RagKBID: "uuid-z"})
