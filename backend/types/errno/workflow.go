@@ -94,7 +94,7 @@ func init() {
 
 	code.Register(
 		ErrMissingRequiredParam,
-		"缺少必填参数：’{param}‘，请检查 API 文档并确认所有必填字段都已填写。",
+		"缺少必填参数：『{param}』，请检查 API 文档并确认所有必填字段都已填写。",
 		code.WithAffectStability(false),
 	)
 
