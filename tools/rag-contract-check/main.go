@@ -43,23 +43,28 @@ type openAPI struct {
 	Paths map[string]map[string]any `json:"paths"`
 }
 
+// required is the set of (path, method) pairs the coze Go client depends on.
+// rag namespaces all business endpoints under /api/v1; only the health probes
+// (/health and /ready) sit at the service root and intentionally omit the
+// prefix. Document operations are nested under their KB on rag's side —
+// flat /documents/{doc_id} routes do NOT exist.
 var required = []struct {
 	Path   string
 	Method string
 }{
 	{"/ready", "get"},
-	{"/model_providers", "get"},
-	{"/knowledgebases", "post"},
-	{"/knowledgebases", "get"},
-	{"/knowledgebases/{kb_id}", "get"},
-	{"/knowledgebases/{kb_id}", "patch"},
-	{"/knowledgebases/{kb_id}", "delete"},
-	{"/knowledgebases/{kb_id}/documents", "post"},
-	{"/knowledgebases/{kb_id}/documents", "get"},
-	{"/documents/{doc_id}", "get"},
-	{"/documents/{doc_id}", "delete"},
-	{"/tasks/{task_id}", "get"},
-	{"/retrieval", "post"},
+	{"/api/v1/model-providers", "get"},
+	{"/api/v1/knowledgebases", "post"},
+	{"/api/v1/knowledgebases", "get"},
+	{"/api/v1/knowledgebases/{kb_id}", "get"},
+	{"/api/v1/knowledgebases/{kb_id}", "patch"},
+	{"/api/v1/knowledgebases/{kb_id}", "delete"},
+	{"/api/v1/knowledgebases/{kb_id}/documents", "post"},
+	{"/api/v1/knowledgebases/{kb_id}/documents", "get"},
+	{"/api/v1/knowledgebases/{kb_id}/documents/{doc_id}", "get"},
+	{"/api/v1/knowledgebases/{kb_id}/documents/{doc_id}", "delete"},
+	{"/api/v1/tasks/{task_id}", "get"},
+	{"/api/v1/retrieval", "post"},
 }
 
 func main() {
