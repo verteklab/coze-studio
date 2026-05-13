@@ -199,3 +199,44 @@ func (c *Client) ListKBs(ctx context.Context, req *contract.ListKBsRequest) (*co
 	}
 	return out, nil
 }
+
+func (c *Client) CreateDocument(ctx context.Context, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
+	out := &contract.CreateDocumentResponse{}
+	path := "/knowledgebases/" + kbID + "/documents"
+	if err := c.doJSON(ctx, http.MethodPost, path, req, out, time.Duration(c.cfg.UploadTimeoutMs)*time.Millisecond); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) GetDocument(ctx context.Context, tenantID, docID string) (*contract.Document, error) {
+	out := &contract.Document{}
+	path := "/documents/" + docID + "?tenant_id=" + tenantID
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) ListDocuments(ctx context.Context, tenantID, kbID string, page, pageSize int) (*contract.ListDocumentsResponse, error) {
+	out := &contract.ListDocumentsResponse{}
+	path := fmt.Sprintf("/knowledgebases/%s/documents?tenant_id=%s&page=%d&page_size=%d", kbID, tenantID, page, pageSize)
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) DeleteDocument(ctx context.Context, tenantID, docID string) error {
+	path := "/documents/" + docID + "?tenant_id=" + tenantID
+	return c.doJSON(ctx, http.MethodDelete, path, nil, nil, c.cfg.Timeout)
+}
+
+func (c *Client) GetTask(ctx context.Context, tenantID, taskID string) (*contract.Task, error) {
+	out := &contract.Task{}
+	path := "/tasks/" + taskID + "?tenant_id=" + tenantID
+	if err := c.doJSON(ctx, http.MethodGet, path, nil, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
