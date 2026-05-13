@@ -1,0 +1,84 @@
+/*
+ * Copyright 2025 coze-dev Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package ragimpl
+
+import (
+	"context"
+	"strings"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+
+	knowledgeModel "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
+	contract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
+)
+
+// TestRetrieve_RejectsNL2SQL asserts that the NL2SQL sub-feature returns 501
+// (ErrRagFeaturePendingCode) with a recognizable message. NL2SQL is bucket-B
+// even though Retrieve itself is bucket-A.
+func TestRetrieve_RejectsNL2SQL(t *testing.T) {
+	i := newTestImpl(t, &fakeClient{})
+	_, err := i.Retrieve(context.Background(), &knowledgeModel.RetrieveRequest{
+		Query:        "anything",
+		KnowledgeIDs: []int64{1},
+		Strategy:     &knowledgeModel.RetrievalStrategy{EnableNL2SQL: true},
+	})
+	require.Error(t, err)
+	require.True(t, strings.Contains(err.Error(), "NL2SQL"), "expected NL2SQL in error, got: %v", err)
+}
+
+// TestRetrieve_HappyPath verifies the end-to-end translation:
+//   - tenant_id passed to rag.Retrieve comes from the resolver, not the request
+//   - coze KB ids are translated to rag UUIDs via the mapping
+//   - returned hits are re-keyed via docByRagID to coze int64 DocumentIDs
+//   - chunk content lands in Slice.RawContent as a Text entry
+func TestRetrieve_HappyPath(t *testing.T) {
+	var captured *contract.RetrieveRequest
+	fc := &fakeClient{
+		retrieveFunc: func(req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			captured = req
+			return &contract.RetrieveResponse{
+				Hits: []contract.RetrieveHit{
+					{ChunkID: "c1", DocID: "rag-doc-X", Score: 0.87, Content: "hello world"},
+				},
+			}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertDoc(ctx, 555, "rag-doc-X", 100, 7, "task-1", 0))
+
+	resp, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.RetrieveSlices, 1)
+	rs := resp.RetrieveSlices[0]
+	require.InDelta(t, 0.87, rs.Score, 1e-9)
+	require.Equal(t, int64(555), rs.Slice.DocumentID)
+	require.Equal(t, int64(100), rs.Slice.KnowledgeID)
+	require.Len(t, rs.Slice.RawContent, 1)
+	require.NotNil(t, rs.Slice.RawContent[0].Text)
+	require.Equal(t, "hello world", *rs.Slice.RawContent[0].Text)
+
+	// Tenant came from the resolver, not from any request field.
+	require.NotNil(t, captured)
+	require.Equal(t, "test-tenant", captured.TenantID)
+	require.Equal(t, []string{"rag-kb-100"}, captured.KBIDs)
+}

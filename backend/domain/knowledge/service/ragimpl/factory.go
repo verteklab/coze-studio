@@ -22,14 +22,15 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/entity"
+	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
 	contract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
 	"github.com/coze-dev/coze-studio/backend/infra/idgen"
 )
 
-// Compile-time check: Impl satisfies the wider Knowledge interface.
-// Commented for Task 10B — Tasks 11-14 implement the required methods;
-// Task 14 restores this assertion.
-// var _ service.Knowledge = (*Impl)(nil)
+// Compile-time check: Impl satisfies the wider Knowledge interface. If a new
+// method is added to service.Knowledge, this line breaks the build until
+// either a real implementation or a bucket-B stub (unsupported.go) lands.
+var _ service.Knowledge = (*Impl)(nil)
 
 type Impl struct {
 	rag      contract.Client
