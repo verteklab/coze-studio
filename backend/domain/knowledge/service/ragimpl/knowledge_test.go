@@ -27,6 +27,7 @@ import (
 	knowledgeModel "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
 	contract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
+	"github.com/coze-dev/coze-studio/backend/types/consts"
 )
 
 // fakeClient implements contract.Client with overridable per-method hooks.
@@ -245,6 +246,43 @@ func TestCreateKnowledge_HappyPath(t *testing.T) {
 	require.Equal(t, "icon-uri", got.IconURI)
 	require.Equal(t, int64(42), got.AppID)
 	require.Equal(t, int64(7), got.CreatorID)
+}
+
+// TestCreateKnowledge_ContextModelOverride asserts that an override attached
+// to ctx via consts.WithRagModelOverride wins over the ragimpl defaults.
+// This is the contract the application layer (CreateDataset handler) relies
+// on for forwarding optional CreateDatasetRequest fields into rag.
+func TestCreateKnowledge_ContextModelOverride(t *testing.T) {
+	fc := &fakeClient{
+		createKBFunc: func(_ *contract.CreateKBRequest) (*contract.KB, error) {
+			return &contract.KB{KBID: "u", Status: "active", CreatedAt: time.Unix(0, 0), UpdatedAt: time.Unix(0, 0)}, nil
+		},
+	}
+	i := newTestImpl(t, fc, 1)
+	ctx := consts.WithRagModelOverride(context.Background(), "override-t", "override-i")
+	_, err := i.CreateKnowledge(ctx, &service.CreateKnowledgeRequest{Name: "k", SpaceID: 1, FormatType: knowledgeModel.DocumentTypeText})
+	require.NoError(t, err)
+	require.NotNil(t, fc.createKBReq)
+	require.Equal(t, "override-t", fc.createKBReq.TextEmbeddingModelID)
+	require.Equal(t, "override-i", fc.createKBReq.ImageEmbeddingModelID)
+}
+
+// TestCreateKnowledge_ContextModelOverridePartial asserts the per-field
+// fallback: an empty override field leaves the configured default in place
+// instead of clobbering it to "".
+func TestCreateKnowledge_ContextModelOverridePartial(t *testing.T) {
+	fc := &fakeClient{
+		createKBFunc: func(_ *contract.CreateKBRequest) (*contract.KB, error) {
+			return &contract.KB{KBID: "u", Status: "active", CreatedAt: time.Unix(0, 0), UpdatedAt: time.Unix(0, 0)}, nil
+		},
+	}
+	i := newTestImpl(t, fc, 2)
+	// Only text override supplied; image must fall back to the configured default.
+	ctx := consts.WithRagModelOverride(context.Background(), "override-t", "")
+	_, err := i.CreateKnowledge(ctx, &service.CreateKnowledgeRequest{Name: "k", SpaceID: 1, FormatType: knowledgeModel.DocumentTypeText})
+	require.NoError(t, err)
+	require.Equal(t, "override-t", fc.createKBReq.TextEmbeddingModelID)
+	require.Equal(t, "image-model-default", fc.createKBReq.ImageEmbeddingModelID)
 }
 
 // TestDeleteKnowledge_RollbackOnRagFailure pre-seeds a mapping row, then makes
