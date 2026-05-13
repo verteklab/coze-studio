@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 import { useDataModalWithCoze } from '@coze-data/utils';
 import { useDataNavigate } from '@coze-data/knowledge-stores';
@@ -22,6 +22,8 @@ import { UnitType } from '@coze-data/knowledge-resource-processor-core';
 import {
   CozeKnowledgeAddTypeContent,
   type CozeKnowledgeAddTypeContentFormData,
+  ModelSelector,
+  type ProvidersResponse,
 } from '@coze-data/knowledge-modal-base/create-knowledge-modal-v2';
 import { KnowledgeE2e } from '@coze-data/e2e';
 import { I18n } from '@coze-arch/i18n';
@@ -50,18 +52,35 @@ export const useCreateKnowledgeModalV2 = (
 
   const [unitType, setUnitType] = useState<UnitType>(UnitType.TEXT_DOC);
 
+  // Selected embedding model ids from <ModelSelector />. Only meaningful when
+  // the backend is configured with KNOWLEDGE_BACKEND=rag — when the legacy
+  // backend is active, the server ignores these fields. The selector is
+  // always rendered today; a future polish item is to hide it behind a
+  // backend-driven feature flag.
+  const [selectedModels, setSelectedModels] = useState<{
+    textModelId: string;
+    imageModelId: string;
+  }>({ textModelId: '', imageModelId: '' });
+
+  // The rag proxy endpoint returns the raw `{text_models, image_models}`
+  // shape (no `{code, msg, data}` envelope) so we use `fetch` rather than
+  // the shared axiosInstance, whose response interceptor would reject any
+  // payload that doesn't carry `code === 0`. Same-origin call → no auth
+  // headers needed; the gateway handles session cookies.
+  const fetchModelProviders =
+    useCallback(async (): Promise<ProvidersResponse> => {
+      const res = await fetch('/api/knowledge/rag/model_providers', {
+        method: 'GET',
+        credentials: 'same-origin',
+      });
+      if (!res.ok) {
+        throw new Error(`Failed to fetch model providers: HTTP ${res.status}`);
+      }
+      return (await res.json()) as ProvidersResponse;
+    }, []);
+
   const createDataset = async () => {
     await formRef.current?.formApi.validate();
-    // TODO(knowledge-rag): render <ModelSelector /> (from
-    // '@coze-data/knowledge-modal-base/create-knowledge-modal-v2') alongside
-    // the CozeKnowledgeAddTypeContent form, capture its selection into
-    // component state, and pass it through here as
-    //   text_embedding_model_id: selectedModels.textModelId,
-    //   image_embedding_model_id: selectedModels.imageModelId,
-    // The backend IDL already accepts these optional fields (see
-    // idl/data/knowledge/knowledge.thrift), but the frontend IDL has not been
-    // regenerated yet — run codegen and update CreateDatasetRequest before
-    // wiring this call site.
     const { dataset_id: datasetId } = await KnowledgeApi.CreateDataset({
       project_id: projectID || undefined,
       name: formRef.current?.formApi.getValue('name'),
@@ -69,6 +88,8 @@ export const useCreateKnowledgeModalV2 = (
       description: formRef.current?.formApi.getValue('description'),
       icon_uri: formRef.current?.formApi.getValue('icon_uri')?.[0].uid,
       space_id: spaceId || undefined,
+      text_embedding_model_id: selectedModels.textModelId || undefined,
+      image_embedding_model_id: selectedModels.imageModelId || undefined,
     });
     return datasetId;
   };
@@ -137,6 +158,10 @@ export const useCreateKnowledgeModalV2 = (
         <CozeKnowledgeAddTypeContent
           onImportKnowledgeTypeChange={setUnitType}
           onSelectFormatTypeChange={setCurrentFormatType}
+        />
+        <ModelSelector
+          fetchProviders={fetchModelProviders}
+          onChange={setSelectedModels}
         />
       </Form>,
     ),
