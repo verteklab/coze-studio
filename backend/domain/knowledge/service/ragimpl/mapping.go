@@ -102,9 +102,8 @@ func (m *MappingRepo) KBsByCozeIDs(ctx context.Context, ids []int64) ([]*KBMappi
 	if err != nil {
 		return nil, err
 	}
-	if len(rows) == 0 {
-		return nil, fmt.Errorf("%w: ids=%v", ErrMappingNotFound, ids)
-	}
+	// Batch fetcher semantics: return what was found, let the caller diff against
+	// input. Mirrors DocsByCozeIDs. Single-id callers should use KBByCozeID.
 	out := make([]*KBMapping, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, &KBMapping{
