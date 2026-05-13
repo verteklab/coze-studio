@@ -100,3 +100,63 @@ func TestGetKB_NotFound(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestCreateDocument(t *testing.T) {
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/knowledgebases/uuid-1/documents" || r.Method != http.MethodPost {
+			t.Fatalf("got %s %s", r.Method, r.URL.Path)
+		}
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(contract.CreateDocumentResponse{DocID: "doc-1", TaskID: "task-1", Status: "pending"})
+	}))
+	out, err := c.CreateDocument(context.Background(), "uuid-1", &contract.CreateDocumentRequest{
+		TenantID:       "42",
+		SourceURI:      "minio://bucket/file.pdf",
+		SourceModality: "text_source",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.DocID != "doc-1" || out.TaskID != "task-1" {
+		t.Fatalf("got %+v", out)
+	}
+}
+
+func TestGetTask(t *testing.T) {
+	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(contract.Task{TaskID: "task-1", Status: "success", Progress: 100})
+	}))
+	out, err := c.GetTask(context.Background(), "42", "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Status != "success" {
+		t.Fatalf("got %+v", out)
+	}
+}
+
+func TestDeleteDocument_NotRetried(t *testing.T) {
+	// Note: DeleteDocument IS idempotent (DELETE method), so it WILL retry.
+	// This test verifies the retry happens 1+MaxRetries times. We use MaxRetries=1.
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(contract.ErrorBody{Code: 50001, Message: "boom"})
+	}))
+	t.Cleanup(srv.Close)
+	cfg := ragconf.Config{
+		BaseURL:        srv.URL,
+		Timeout:        5 * time.Second,
+		MaxRetries:     1,
+		RetryBackoffMs: 1,
+	}
+	c := New(cfg)
+	err := c.DeleteDocument(context.Background(), "42", "doc-1")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if calls != 2 {
+		t.Fatalf("expected 2 calls (1 + 1 retry), got %d", calls)
+	}
+}
