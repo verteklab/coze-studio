@@ -123,8 +123,11 @@ type CreateDatasetRequest struct {
 	// Open to third-party business identity, coze pass 0 or no pass
 	BizID int64 `thrift:"biz_id,6" form:"biz_id" json:"biz_id,string" query:"biz_id"`
 	// Project ID
-	ProjectID int64      `thrift:"project_id,7" form:"project_id" json:"project_id,string" query:"project_id"`
-	Base      *base.Base `thrift:"Base,255,optional" form:"Base" json:"Base,omitempty" query:"Base"`
+	ProjectID int64 `thrift:"project_id,7" form:"project_id" json:"project_id,string" query:"project_id"`
+	// PR-1: forwarded to rag at KB creation time. Optional; absent -> backend uses defaults.
+	TextEmbeddingModelID  *string    `thrift:"text_embedding_model_id,8,optional" form:"text_embedding_model_id" json:"text_embedding_model_id,omitempty" query:"text_embedding_model_id"`
+	ImageEmbeddingModelID *string    `thrift:"image_embedding_model_id,9,optional" form:"image_embedding_model_id" json:"image_embedding_model_id,omitempty" query:"image_embedding_model_id"`
+	Base                  *base.Base `thrift:"Base,255,optional" form:"Base" json:"Base,omitempty" query:"Base"`
 }
 
 func NewCreateDatasetRequest() *CreateDatasetRequest {
@@ -162,6 +165,24 @@ func (p *CreateDatasetRequest) GetProjectID() (v int64) {
 	return p.ProjectID
 }
 
+var CreateDatasetRequest_TextEmbeddingModelID_DEFAULT string
+
+func (p *CreateDatasetRequest) GetTextEmbeddingModelID() (v string) {
+	if !p.IsSetTextEmbeddingModelID() {
+		return CreateDatasetRequest_TextEmbeddingModelID_DEFAULT
+	}
+	return *p.TextEmbeddingModelID
+}
+
+var CreateDatasetRequest_ImageEmbeddingModelID_DEFAULT string
+
+func (p *CreateDatasetRequest) GetImageEmbeddingModelID() (v string) {
+	if !p.IsSetImageEmbeddingModelID() {
+		return CreateDatasetRequest_ImageEmbeddingModelID_DEFAULT
+	}
+	return *p.ImageEmbeddingModelID
+}
+
 var CreateDatasetRequest_Base_DEFAULT *base.Base
 
 func (p *CreateDatasetRequest) GetBase() (v *base.Base) {
@@ -179,7 +200,17 @@ var fieldIDToName_CreateDatasetRequest = map[int16]string{
 	5:   "format_type",
 	6:   "biz_id",
 	7:   "project_id",
+	8:   "text_embedding_model_id",
+	9:   "image_embedding_model_id",
 	255: "Base",
+}
+
+func (p *CreateDatasetRequest) IsSetTextEmbeddingModelID() bool {
+	return p.TextEmbeddingModelID != nil
+}
+
+func (p *CreateDatasetRequest) IsSetImageEmbeddingModelID() bool {
+	return p.ImageEmbeddingModelID != nil
 }
 
 func (p *CreateDatasetRequest) IsSetBase() bool {
@@ -255,6 +286,22 @@ func (p *CreateDatasetRequest) Read(iprot thrift.TProtocol) (err error) {
 		case 7:
 			if fieldTypeId == thrift.I64 {
 				if err = p.ReadField7(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 8:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField8(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 9:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField9(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -374,6 +421,28 @@ func (p *CreateDatasetRequest) ReadField7(iprot thrift.TProtocol) error {
 	p.ProjectID = _field
 	return nil
 }
+func (p *CreateDatasetRequest) ReadField8(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.TextEmbeddingModelID = _field
+	return nil
+}
+func (p *CreateDatasetRequest) ReadField9(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.ImageEmbeddingModelID = _field
+	return nil
+}
 func (p *CreateDatasetRequest) ReadField255(iprot thrift.TProtocol) error {
 	_field := base.NewBase()
 	if err := _field.Read(iprot); err != nil {
@@ -415,6 +484,14 @@ func (p *CreateDatasetRequest) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField7(oprot); err != nil {
 			fieldId = 7
+			goto WriteFieldError
+		}
+		if err = p.writeField8(oprot); err != nil {
+			fieldId = 8
+			goto WriteFieldError
+		}
+		if err = p.writeField9(oprot); err != nil {
+			fieldId = 9
 			goto WriteFieldError
 		}
 		if err = p.writeField255(oprot); err != nil {
@@ -550,6 +627,42 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 7 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 7 end error: ", p), err)
+}
+func (p *CreateDatasetRequest) writeField8(oprot thrift.TProtocol) (err error) {
+	if p.IsSetTextEmbeddingModelID() {
+		if err = oprot.WriteFieldBegin("text_embedding_model_id", thrift.STRING, 8); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.TextEmbeddingModelID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 8 end error: ", p), err)
+}
+func (p *CreateDatasetRequest) writeField9(oprot thrift.TProtocol) (err error) {
+	if p.IsSetImageEmbeddingModelID() {
+		if err = oprot.WriteFieldBegin("image_embedding_model_id", thrift.STRING, 9); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.ImageEmbeddingModelID); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 9 end error: ", p), err)
 }
 func (p *CreateDatasetRequest) writeField255(oprot thrift.TProtocol) (err error) {
 	if p.IsSetBase() {
