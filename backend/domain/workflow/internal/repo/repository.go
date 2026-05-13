@@ -154,6 +154,26 @@ func (r *RepositoryImpl) CreateMeta(ctx context.Context, meta *vo.Meta) (int64, 
 	return id, nil
 }
 
+func (r *RepositoryImpl) IsWorkflowNameDuplicated(ctx context.Context, creatorID int64, name string, excludeID *int64) (bool, error) {
+	wm := r.query.WorkflowMeta
+	q := wm.WithContext(ctx).
+		Where(wm.CreatorID.Eq(creatorID)).
+		Where(wm.Name.Eq(name))
+	if excludeID != nil {
+		q = q.Where(wm.ID.Neq(*excludeID))
+	}
+	// gorm-gen honors gorm.DeletedAt soft-delete scope automatically, so
+	// `deleted_at IS NULL` is appended without explicit predicate.
+	_, err := q.Select(wm.ID).Limit(1).First()
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return false, nil
+		}
+		return false, vo.WrapError(errno.ErrDatabaseError, fmt.Errorf("check workflow name duplicated: %w", err))
+	}
+	return true, nil
+}
+
 func (r *RepositoryImpl) updateReferences(ctx context.Context, id int64, wfRefs map[entity.WorkflowReferenceKey]struct{}) (
 	err error) {
 	defer func() {

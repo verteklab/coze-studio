@@ -32,7 +32,14 @@ export type SpanCategoryConfigMap = Record<
 >;
 
 interface SpanStatusConfig {
-  label: string;
+  /**
+   * Lazy getter. Returning a thunk (rather than a precomputed string) avoids
+   * the i18n early-evaluation bug: when this module is imported before the
+   * zh-CN resource pack is loaded, `I18n.t(...)` would fall back to the
+   * English value and freeze that string into the config object permanently.
+   * Calling it at render time always sees the up-to-date locale.
+   */
+  label: () => string;
 }
 
 export interface SpanStatusConfigMap {

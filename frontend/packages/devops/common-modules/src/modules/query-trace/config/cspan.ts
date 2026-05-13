@@ -207,16 +207,16 @@ export const spanCategoryConfigMap: SpanCategoryConfigMap = {
 
 export const spanStatusConfigMap: SpanStatusConfigMap = {
   [SpanStatus.Unknown]: {
-    label: I18n.t('analytic_query_status_unknown'),
+    label: () => I18n.t('analytic_query_status_unknown'),
   },
   [SpanStatus.Success]: {
-    label: I18n.t('analytic_query_status_success'),
+    label: () => I18n.t('analytic_query_status_success'),
   },
   [SpanStatus.Error]: {
-    label: I18n.t('analytic_query_status_error'),
+    label: () => I18n.t('analytic_query_status_error'),
   },
   [SpanStatus.Broken]: {
-    label: I18n.t('analytic_query_status_broken'),
+    label: () => I18n.t('analytic_query_status_broken'),
   },
 };
 

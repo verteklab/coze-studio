@@ -40,6 +40,8 @@ const (
 	ErrPluginAPIErr                                = 720701004
 	ErrConversationNameIsDuplicated                = 720702200
 	ErrConversationOfAppNotFound                   = 720702201
+	ErrWorkflowNameIsDuplicated                    = 720702202
+	ErrWorkflowVersionNotIncremental               = 720702203
 	ErrConversationNodeInvalidOperation            = 720702250
 	ErrOnlyDefaultConversationAllowInAgentScenario = 720712033
 	ErrConversationNodesNotAvailable               = 702093204
@@ -86,263 +88,275 @@ const (
 func init() {
 	code.Register(
 		ErrWorkflowNotPublished,
-		"Workflow not published. The requested operation cannot be performed on an unpublished workflow. Please publish the workflow and try again.",
+		"工作流未发布，无法对未发布的工作流执行该操作，请先发布工作流后再试。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrMissingRequiredParam,
-		"Missing required parameters：’{param}‘. Please review the API documentation and ensure all mandatory fields are included in your request.",
+		"缺少必填参数：『{param}』，请检查 API 文档并确认所有必填字段都已填写。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrInterruptNotSupported,
-		"Synchronous requests do not support interruption. Please switch to asynchronous requests for interruptible operations.",
+		"同步请求不支持中断，如需可中断操作，请改用异步请求。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrInvalidParameter,
-		"Invalid request parameters. Please check your input and ensure all required fields are correctly formatted and within allowed ranges.",
+		"请求参数无效，请检查输入，确保所有必填字段格式正确并在允许范围内。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrArrIndexOutOfRange,
-		"Array {arr_name} index out of bounds: The requested index {req_index} exceeds the array's length {arr_len}. Please ensure the index is within the valid range of the array. You can refer to debug_url for more details.",
+		"数组 {arr_name} 下标越界：请求的下标 {req_index} 超出数组长度 {arr_len}，请确认下标在数组的有效范围内，更多详情可参考 debug_url。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrIndexingNilArray,
-		"Array {arr_name} is nil: The requested index {req_index} cannot be extracted.",
+		"数组 {arr_name} 为空：无法读取下标 {req_index} 对应的元素。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrWorkflowExecuteFail,
-		"Workflow execution failure: {cause}",
+		"工作流执行失败：{cause}",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrWorkflowOperationFail,
-		"Workflow operation failure: {cause}",
+		"工作流操作失败：{cause}",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrChatFlowRoleOperationFail,
-		"ChatFlowRole operation failure: {cause}",
+		"ChatFlowRole 操作失败：{cause}",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrMessageNodeOperationFail,
-		"Message node operation failure: {cause}",
+		"消息节点操作失败：{cause}",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrConversationNodeOperationFail,
-		"Conversation node operation failure: {cause}",
+		"会话节点操作失败：{cause}",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrCodeExecuteFail,
-		"Function execution failed, please check the code of the function. Detail: {detail}",
+		"函数执行失败，请检查函数代码。详情：{detail}",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrQuestionOptionsEmpty,
-		"question option is empty",
+		"问题选项为空",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrNodeOutputParseFail,
-		"node output parse fail: {warnings}",
+		"节点输出解析失败：{warnings}",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrWorkflowCanceledByUser,
-		"workflow cancel by user",
+		"工作流已被用户取消",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrConversationOfAppOperationFail,
-		"Conversation management operation failure: {cause}",
+		"会话管理操作失败：{cause}",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrNodeTimeout,
-		"node timeout",
+		"节点执行超时",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrWorkflowTimeout,
-		"Workflow execution timed out. Please check for long-running operations, optimize if possible, or retry later.",
+		"工作流执行超时，请检查是否存在长耗时操作，尝试优化后重试。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrLLMStructuredOutputParseFail,
-		"parse LLM structured output failed, please refer to LLM's raw output for detail.",
+		"大模型结构化输出解析失败，详情请参考大模型的原始输出。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrCreateNodeFail,
-		"create node {node_name} failed: {cause}",
+		"创建节点 {node_name} 失败：{cause}",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrDatabaseError,
-		"database operation failed",
+		"数据库操作失败",
 		code.WithAffectStability(true),
 	)
 	code.Register(
 		ErrRedisError,
-		"redis operation failed",
+		"Redis 操作失败",
 		code.WithAffectStability(true),
 	)
 	code.Register(
 		ErrIDGenError,
-		"id generator failed",
+		"ID 生成器调用失败",
 		code.WithAffectStability(true),
 	)
 
 	code.Register(
 		ErrWorkflowNotFound,
-		"workflow {id} not found, please check if the workflow exists and not deleted",
+		"工作流 {id} 不存在，请确认该工作流是否存在且未被删除。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrConversationOfAppNotFound,
-		"conversation not found, please check if the application conversation exists",
+		"会话不存在，请确认对应的应用会话是否存在。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrSerializationDeserializationFail,
-		"data serialization/deserialization fail, please contact support team",
+		"数据序列化/反序列化失败，请联系技术支持。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrWorkflowSnapshotNotFound,
-		"workflow {id} snapshot {commit_id} not found, please contact support team",
+		"工作流 {id} 的快照 {commit_id} 不存在，请联系技术支持。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrInternalBadRequest,
-		"one of the request parameters for {scene} is invalid, please contact support team",
+		"{scene} 的请求参数存在非法字段，请联系技术支持。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrSchemaConversionFail,
-		"schema conversion failed, please contact support team",
+		"Schema 转换失败，请联系技术支持。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrWorkflowCompileFail,
-		"workflow compile failed, please contact support team",
+		"工作流编译失败，请联系技术支持。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrNotifyWorkflowResourceChangeErr,
-		"notify workflow resource change failed, please try again later",
+		"通知工作流资源变更失败，请稍后重试。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrInvalidVersionName,
-		"workflow version name is invalid",
+		"工作流版本名称不合法",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrPluginAPIErr,
-		"plugin api error",
+		"插件 API 调用异常",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrConversationNameIsDuplicated,
-		"conversation name {name} is duplicated",
+		"会话名称 {name} 已存在",
+		code.WithAffectStability(false),
+	)
+
+	code.Register(
+		ErrWorkflowNameIsDuplicated,
+		"工作流名称『{name}』已存在，请换一个名称",
+		code.WithAffectStability(false),
+	)
+
+	code.Register(
+		ErrWorkflowVersionNotIncremental,
+		"版本号必须递增，线上版本 {old_version}，当前版本 {new_version}",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrPluginIDNotFound,
-		"plugin {id} not found",
+		"插件 {id} 不存在",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrTOSError,
-		"tos operation failed",
+		"对象存储操作失败",
 		code.WithAffectStability(true),
 	)
 
 	code.Register(
 		ErrToolIDNotFound,
-		"tool {id} not found",
+		"工具 {id} 不存在",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrAuthorizationRequired,
-		"authorization required: {extra}",
+		"授权失败：{extra}",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrVariablesAPIFail,
-		"variables API failed",
+		"变量 API 调用失败",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrInputFieldMissing,
-		"input field {name} not found",
+		"输入参数 {name} 不存在",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrConversationNotFoundForOperation,
-		"Conversation not found. Please create a conversation before attempting to perform any related operations.",
+		"会话不存在，请先创建会话后再执行相关操作。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrConversationNodesNotAvailable,
-		"Conversation nodes are unavailable in agent scenarios and require an app binding.",
+		"会话节点在智能体场景下不可用，需要绑定应用。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrConversationNodeInvalidOperation,
-		"Only conversation created through nodes are allowed to be modified or deleted.",
+		"仅允许修改或删除通过节点创建的会话。",
 		code.WithAffectStability(false),
 	)
 
 	code.Register(
 		ErrOnlyDefaultConversationAllowInAgentScenario,
-		"Only default conversation allow in agent scenario",
+		"智能体场景下仅允许使用默认会话",
 		code.WithAffectStability(false),
 	)
 

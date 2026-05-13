@@ -1719,6 +1719,21 @@ func (mr *MockRepositoryMockRecorder) IsApplicationConnectorWorkflowVersion(ctx,
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsApplicationConnectorWorkflowVersion", reflect.TypeOf((*MockRepository)(nil).IsApplicationConnectorWorkflowVersion), ctx, connectorID, workflowID, version)
 }
 
+// IsWorkflowNameDuplicated mocks base method.
+func (m *MockRepository) IsWorkflowNameDuplicated(ctx context.Context, creatorID int64, name string, excludeID *int64) (bool, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "IsWorkflowNameDuplicated", ctx, creatorID, name, excludeID)
+	ret0, _ := ret[0].(bool)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// IsWorkflowNameDuplicated indicates an expected call of IsWorkflowNameDuplicated.
+func (mr *MockRepositoryMockRecorder) IsWorkflowNameDuplicated(ctx, creatorID, name, excludeID any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "IsWorkflowNameDuplicated", reflect.TypeOf((*MockRepository)(nil).IsWorkflowNameDuplicated), ctx, creatorID, name, excludeID)
+}
+
 // ListConversationTemplate mocks base method.
 func (m *MockRepository) ListConversationTemplate(ctx context.Context, env vo.Env, policy *vo.ListConversationTemplatePolicy) ([]*entity.ConversationTemplate, error) {
 	m.ctrl.T.Helper()

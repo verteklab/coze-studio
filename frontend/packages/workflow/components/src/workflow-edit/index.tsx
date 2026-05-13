@@ -178,6 +178,12 @@ export function CreateWorkflowModal({
       return;
     }
 
+    if (error.msg) {
+      Toast.error({ content: error.msg, showClose: false });
+      handleCancel();
+      return;
+    }
+
     handleCancel();
     throw error;
   };

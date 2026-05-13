@@ -147,7 +147,7 @@ export const getStatusLabel = (
   spanStatusConfigMap = defaultSpanStatusConfigMap,
 ) => {
   const { status } = span;
-  return spanStatusConfigMap[status]?.label ?? '';
+  return spanStatusConfigMap[status]?.label() ?? '';
 };
 
 // When the start node does not exist, generate a virtual start node

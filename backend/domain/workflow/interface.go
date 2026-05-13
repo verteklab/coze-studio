@@ -78,6 +78,11 @@ type Repository interface {
 	MDelete(ctx context.Context, ids []int64) error
 	GetMeta(ctx context.Context, id int64) (*vo.Meta, error)
 	UpdateMeta(ctx context.Context, id int64, metaUpdate *vo.MetaUpdate) error
+	// IsWorkflowNameDuplicated reports whether another workflow_meta row with
+	// the same (creator_id, name) already exists (soft-deleted rows excluded).
+	// If excludeID is non-nil, the row with that ID is ignored — used by
+	// rename so a workflow can keep its own current name.
+	IsWorkflowNameDuplicated(ctx context.Context, creatorID int64, name string, excludeID *int64) (bool, error)
 	GetVersion(ctx context.Context, id int64, version string) (*vo.VersionInfo, bool, error)
 	GetVersionByCommitID(ctx context.Context, workflowID int64, commitID string) (*vo.VersionInfo, bool, error)
 	ListVersions(ctx context.Context, workflowID int64, cursor int64, limit int, commitIDs []string) ([]*vo.VersionInfo, error)

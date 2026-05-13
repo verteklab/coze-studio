@@ -104,7 +104,31 @@ func (i *impl) ListNodeMeta(_ context.Context, nodeTypes map[entity.NodeType]boo
 	return nodeMetaMap, entity.Categories, nil
 }
 
+// checkNameAvailable enforces the domain invariant that a single user cannot
+// own two workflows with the same name. Used both by Create (excludeID=nil)
+// and by UpdateMeta rename (excludeID=&id, so renaming to one's own current
+// name is a no-op rather than an error). Soft-deleted rows are excluded by
+// the repository layer.
+func (i *impl) checkNameAvailable(ctx context.Context, creatorID int64, name string, excludeID *int64) error {
+	dup, err := i.repo.IsWorkflowNameDuplicated(ctx, creatorID, name, excludeID)
+	if err != nil {
+		return err
+	}
+	if dup {
+		return vo.WrapError(
+			errno.ErrWorkflowNameIsDuplicated,
+			fmt.Errorf("workflow name %s exists for creator %d", name, creatorID),
+			errorx.KV("name", name),
+		)
+	}
+	return nil
+}
+
 func (i *impl) Create(ctx context.Context, meta *vo.MetaCreate) (int64, error) {
+	if err := i.checkNameAvailable(ctx, meta.CreatorID, meta.Name, nil); err != nil {
+		return 0, err
+	}
+
 	id, err := i.repo.CreateMeta(ctx, &vo.Meta{
 		CreatorID:   meta.CreatorID,
 		SpaceID:     meta.SpaceID,
@@ -749,7 +773,12 @@ func (i *impl) Publish(ctx context.Context, policy *vo.PublishPolicy) (err error
 		}
 
 		if !isIncremental(latestVersion, currentVersion) {
-			return fmt.Errorf("the version number is not self-incrementing, old version %v, current version is %v", *meta.LatestPublishedVersion, policy.Version)
+			return vo.WrapError(
+				errno.ErrWorkflowVersionNotIncremental,
+				fmt.Errorf("the version number is not self-incrementing, old version %v, current version is %v", *meta.LatestPublishedVersion, policy.Version),
+				errorx.KV("old_version", *meta.LatestPublishedVersion),
+				errorx.KV("new_version", policy.Version),
+			)
 		}
 	}
 
@@ -789,6 +818,21 @@ func (i *impl) Publish(ctx context.Context, policy *vo.PublishPolicy) (err error
 }
 
 func (i *impl) UpdateMeta(ctx context.Context, id int64, metaUpdate *vo.MetaUpdate) (err error) {
+	if metaUpdate.Name != nil {
+		// Look up the existing row to (a) skip the duplicate-check when the
+		// name is unchanged (rename-to-self is a no-op, not an error), and
+		// (b) get the creator_id — uniqueness is scoped per user.
+		existing, err := i.repo.GetMeta(ctx, id)
+		if err != nil {
+			return err
+		}
+		if existing.Name != *metaUpdate.Name {
+			if err := i.checkNameAvailable(ctx, existing.CreatorID, *metaUpdate.Name, &id); err != nil {
+				return err
+			}
+		}
+	}
+
 	err = i.repo.UpdateMeta(ctx, id, metaUpdate)
 	if err != nil {
 		return err
