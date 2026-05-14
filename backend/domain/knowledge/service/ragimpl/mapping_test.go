@@ -221,3 +221,67 @@ func TestMapping_InsertDocAndSoftDelete(t *testing.T) {
 	_, err = m.DocByCozeID(context.Background(), 500)
 	require.NoError(t, err)
 }
+
+// Exists is a yes/no lookup -- "no such mapping" must be (false, nil),
+// distinguishable from a DB error. This is what Task 4's per-record
+// Dataset.Backend tagging needs (it asks: is this KB rag-backed?).
+func TestRagKBMapping_Exists(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+
+	// unmapped id -> (false, nil), not an error
+	exists, err := m.Exists(context.Background(), 12345)
+	require.NoError(t, err)
+	require.False(t, exists)
+
+	// mapped id -> (true, nil)
+	require.NoError(t, m.InsertKB(context.Background(), 100, "uuid-100", "", 0, 0, 0))
+	exists, err = m.Exists(context.Background(), 100)
+	require.NoError(t, err)
+	require.True(t, exists)
+
+	// soft-deleted id -> (false, nil), matches deleted_at IS NULL filter
+	require.NoError(t, m.SoftDeleteKB(context.Background(), 100))
+	exists, err = m.Exists(context.Background(), 100)
+	require.NoError(t, err)
+	require.False(t, exists)
+}
+
+// ExistsBatch returns a set-shaped map for O(1) membership tests at the
+// call site (Task 4 iterates N KBs in batchConvertKnowledgeEntity2Model).
+func TestRagKBMapping_ExistsBatch(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+
+	// empty slice -> empty map, no DB hit needed, no error
+	got, err := m.ExistsBatch(context.Background(), nil)
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	got, err = m.ExistsBatch(context.Background(), []int64{})
+	require.NoError(t, err)
+	require.Empty(t, got)
+
+	// mixed: two mapped + one unmapped + a soft-deleted one
+	require.NoError(t, m.InsertKB(context.Background(), 1, "uuid-1", "", 0, 0, 0))
+	require.NoError(t, m.InsertKB(context.Background(), 2, "uuid-2", "", 0, 0, 0))
+	require.NoError(t, m.InsertKB(context.Background(), 3, "uuid-3", "", 0, 0, 0))
+	require.NoError(t, m.SoftDeleteKB(context.Background(), 3))
+
+	got, err = m.ExistsBatch(context.Background(), []int64{1, 2, 3, 999})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	_, ok1 := got[1]
+	_, ok2 := got[2]
+	_, ok3 := got[3]
+	_, ok999 := got[999]
+	require.True(t, ok1)
+	require.True(t, ok2)
+	require.False(t, ok3, "soft-deleted mappings must not appear")
+	require.False(t, ok999, "unmapped ids must not appear")
+
+	// repeated ids in the input should not double-count
+	got, err = m.ExistsBatch(context.Background(), []int64{1, 1, 2, 2})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+}

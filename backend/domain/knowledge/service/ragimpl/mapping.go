@@ -114,6 +114,48 @@ func (m *MappingRepo) KBsByCozeIDs(ctx context.Context, ids []int64) ([]*KBMappi
 	return out, nil
 }
 
+// Exists is a yes/no lookup: does an active mapping row exist for this coze KB id?
+// "No such mapping" is (false, nil); only true DB failures return an error. Used by
+// the application layer to tag Dataset.Backend on outgoing DTOs without paying the
+// full hydration cost.
+func (m *MappingRepo) Exists(ctx context.Context, cozeKBID int64) (bool, error) {
+	var count int64
+	err := m.db.WithContext(ctx).
+		Table("rag_kb_mapping").
+		Where("coze_kb_id = ? AND (deleted_at IS NULL)", cozeKBID).
+		Count(&count).Error
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// ExistsBatch returns the subset of input ids that have an active mapping, shaped
+// as a set (map[int64]struct{}) for O(1) membership tests in the caller's per-record
+// loop. Empty input is not a DB hit. Like KBsByCozeIDs, missing ids are simply
+// absent from the returned map -- the caller diffs against its input.
+func (m *MappingRepo) ExistsBatch(ctx context.Context, cozeKBIDs []int64) (map[int64]struct{}, error) {
+	if len(cozeKBIDs) == 0 {
+		return map[int64]struct{}{}, nil
+	}
+	var rows []struct {
+		CozeKBID int64 `gorm:"column:coze_kb_id"`
+	}
+	err := m.db.WithContext(ctx).
+		Table("rag_kb_mapping").
+		Select("coze_kb_id").
+		Where("coze_kb_id IN ? AND (deleted_at IS NULL)", cozeKBIDs).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[int64]struct{}, len(rows))
+	for _, r := range rows {
+		out[r.CozeKBID] = struct{}{}
+	}
+	return out, nil
+}
+
 // kbByRagID is the reverse lookup -- given a rag UUID, find the coze mapping.
 // Lowercase: internal to the package, used by KB List/MGet hydration paths.
 func (m *MappingRepo) kbByRagID(ctx context.Context, ragKBID string) (*KBMapping, error) {
