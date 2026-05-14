@@ -62,7 +62,7 @@ func TestRetrieve_HappyPath(t *testing.T) {
 	i := newTestImpl(t, fc)
 	ctx := context.Background()
 	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
-	require.NoError(t, i.mapping.InsertDoc(ctx, 555, "rag-doc-X", 100, 7, "task-1", 0))
+	require.NoError(t, i.mapping.InsertDoc(ctx, 555, "rag-doc-X", 100, 7, "task-1", 0, 0))
 
 	resp, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
 		Query:        "hi",

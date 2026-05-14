@@ -81,7 +81,7 @@ func TestMGetDocumentProgress_NoMirror(t *testing.T) {
 		},
 	}
 	i := newTestImpl(t, fc)
-	require.NoError(t, i.mapping.InsertDoc(context.Background(), 4242, "rag-doc-Z", 100, 7, "task-Z", 1700000000))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 4242, "rag-doc-Z", 100, 7, "task-Z", 0, 1700000000))
 
 	resp, err := i.MGetDocumentProgress(context.Background(), &service.MGetDocumentProgressRequest{
 		DocumentIDs: []int64{4242},

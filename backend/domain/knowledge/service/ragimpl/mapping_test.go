@@ -51,6 +51,7 @@ type docRow struct {
 	CozeKBID   int64   `gorm:"column:coze_kb_id"`
 	CreatorID  int64   `gorm:"column:creator_id"`
 	LastTaskID string  `gorm:"column:last_task_id"`
+	Size       int64   `gorm:"column:size"`
 	CreatedAt  int64   `gorm:"column:created_at"`
 	DeletedAt  *string `gorm:"column:deleted_at"`
 }
@@ -209,11 +210,12 @@ func TestMapping_DocsByCozeIDs(t *testing.T) {
 func TestMapping_InsertDocAndSoftDelete(t *testing.T) {
 	db := setupDB(t)
 	m := NewMappingRepo(db)
-	require.NoError(t, m.InsertDoc(context.Background(), 500, "rag-doc-500", 100, 7, "task-99", 1700000000))
+	require.NoError(t, m.InsertDoc(context.Background(), 500, "rag-doc-500", 100, 7, "task-99", 1024, 1700000000))
 	got, err := m.DocByCozeID(context.Background(), 500)
 	require.NoError(t, err)
 	require.Equal(t, "rag-doc-500", got.RagDocID)
 	require.Equal(t, "task-99", got.LastTaskID)
+	require.Equal(t, int64(1024), got.Size)
 	require.NoError(t, m.SoftDeleteDoc(context.Background(), 500))
 	_, err = m.DocByCozeID(context.Background(), 500)
 	require.Error(t, err)
