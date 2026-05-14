@@ -19,6 +19,7 @@ package rag
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -30,6 +31,8 @@ import (
 
 	ragconf "github.com/coze-dev/coze-studio/backend/conf/rag"
 	contract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
+	"github.com/coze-dev/coze-studio/backend/pkg/errorx"
+	"github.com/coze-dev/coze-studio/backend/types/errno"
 )
 
 // envelopeBody is a small test-helper that wraps a typed payload in rag's
@@ -145,8 +148,8 @@ func TestGetKB_NotFound(t *testing.T) {
 	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		// FastAPI HTTPException envelope: {"detail": {"code": ..., "message": ...}}.
-		_ = json.NewEncoder(w).Encode(contract.ErrorBody{
-			Detail: contract.ErrorDetail{Code: 40401, Message: "kb not found"},
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"detail": map[string]any{"code": 40401, "message": "kb not found"},
 		})
 	}))
 	_, err := c.GetKB(context.Background(), "42", "missing")
@@ -354,8 +357,8 @@ func TestDeleteDocument_Retries(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(contract.ErrorBody{
-			Detail: contract.ErrorDetail{Code: 50001, Message: "boom"},
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"detail": map[string]any{"code": 50001, "message": "boom"},
 		})
 	}))
 	t.Cleanup(srv.Close)
@@ -677,5 +680,91 @@ func TestListDocuments_FieldShape(t *testing.T) {
 	}
 	if item.UpdatedAt.UnixMilli() != 1778765164484 {
 		t.Errorf("Items[0].UpdatedAt.UnixMilli() = %d, want 1778765164484", item.UpdatedAt.UnixMilli())
+	}
+}
+
+// TestClient_DecodesFlatEnvelopeError verifies that rag's flat error envelope
+// {code, message, data, request_id} flows through the new DecodeErrorEnvelope
+// path and reaches MapRagError with the correct rag code and message. A 5xx
+// classifies as ErrRagUpstreamUnavailableCode (default branch) — the new
+// decoder doesn't change that, only ensures the rag code and message are
+// preserved in the error's rendered Msg() for debugging.
+func TestClient_DecodesFlatEnvelopeError(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":       50001,
+			"message":    "model not found",
+			"data":       nil,
+			"request_id": "r1",
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second})
+	_, err := c.ListModelProviders(context.Background(), "t1")
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+
+	var se errorx.StatusError
+	if !errors.As(err, &se) {
+		t.Fatalf("expected errorx.StatusError, got %T: %v", err, err)
+	}
+	if se.Code() != errno.ErrRagUpstreamUnavailableCode {
+		t.Errorf("Code() = %d, want %d (ErrRagUpstreamUnavailableCode)", se.Code(), errno.ErrRagUpstreamUnavailableCode)
+	}
+	// errorx.KV("msg", ...) substitutes into the registered template's {msg}
+	// placeholder; the rendered text lives on Msg(), not Extra().
+	msg := se.Msg()
+	if !strings.Contains(msg, "50001") {
+		t.Errorf("Msg() = %q, want it to contain rag code 50001", msg)
+	}
+	if !strings.Contains(msg, "model not found") {
+		t.Errorf("Msg() = %q, want it to contain rag message", msg)
+	}
+}
+
+// TestClient_DecodesPydantic422AsInvalidParam verifies that rag's pydantic
+// validation 422 envelope (detail-as-array) is now correctly classified as
+// ErrKnowledgeInvalidParamCode instead of being silently treated as upstream-
+// unavailable. This is the leverage fix R2-C delivers — every endpoint's
+// validation errors become diagnosable.
+func TestClient_DecodesPydantic422AsInvalidParam(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"detail": []map[string]any{
+				{
+					"loc":  []any{"body", "kb_ids"},
+					"msg":  "field required",
+					"type": "value_error.missing",
+				},
+			},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second})
+	_, err := c.CreateKB(context.Background(), "t1", &contract.CreateKBRequest{Name: "x"})
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+
+	var se errorx.StatusError
+	if !errors.As(err, &se) {
+		t.Fatalf("expected errorx.StatusError, got %T: %v", err, err)
+	}
+	if se.Code() != errno.ErrKnowledgeInvalidParamCode {
+		t.Errorf("Code() = %d, want %d (ErrKnowledgeInvalidParamCode)", se.Code(), errno.ErrKnowledgeInvalidParamCode)
+	}
+	// errorx.KV("msg", ...) substitutes into the registered template's {msg}
+	// placeholder; the rendered text lives on Msg(), not Extra().
+	msg := se.Msg()
+	if !strings.Contains(msg, "body.kb_ids") {
+		t.Errorf("Msg() = %q, want it to contain formatted loc path 'body.kb_ids'", msg)
+	}
+	if !strings.Contains(msg, "field required") {
+		t.Errorf("Msg() = %q, want it to contain pydantic msg 'field required'", msg)
 	}
 }

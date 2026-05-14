@@ -157,12 +157,14 @@ func (c *Client) doOnce(ctx context.Context, method, path, tenantID string, body
 	}
 
 	if resp.StatusCode >= 400 {
-		var errBody contract.ErrorBody
-		// Best-effort decode: if the upstream returns non-JSON the error body
-		// will be zero-valued and MapRagError will fall through to the
-		// upstream-unavailable bucket, which is what we want.
-		_ = json.Unmarshal(raw, &errBody)
-		return MapRagError(resp.StatusCode, errBody.Detail.Code, errBody.Detail.Message)
+		// DecodeErrorEnvelope tolerates rag's three real envelope shapes (flat,
+		// FastAPI HTTPException, pydantic 422). A non-JSON or unknown body
+		// returns (0, ""), letting MapRagError fall through to the
+		// upstream-unavailable bucket — same outcome as the previous decoder
+		// for unknown bodies, but with correct classification for the shapes
+		// rag actually emits.
+		code, msg := contract.DecodeErrorEnvelope(raw)
+		return MapRagError(resp.StatusCode, code, msg)
 	}
 
 	// Endpoints that return JSON ALL wrap their payload in ResponseEnvelope.
@@ -235,9 +237,10 @@ func (c *Client) doMultipart(ctx context.Context, path, tenantID string, body io
 	}
 
 	if resp.StatusCode >= 400 {
-		var errBody contract.ErrorBody
-		_ = json.Unmarshal(raw, &errBody)
-		return MapRagError(resp.StatusCode, errBody.Detail.Code, errBody.Detail.Message)
+		// See doOnce for the decoder rationale; multipart's response path is
+		// identical once we have the raw body bytes.
+		code, msg := contract.DecodeErrorEnvelope(raw)
+		return MapRagError(resp.StatusCode, code, msg)
 	}
 
 	if out == nil {

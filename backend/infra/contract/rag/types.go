@@ -224,16 +224,3 @@ type RetrieveResponse struct {
 	Debug map[string]any `json:"debug,omitempty"`
 }
 
-// ErrorBody matches FastAPI's default HTTPException envelope:
-//
-//	{"detail": {"code": int, "message": str}}
-//
-// MapRagError unwraps Detail before classifying.
-type ErrorBody struct {
-	Detail ErrorDetail `json:"detail"`
-}
-
-type ErrorDetail struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-}
