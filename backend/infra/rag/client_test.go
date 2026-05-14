@@ -283,10 +283,11 @@ func TestCreateDocument_Multipart(t *testing.T) {
 	}
 }
 
-// TestCreateDocument_Multipart_ErrorEnvelope covers rag's current FastAPI
-// HTTPException shape on 4xx. We assert the error surfaces; we do NOT pin the
-// specific classification because R2-C will rework MapRagError to also accept
-// the flat envelope and pydantic 422 array shapes.
+// TestCreateDocument_Multipart_ErrorEnvelope covers rag's FastAPI
+// HTTPException shape on 4xx. We assert the error surfaces; classification
+// is pinned by TestClient_DecodesPydantic422AsInvalidParam (the broader
+// decoder coverage in R2-C) so this test focuses on the multipart-error
+// integration path only.
 func TestCreateDocument_Multipart_ErrorEnvelope(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
