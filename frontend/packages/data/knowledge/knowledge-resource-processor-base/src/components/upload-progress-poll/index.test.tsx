@@ -147,4 +147,41 @@ describe('<UploadProgressPoll />', () => {
     await waitFor(() => expect(screen.queryByText('1/3')).not.toBeNull());
     expect(onComplete).not.toHaveBeenCalled();
   });
+
+  it('does not refire poll immediately on parent rerender with a fresh same-content docIds reference', async () => {
+    // A buggy version (effect depending on the array identity of docIds)
+    // would tear down + re-init the effect on every parent rerender that
+    // passes a new array literal, synchronously firing a 2nd
+    // GetDocumentProgress request. With the ref + join-key fix the effect
+    // is stable across rerenders that don't actually change the contents.
+    mockGetProgress.mockResolvedValue({
+      data: [{ document_id: 'd1', status: STATUS_PROCESSING, progress: 50 }],
+    });
+
+    const onComplete = vi.fn();
+    // Use a large pollIntervalMs so the only way to see >1 call within the
+    // test window is the buggy effect-restart path.
+    const { rerender } = render(
+      <UploadProgressPoll
+        docIds={['d1']}
+        onComplete={onComplete}
+        pollIntervalMs={5000}
+      />,
+    );
+    await waitFor(() => expect(mockGetProgress).toHaveBeenCalledTimes(1));
+
+    // Rerender with a fresh array literal — different reference, same content.
+    rerender(
+      <UploadProgressPoll
+        docIds={['d1']}
+        onComplete={onComplete}
+        pollIntervalMs={5000}
+      />,
+    );
+
+    // No wait: a buggy version would have synchronously fired a 2nd
+    // immediate request as the effect cleanup + re-init runs right after
+    // the rerender commit.
+    expect(mockGetProgress).toHaveBeenCalledTimes(1);
+  });
 });

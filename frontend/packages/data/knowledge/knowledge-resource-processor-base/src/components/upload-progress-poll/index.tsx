@@ -79,6 +79,14 @@ export const UploadProgressPoll = ({
   // tear down the polling loop mid-flight.
   const onCompleteRef = useRef(onComplete);
   onCompleteRef.current = onComplete;
+  // Capture docIds in a ref too so an unmemoized array literal at the call
+  // site (e.g. <UploadProgressPoll docIds={['d1']} />) doesn't tear down +
+  // re-run the effect on every parent render — that would synchronously
+  // fire a fresh GetDocumentProgress request on each rerender. The effect
+  // depends on a stable join key for actual content change detection.
+  const docIdsRef = useRef(docIds);
+  docIdsRef.current = docIds;
+  const docIdsKey = docIds.join(',');
 
   useEffect(() => {
     let cancelled = false;
@@ -86,8 +94,9 @@ export const UploadProgressPoll = ({
 
     const tick = async () => {
       try {
+        const currentDocIds = docIdsRef.current;
         const resp = await KnowledgeApi.GetDocumentProgress({
-          document_ids: docIds,
+          document_ids: currentDocIds,
         });
         if (cancelled) {
           return;
@@ -100,7 +109,7 @@ export const UploadProgressPoll = ({
         }
         setProgress(next);
 
-        const allReady = docIds.every(id => isReady(next[id]?.status));
+        const allReady = currentDocIds.every(id => isReady(next[id]?.status));
         if (allReady && !completedRef.current) {
           completedRef.current = true;
           onCompleteRef.current();
@@ -127,7 +136,7 @@ export const UploadProgressPoll = ({
         clearTimeout(timeoutId);
       }
     };
-  }, [docIds, pollIntervalMs]);
+  }, [docIdsKey, pollIntervalMs]);
 
   const readyCount = docIds.filter(id => isReady(progress[id]?.status)).length;
 
