@@ -99,7 +99,8 @@ func TestMGetDocumentProgress_NoMirror(t *testing.T) {
 
 // TestRagimpl_RetryDocument verifies that ragimpl.RetryDocument resolves the
 // coze doc id to its rag UUID and the owning KB's rag UUID via the mapping
-// table, then forwards the call to the rag client.
+// table, forwards the call to the rag client, and bumps the mapping's
+// last_task_id so MGetDocumentProgress follows the retry's new task.
 func TestRagimpl_RetryDocument(t *testing.T) {
 	var gotTenant, gotKBID, gotDocID string
 	fc := &fakeClient{
@@ -113,20 +114,27 @@ func TestRagimpl_RetryDocument(t *testing.T) {
 	i := newTestImpl(t, fc)
 
 	// Wire mapping rows: coze KB 100 → rag UUID "rag-kb-X";
-	// coze doc 500 → rag UUID "rag-doc-Y" in KB 100.
+	// coze doc 500 → rag UUID "rag-doc-Y" in KB 100 with last_task_id="task-old-1".
 	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000))
 	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-old-1", 1700000000, 0))
 
-	resp, err := i.RetryDocument(context.Background(), 500)
+	resp, err := i.RetryDocument(context.Background(), &service.RetryDocumentRequest{DocumentID: 500})
 	require.NoError(t, err)
 	require.NotNil(t, resp)
-	require.Equal(t, "rag-doc-Y", resp.DocID)
-	require.Equal(t, "task-retry-9", resp.TaskID)
-	require.Equal(t, "pending", resp.Status)
+	require.NotNil(t, resp.Document)
+	require.Equal(t, int64(500), resp.Document.ID)
+	require.Equal(t, entity.DocumentStatusInit, resp.Document.Status) // rag "pending" → Init
+	require.Equal(t, int64(100), resp.Document.KnowledgeID)
 
+	// Rag client received the rag-side UUIDs:
 	require.Equal(t, "test-tenant", gotTenant)
 	require.Equal(t, "rag-kb-X", gotKBID)
 	require.Equal(t, "rag-doc-Y", gotDocID)
+
+	// CRITICAL: mapping's last_task_id was bumped to the new task.
+	dm, err := i.mapping.DocByCozeID(context.Background(), 500)
+	require.NoError(t, err)
+	require.Equal(t, "task-retry-9", dm.LastTaskID, "mapping must be updated so MGetDocumentProgress polls the new task")
 }
 
 // TestRagimpl_RetryDocument_MissingDocMapping verifies that a missing doc
@@ -141,7 +149,7 @@ func TestRagimpl_RetryDocument_MissingDocMapping(t *testing.T) {
 	}
 	i := newTestImpl(t, fc)
 
-	_, err := i.RetryDocument(context.Background(), 999)
+	_, err := i.RetryDocument(context.Background(), &service.RetryDocumentRequest{DocumentID: 999})
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrMappingNotFound)
 	require.False(t, called, "rag client should NOT be called when mapping is missing")

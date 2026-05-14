@@ -229,6 +229,28 @@ func GetDocumentProgress(ctx context.Context, c *app.RequestContext) {
 	c.JSON(consts.StatusOK, resp)
 }
 
+// RetryDocument re-runs ingestion for a previously-failed document.
+// MANUAL EDIT: codegen toolchain not wired (see commit e2dcc807); handler
+// signature mirrors the existing GetDocumentProgress handler pattern.
+// @router /api/knowledge/document/retry [POST]
+func RetryDocument(ctx context.Context, c *app.RequestContext) {
+	var err error
+	var req dataset.RetryDocumentRequest
+	err = c.BindAndValidate(&req)
+	if err != nil {
+		c.String(consts.StatusBadRequest, err.Error())
+		return
+	}
+
+	resp := new(dataset.RetryDocumentResponse)
+	resp, err = application.KnowledgeSVC.RetryDocument(ctx, &req)
+	if err != nil {
+		internalServerErrorResponse(ctx, c, err)
+		return
+	}
+	c.JSON(consts.StatusOK, resp)
+}
+
 // Resegment .
 // @router /api/knowledge/document/resegment [POST]
 func Resegment(ctx context.Context, c *app.RequestContext) {

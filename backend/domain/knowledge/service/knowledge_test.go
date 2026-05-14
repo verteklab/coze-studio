@@ -18,6 +18,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"os"
 	"strings"
 	"testing"
@@ -25,6 +26,7 @@ import (
 
 	"github.com/bytedance/mockey"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
@@ -38,7 +40,9 @@ import (
 	producerMock "github.com/coze-dev/coze-studio/backend/internal/mock/infra/eventbus"
 	mock "github.com/coze-dev/coze-studio/backend/internal/mock/infra/idgen"
 	storageMock "github.com/coze-dev/coze-studio/backend/internal/mock/infra/storage"
+	"github.com/coze-dev/coze-studio/backend/pkg/errorx"
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/ptr"
+	"github.com/coze-dev/coze-studio/backend/types/errno"
 )
 
 func MockKnowledgeSVC(t *testing.T) Knowledge {
@@ -1000,4 +1004,19 @@ func TestKnowledgeSVC_Retrieve(t *testing.T) {
 	//	assert.NoError(t, err)
 	//	assert.NotNil(t, res)
 	//})
+}
+
+// TestKnowledgeSVC_RetryDocument_LegacyStub verifies that the legacy impl
+// surfaces ErrRagFeaturePendingCode so frontends that mistakenly route to
+// the legacy path get a clear "feature requires rag" error rather than a
+// silent failure. The stub does not touch any dependencies of knowledgeSVC,
+// so it's safe to construct a bare instance — no MySQL needed.
+func TestKnowledgeSVC_RetryDocument_LegacyStub(t *testing.T) {
+	k := &knowledgeSVC{}
+	_, err := k.RetryDocument(context.Background(), &RetryDocumentRequest{DocumentID: 1})
+	require.Error(t, err)
+
+	var se errorx.StatusError
+	require.True(t, errors.As(err, &se), "expected errorx.StatusError, got %T", err)
+	require.Equal(t, int32(errno.ErrRagFeaturePendingCode), se.Code())
 }

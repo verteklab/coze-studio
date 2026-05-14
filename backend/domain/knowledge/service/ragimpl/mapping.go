@@ -316,5 +316,17 @@ func (m *MappingRepo) RestoreDoc(ctx context.Context, cozeID int64) error {
 	).Error
 }
 
+// UpdateLastTaskID bumps rag_doc_mapping.last_task_id for a coze doc, called
+// after RetryDocument so MGetDocumentProgress polls the new rag task. Soft-
+// deleted rows are excluded; the caller has already verified the row via
+// DocByCozeID upstream so a "no row matched" result is treated as a no-op
+// rather than an error (mirrors SoftDeleteDoc / RestoreDoc).
+func (m *MappingRepo) UpdateLastTaskID(ctx context.Context, cozeDocID int64, taskID string) error {
+	return m.db.WithContext(ctx).Exec(
+		`UPDATE rag_doc_mapping SET last_task_id = ? WHERE coze_doc_id = ? AND deleted_at IS NULL`,
+		taskID, cozeDocID,
+	).Error
+}
+
 // Note: there is no UpdateDocStatus -- document status is rag's data, not coze's.
 // Status is read live from rag via GetTask / GetDocument; nothing is mirrored.

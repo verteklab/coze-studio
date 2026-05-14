@@ -17,7 +17,7 @@
 import React from 'react';
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 // DocumentStatus enum values mirror @coze-arch/idl/knowledge (see common.ts):
 //   Processing = 0
@@ -28,11 +28,15 @@ const STATUS_READY = 1;
 const STATUS_FAILED = 9;
 
 const mockGetProgress = vi.fn();
+const mockRetryDocument = vi.fn();
+const mockToastError = vi.fn();
 
 vi.mock('@coze-arch/bot-api', () => ({
   KnowledgeApi: {
     // eslint-disable-next-line @typescript-eslint/naming-convention -- mirror upstream PascalCase exports
     GetDocumentProgress: (...args: unknown[]) => mockGetProgress(...args),
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- mirror upstream PascalCase exports
+    RetryDocument: (...args: unknown[]) => mockRetryDocument(...args),
   },
 }));
 
@@ -51,14 +55,21 @@ vi.mock('@coze-arch/coze-design', () => ({
   Button: ({
     children,
     disabled,
+    onClick,
   }: {
     children: React.ReactNode;
     disabled?: boolean;
+    onClick?: () => void;
   }) => (
-    <button disabled={disabled} type="button">
+    <button disabled={disabled} type="button" onClick={onClick}>
       {children}
     </button>
   ),
+  // Toast.error is invoked on retry failure; the test asserts it via the
+  // mock fn so we don't depend on the real coze-design Toast surface.
+  Toast: {
+    error: (...args: unknown[]) => mockToastError(...args),
+  },
 }));
 
 import { UploadProgressPoll } from './index';
@@ -66,6 +77,8 @@ import { UploadProgressPoll } from './index';
 describe('<UploadProgressPoll />', () => {
   beforeEach(() => {
     mockGetProgress.mockReset();
+    mockRetryDocument.mockReset();
+    mockToastError.mockReset();
   });
 
   it('polls until all docs are ready then calls onComplete', async () => {
@@ -95,7 +108,7 @@ describe('<UploadProgressPoll />', () => {
     expect(screen.getByText('1/1')).toBeDefined();
   });
 
-  it('shows the rag-supplied error string and disabled 联系管理员 CTA when a doc fails', async () => {
+  it('shows the rag-supplied error string and enabled 重试 CTA when a doc fails', async () => {
     mockGetProgress.mockResolvedValue({
       data: [
         {
@@ -119,11 +132,85 @@ describe('<UploadProgressPoll />', () => {
     await waitFor(() =>
       expect(screen.queryByText(/rate limit hit/)).not.toBeNull(),
     );
-    const cta = screen.getByText('联系管理员') as HTMLElement;
+    const cta = screen.getByText('重试') as HTMLElement;
     expect(cta).toBeDefined();
-    // CTA must be disabled — RetryDocument isn't wired through yet (Task 0).
-    expect((cta.closest('button') as HTMLButtonElement).disabled).toBe(true);
+    // CTA must be enabled — RetryDocument is now wired through (R2-D-fe-Retry).
+    expect((cta.closest('button') as HTMLButtonElement).disabled).toBe(false);
     expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it('clicking 重试 calls KnowledgeApi.RetryDocument and clears progress state for that doc', async () => {
+    // First poll surfaces a failed doc d1. After the retry click we expect
+    // KnowledgeApi.RetryDocument({document_id: 'd1'}) to be invoked once,
+    // and the local progress for d1 to be cleared so the next polling tick
+    // repopulates it (the server bumped rag_doc_mapping.last_task_id so
+    // MGetDocumentProgress now follows the retry's new task).
+    mockGetProgress.mockResolvedValue({
+      data: [
+        {
+          document_id: 'd1',
+          status: STATUS_FAILED,
+          progress: 0,
+          status_descript: 'rate limit hit',
+        },
+      ],
+    });
+    mockRetryDocument.mockResolvedValue({
+      document_info: { document_id: 'd1' },
+    });
+
+    const onComplete = vi.fn();
+    render(
+      <UploadProgressPoll
+        docIds={['d1']}
+        onComplete={onComplete}
+        pollIntervalMs={5}
+      />,
+    );
+
+    await waitFor(() => expect(screen.queryByText('重试')).not.toBeNull());
+    const button = screen
+      .getByText('重试')
+      .closest('button') as HTMLButtonElement;
+    fireEvent.click(button);
+
+    await waitFor(() => {
+      expect(mockRetryDocument).toHaveBeenCalledWith({ document_id: 'd1' });
+    });
+    expect(mockRetryDocument).toHaveBeenCalledTimes(1);
+    expect(mockToastError).not.toHaveBeenCalled();
+  });
+
+  it('shows a toast when RetryDocument fails', async () => {
+    mockGetProgress.mockResolvedValue({
+      data: [
+        {
+          document_id: 'd1',
+          status: STATUS_FAILED,
+          progress: 0,
+          status_descript: 'rate limit hit',
+        },
+      ],
+    });
+    mockRetryDocument.mockRejectedValue(new Error('network blip'));
+
+    const onComplete = vi.fn();
+    render(
+      <UploadProgressPoll
+        docIds={['d1']}
+        onComplete={onComplete}
+        pollIntervalMs={5}
+      />,
+    );
+
+    await waitFor(() => expect(screen.queryByText('重试')).not.toBeNull());
+    const button = screen
+      .getByText('重试')
+      .closest('button') as HTMLButtonElement;
+    fireEvent.click(button);
+
+    await waitFor(() => expect(mockToastError).toHaveBeenCalledTimes(1));
+    expect(mockRetryDocument).toHaveBeenCalledWith({ document_id: 'd1' });
   });
 
   it('aggregates "N/M ready" across multiple docs', async () => {

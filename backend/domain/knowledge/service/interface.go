@@ -45,6 +45,7 @@ type Knowledge interface {
 	ExtractPhotoCaption(ctx context.Context, request *ExtractPhotoCaptionRequest) (response *ExtractPhotoCaptionResponse, err error)
 	ListDocument(ctx context.Context, request *ListDocumentRequest) (response *ListDocumentResponse, err error)
 	MGetDocumentProgress(ctx context.Context, request *MGetDocumentProgressRequest) (response *MGetDocumentProgressResponse, err error)
+	RetryDocument(ctx context.Context, request *RetryDocumentRequest) (response *RetryDocumentResponse, err error)
 	ResegmentDocument(ctx context.Context, request *ResegmentDocumentRequest) (response *ResegmentDocumentResponse, err error)
 	GetAlterTableSchema(ctx context.Context, request *AlterTableSchemaRequest) (response *TableSchemaResponse, err error)
 	ValidateTableSchema(ctx context.Context, request *ValidateTableSchemaRequest) (response *ValidateTableSchemaResponse, err error)
@@ -108,6 +109,19 @@ type MGetDocumentProgressRequest struct {
 
 type MGetDocumentProgressResponse struct {
 	ProgressList []*DocumentProgress
+}
+
+type RetryDocumentRequest struct {
+	DocumentID int64
+}
+
+// RetryDocumentResponse carries the refreshed entity with the post-retry
+// status (typically Init/Chunking — rag's UploadDocumentResponse returns
+// status="pending" or "processing"). Callers can immediately render this
+// to the UI; subsequent MGetDocumentProgress polls follow the new task
+// via the updated rag_doc_mapping.last_task_id.
+type RetryDocumentResponse struct {
+	Document *entity.Document
 }
 
 type CreateSliceRequest struct {

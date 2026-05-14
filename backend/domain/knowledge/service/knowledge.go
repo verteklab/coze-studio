@@ -547,6 +547,15 @@ func (k *knowledgeSVC) MGetDocumentProgress(ctx context.Context, request *MGetDo
 	}, nil
 }
 
+// RetryDocument is rag-only — legacy mode has no equivalent task-retry concept.
+// The frontend renders the retry button only inside rag-mode wizards, so this
+// path should not trigger in normal use; it exists to satisfy the
+// service.Knowledge interface and to surface a clear error if a future caller
+// reaches the legacy impl by mistake.
+func (k *knowledgeSVC) RetryDocument(ctx context.Context, request *RetryDocumentRequest) (response *RetryDocumentResponse, err error) {
+	return nil, errorx.New(errno.ErrRagFeaturePendingCode, errorx.KV("msg", "RetryDocument requires KNOWLEDGE_BACKEND=rag"))
+}
+
 func (k *knowledgeSVC) getProgressFromCache(ctx context.Context, documentProgress *DocumentProgress) (err error) {
 	progressBar := progressbar.New(ctx, documentProgress.ID, 0, k.cacheCli, false)
 	percent, remainSec, errMsg := progressBar.GetProgress(ctx)

@@ -816,6 +816,30 @@ func (k *KnowledgeApplicationService) GetDocumentProgress(ctx context.Context, r
 	return resp, nil
 }
 
+// RetryDocument retries a previously-failed document ingestion. Forwards to
+// the domain service which dispatches to ragimpl (which calls rag's
+// POST /documents/{id}/retry and bumps mapping.last_task_id so subsequent
+// MGetDocumentProgress polls follow the retry's new task) or to the legacy
+// stub. Response carries a refreshed DocumentInfo so the UI can re-render
+// the row without an immediate second round-trip.
+func (k *KnowledgeApplicationService) RetryDocument(ctx context.Context, req *dataset.RetryDocumentRequest) (*dataset.RetryDocumentResponse, error) {
+	uid := ctxutil.GetUIDFromCtx(ctx)
+	if uid == nil {
+		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
+	}
+	if err := k.checkPermission(ctx, uid, nil, []int64{req.GetDocumentID()}, nil, nil); err != nil {
+		return dataset.NewRetryDocumentResponse(), err
+	}
+	svcResp, err := k.DomainSVC.RetryDocument(ctx, &service.RetryDocumentRequest{DocumentID: req.GetDocumentID()})
+	if err != nil {
+		logs.CtxErrorf(ctx, "retry document failed, err: %v", err)
+		return dataset.NewRetryDocumentResponse(), err
+	}
+	resp := dataset.NewRetryDocumentResponse()
+	resp.DocumentInfo = convertDocument2Model(svcResp.Document)
+	return resp, nil
+}
+
 func (k *KnowledgeApplicationService) Resegment(ctx context.Context, req *dataset.ResegmentRequest) (*dataset.ResegmentResponse, error) {
 	uid := ctxutil.GetUIDFromCtx(ctx)
 	if uid == nil {
