@@ -393,6 +393,18 @@ func (c *Client) DeleteDocument(ctx context.Context, tenantID, kbID, docID strin
 	return c.doJSON(ctx, http.MethodDelete, path, tenantID, nil, nil, c.cfg.Timeout)
 }
 
+// RetryDocument re-runs ingestion for a failed document task. Rag's response
+// is the standard UploadDocumentResponse shape — same as CreateDocument — so
+// we reuse contract.CreateDocumentResponse rather than introducing an alias.
+func (c *Client) RetryDocument(ctx context.Context, tenantID, kbID, docID string) (*contract.CreateDocumentResponse, error) {
+	out := &contract.CreateDocumentResponse{}
+	path := apiPrefix + "/knowledgebases/" + kbID + "/documents/" + docID + "/retry"
+	if err := c.doJSON(ctx, http.MethodPost, path, tenantID, nil, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *Client) GetTask(ctx context.Context, tenantID, taskID string) (*contract.Task, error) {
 	out := &contract.Task{}
 	path := apiPrefix + "/tasks/" + taskID

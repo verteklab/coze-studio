@@ -828,3 +828,42 @@ func TestRetrieve_QueryImageObject(t *testing.T) {
 		t.Errorf("decoded response = %+v, want one hit chunk_id=c1", out)
 	}
 }
+
+// TestRetryDocument locks rag's POST .../documents/{doc_id}/retry wire shape.
+// Rag emits the standard UploadDocumentResponse envelope (same as CreateDocument);
+// the test asserts the wire path + headers and that the response decodes into
+// the existing CreateDocumentResponse type.
+func TestRetryDocument(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		wantSuffix := "/api/v1/knowledgebases/kb-1/documents/doc-1/retry"
+		if !strings.HasSuffix(r.URL.Path, wantSuffix) {
+			t.Errorf("path = %s, want suffix %s", r.URL.Path, wantSuffix)
+		}
+		if got := r.Header.Get("X-Tenant-Id"); got != "t1" {
+			t.Errorf("X-Tenant-Id = %q, want %q", got, "t1")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    0,
+			"message": "ok",
+			"data": map[string]any{
+				"doc_id":  "doc-1",
+				"task_id": "task-retry-1",
+				"status":  "pending",
+			},
+			"request_id": "req-r1",
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second})
+	got, err := c.RetryDocument(context.Background(), "t1", "kb-1", "doc-1")
+	if err != nil {
+		t.Fatalf("RetryDocument: %v", err)
+	}
+	if got.DocID != "doc-1" || got.TaskID != "task-retry-1" || got.Status != "pending" {
+		t.Errorf("decoded = %+v, want {doc-1, task-retry-1, pending}", got)
+	}
+}

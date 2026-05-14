@@ -96,3 +96,53 @@ func TestMGetDocumentProgress_NoMirror(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "task-Z", got.LastTaskID, "MGetDocumentProgress must not mirror status to mapping table")
 }
+
+// TestRagimpl_RetryDocument verifies that ragimpl.RetryDocument resolves the
+// coze doc id to its rag UUID and the owning KB's rag UUID via the mapping
+// table, then forwards the call to the rag client.
+func TestRagimpl_RetryDocument(t *testing.T) {
+	var gotTenant, gotKBID, gotDocID string
+	fc := &fakeClient{
+		retryDocumentFunc: func(tenantID, kbID, docID string) (*contract.CreateDocumentResponse, error) {
+			gotTenant, gotKBID, gotDocID = tenantID, kbID, docID
+			return &contract.CreateDocumentResponse{
+				DocID: docID, TaskID: "task-retry-9", Status: "pending",
+			}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+
+	// Wire mapping rows: coze KB 100 → rag UUID "rag-kb-X";
+	// coze doc 500 → rag UUID "rag-doc-Y" in KB 100.
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-old-1", 1700000000, 0))
+
+	resp, err := i.RetryDocument(context.Background(), 500)
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Equal(t, "rag-doc-Y", resp.DocID)
+	require.Equal(t, "task-retry-9", resp.TaskID)
+	require.Equal(t, "pending", resp.Status)
+
+	require.Equal(t, "test-tenant", gotTenant)
+	require.Equal(t, "rag-kb-X", gotKBID)
+	require.Equal(t, "rag-doc-Y", gotDocID)
+}
+
+// TestRagimpl_RetryDocument_MissingDocMapping verifies that a missing doc
+// mapping row surfaces ErrMappingNotFound without calling the rag client.
+func TestRagimpl_RetryDocument_MissingDocMapping(t *testing.T) {
+	called := false
+	fc := &fakeClient{
+		retryDocumentFunc: func(_, _, _ string) (*contract.CreateDocumentResponse, error) {
+			called = true
+			return nil, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+
+	_, err := i.RetryDocument(context.Background(), 999)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrMappingNotFound)
+	require.False(t, called, "rag client should NOT be called when mapping is missing")
+}
