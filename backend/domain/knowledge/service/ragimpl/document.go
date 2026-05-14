@@ -56,6 +56,31 @@ func buildDocMetadata(d *entity.Document) map[string]any {
 	return md
 }
 
+// buildDocumentEntity constructs an entity.Document from a rag-side Document
+// response plus the coze-side mapping row. Shared between ListDocument and
+// MGetDocument so that future field additions land in one place.
+//
+// TODO(coze-rag): rag's file_type is unconstrained on the wire; the cast
+// to parser.FileExtension accepts anything but parser dispatch downstream
+// only knows coze's enum. Validate via parser.ValidateFileExtension (or
+// filter rag's supported set via R2-D's /capabilities) when the enum
+// stabilizes.
+func buildDocumentEntity(dm *DocMapping, rd *contract.Document) *entity.Document {
+	return &entity.Document{
+		Info: knowledgeModel.Info{
+			ID:          dm.CozeID,
+			Name:        rd.Filename,
+			CreatorID:   dm.CreatorID,
+			CreatedAtMs: rd.CreatedAt.UnixMilli(),
+			UpdatedAtMs: rd.UpdatedAt.UnixMilli(),
+		},
+		KnowledgeID:   dm.KBID,
+		Status:        RagStatusToEntity(rd.Status),
+		FileExtension: parser.FileExtension(rd.FileType),
+		Size:          dm.Size,
+	}
+}
+
 // taskStatusToDoc maps a rag Task.Status string to coze's DocumentStatus enum.
 //
 // rag task FSM:  pending -> running [-> retrying] -> success | failed
@@ -148,7 +173,7 @@ func (i *Impl) CreateDocument(ctx context.Context, req *service.CreateDocumentRe
 			return nil, err
 		}
 		nowMs := time.Now().UnixMilli()
-		if err := i.mapping.InsertDoc(ctx, cozeID, ragResp.DocID, d.KnowledgeID, d.CreatorID, ragResp.TaskID, int64(len(fileBytes)), nowMs); err != nil {
+		if err := i.mapping.InsertDoc(ctx, cozeID, ragResp.DocID, d.KnowledgeID, d.CreatorID, ragResp.TaskID, nowMs, int64(len(fileBytes))); err != nil {
 			if delErr := i.rag.DeleteDocument(ctx, tenant, m.RagKBID, ragResp.DocID); delErr != nil {
 				logs.CtxWarnf(ctx, "ragimpl: rollback DeleteDocument after InsertDoc failure: %v", delErr)
 			}
@@ -228,30 +253,13 @@ func (i *Impl) ListDocument(ctx context.Context, req *service.ListDocumentReques
 	}
 	out := make([]*entity.Document, 0, len(resp.Items))
 	for idx := range resp.Items {
-		rd := resp.Items[idx]
+		rd := &resp.Items[idx]
 		dm, err := i.mapping.docByRagID(ctx, rd.DocID)
 		if err != nil {
 			// Doc exists in rag but we have no coze handle — drift; skip silently.
 			continue
 		}
-		out = append(out, &entity.Document{
-			Info: knowledgeModel.Info{
-				ID:          dm.CozeID,
-				Name:        rd.Filename,
-				CreatorID:   dm.CreatorID,
-				CreatedAtMs: rd.CreatedAt.UnixMilli(),
-				UpdatedAtMs: rd.UpdatedAt.UnixMilli(),
-			},
-			KnowledgeID: dm.KBID,
-			Status:      RagStatusToEntity(rd.Status),
-			// TODO(coze-rag): rag's file_type is unconstrained on the wire; this
-			// cast accepts anything but parser dispatch downstream only knows
-			// coze's parser.FileExtension enum. Validate via parser.ValidateFileExtension
-			// (or filter rag's supported set via R2-D's /capabilities) when the
-			// enum stabilizes.
-			FileExtension: parser.FileExtension(rd.FileType),
-			Size:          dm.Size,
-		})
+		out = append(out, buildDocumentEntity(dm, rd))
 	}
 	return &service.ListDocumentResponse{
 		Documents: out,
@@ -285,24 +293,7 @@ func (i *Impl) MGetDocument(ctx context.Context, req *service.MGetDocumentReques
 			logs.CtxWarnf(ctx, "ragimpl: MGetDocument: GetDocument(%s) failed: %v", m.RagDocID, err)
 			continue
 		}
-		out = append(out, &entity.Document{
-			Info: knowledgeModel.Info{
-				ID:          m.CozeID,
-				Name:        rd.Filename,
-				CreatorID:   m.CreatorID,
-				CreatedAtMs: rd.CreatedAt.UnixMilli(),
-				UpdatedAtMs: rd.UpdatedAt.UnixMilli(),
-			},
-			KnowledgeID: m.KBID,
-			Status:      RagStatusToEntity(rd.Status),
-			// TODO(coze-rag): rag's file_type is unconstrained on the wire; this
-			// cast accepts anything but parser dispatch downstream only knows
-			// coze's parser.FileExtension enum. Validate via parser.ValidateFileExtension
-			// (or filter rag's supported set via R2-D's /capabilities) when the
-			// enum stabilizes.
-			FileExtension: parser.FileExtension(rd.FileType),
-			Size:          m.Size,
-		})
+		out = append(out, buildDocumentEntity(m, rd))
 	}
 	return &service.MGetDocumentResponse{Documents: out}, nil
 }
