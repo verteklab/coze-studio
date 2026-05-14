@@ -1,0 +1,150 @@
+/*
+ * Copyright 2025 coze-dev Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+import React from 'react';
+
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, waitFor } from '@testing-library/react';
+
+// DocumentStatus enum values mirror @coze-arch/idl/knowledge (see common.ts):
+//   Processing = 0
+//   Enable     = 1  // "ready"
+//   Failed     = 9
+const STATUS_PROCESSING = 0;
+const STATUS_READY = 1;
+const STATUS_FAILED = 9;
+
+const mockGetProgress = vi.fn();
+
+vi.mock('@coze-arch/bot-api', () => ({
+  KnowledgeApi: {
+    // eslint-disable-next-line @typescript-eslint/naming-convention -- mirror upstream PascalCase exports
+    GetDocumentProgress: (...args: unknown[]) => mockGetProgress(...args),
+  },
+}));
+
+// The real @coze-arch/bot-semi Progress pulls in CSS that vitest can't
+// resolve in this package's environment. The contract under test is the
+// polling/aggregation/error-rendering logic, not the design-system primitives.
+vi.mock('@coze-arch/bot-semi', () => ({
+  // eslint-disable-next-line @typescript-eslint/naming-convention -- mirror upstream PascalCase exports
+  Progress: ({ percent }: { percent: number }) => (
+    <div data-testid="progress" data-percent={percent} />
+  ),
+}));
+
+vi.mock('@coze-arch/coze-design', () => ({
+  // eslint-disable-next-line @typescript-eslint/naming-convention -- mirror upstream PascalCase exports
+  Button: ({
+    children,
+    disabled,
+  }: {
+    children: React.ReactNode;
+    disabled?: boolean;
+  }) => (
+    <button disabled={disabled} type="button">
+      {children}
+    </button>
+  ),
+}));
+
+import { UploadProgressPoll } from './index';
+
+describe('<UploadProgressPoll />', () => {
+  beforeEach(() => {
+    mockGetProgress.mockReset();
+  });
+
+  it('polls until all docs are ready then calls onComplete', async () => {
+    mockGetProgress
+      .mockResolvedValueOnce({
+        data: [{ document_id: 'd1', status: STATUS_PROCESSING, progress: 30 }],
+      })
+      .mockResolvedValueOnce({
+        data: [{ document_id: 'd1', status: STATUS_PROCESSING, progress: 70 }],
+      })
+      .mockResolvedValueOnce({
+        data: [{ document_id: 'd1', status: STATUS_READY, progress: 100 }],
+      });
+
+    const onComplete = vi.fn();
+    render(
+      <UploadProgressPoll
+        docIds={['d1']}
+        onComplete={onComplete}
+        pollIntervalMs={5}
+      />,
+    );
+
+    await waitFor(() => expect(onComplete).toHaveBeenCalledTimes(1), {
+      timeout: 2000,
+    });
+    expect(screen.getByText('1/1')).toBeDefined();
+  });
+
+  it('shows the rag-supplied error string and disabled 联系管理员 CTA when a doc fails', async () => {
+    mockGetProgress.mockResolvedValue({
+      data: [
+        {
+          document_id: 'd1',
+          status: STATUS_FAILED,
+          progress: 0,
+          status_descript: 'rate limit hit',
+        },
+      ],
+    });
+
+    const onComplete = vi.fn();
+    render(
+      <UploadProgressPoll
+        docIds={['d1']}
+        onComplete={onComplete}
+        pollIntervalMs={5}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByText(/rate limit hit/)).not.toBeNull(),
+    );
+    const cta = screen.getByText('联系管理员') as HTMLElement;
+    expect(cta).toBeDefined();
+    // CTA must be disabled — RetryDocument isn't wired through yet (Task 0).
+    expect((cta.closest('button') as HTMLButtonElement).disabled).toBe(true);
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+
+  it('aggregates "N/M ready" across multiple docs', async () => {
+    mockGetProgress.mockResolvedValue({
+      data: [
+        { document_id: 'd1', status: STATUS_READY, progress: 100 },
+        { document_id: 'd2', status: STATUS_PROCESSING, progress: 50 },
+        { document_id: 'd3', status: STATUS_PROCESSING, progress: 20 },
+      ],
+    });
+
+    const onComplete = vi.fn();
+    render(
+      <UploadProgressPoll
+        docIds={['d1', 'd2', 'd3']}
+        onComplete={onComplete}
+        pollIntervalMs={5}
+      />,
+    );
+
+    await waitFor(() => expect(screen.queryByText('1/3')).not.toBeNull());
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+});
