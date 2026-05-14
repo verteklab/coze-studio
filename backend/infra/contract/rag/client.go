@@ -40,6 +40,9 @@ type Client interface {
 	UpdateKB(ctx context.Context, tenantID, kbID string, req *UpdateKBRequest) (*KB, error)
 	DeleteKB(ctx context.Context, tenantID, kbID string) error
 	ListKBs(ctx context.Context, req *ListKBsRequest) (*ListKBsResponse, error)
+	// GetCapabilities fetches the KB's capability descriptor (enabled chunk
+	// types, modalities, retrievers, defaults). Read-only.
+	GetCapabilities(ctx context.Context, tenantID, kbID string) (*KBCapabilities, error)
 
 	// Documents — all nested under their KB on the rag side.
 	CreateDocument(ctx context.Context, tenantID, kbID string, req *CreateDocumentRequest) (*CreateDocumentResponse, error)

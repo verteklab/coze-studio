@@ -66,18 +66,19 @@ type fakeClient struct {
 	retrieveReq     *contract.RetrieveRequest
 
 	// Stubs: override return values from the test.
-	createKBFunc      func(tenantID string, req *contract.CreateKBRequest) (*contract.KB, error)
-	deleteKBFunc      func(tenantID, kbID string) error
-	getKBFunc         func(tenantID, kbID string) (*contract.KB, error)
-	updateKBFunc      func(tenantID, kbID string, req *contract.UpdateKBRequest) (*contract.KB, error)
-	listKBsFunc       func(*contract.ListKBsRequest) (*contract.ListKBsResponse, error)
-	createDocFunc     func(tenantID, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error)
-	retryDocumentFunc func(tenantID, kbID, docID string) (*contract.CreateDocumentResponse, error)
-	deleteDocFunc     func(tenantID, kbID, docID string) error
-	listDocsFunc      func(tenantID, kbID string, page, pageSize int) (*contract.ListDocumentsResponse, error)
-	getDocFunc        func(tenantID, kbID, docID string) (*contract.Document, error)
-	getTaskFunc       func(tenantID, taskID string) (*contract.Task, error)
-	retrieveFunc      func(tenantID string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error)
+	createKBFunc        func(tenantID string, req *contract.CreateKBRequest) (*contract.KB, error)
+	deleteKBFunc        func(tenantID, kbID string) error
+	getKBFunc           func(tenantID, kbID string) (*contract.KB, error)
+	updateKBFunc        func(tenantID, kbID string, req *contract.UpdateKBRequest) (*contract.KB, error)
+	listKBsFunc         func(*contract.ListKBsRequest) (*contract.ListKBsResponse, error)
+	getCapabilitiesFunc func(tenantID, kbID string) (*contract.KBCapabilities, error)
+	createDocFunc       func(tenantID, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error)
+	retryDocumentFunc   func(tenantID, kbID, docID string) (*contract.CreateDocumentResponse, error)
+	deleteDocFunc       func(tenantID, kbID, docID string) error
+	listDocsFunc        func(tenantID, kbID string, page, pageSize int) (*contract.ListDocumentsResponse, error)
+	getDocFunc          func(tenantID, kbID, docID string) (*contract.Document, error)
+	getTaskFunc         func(tenantID, taskID string) (*contract.Task, error)
+	retrieveFunc        func(tenantID string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error)
 }
 
 func (f *fakeClient) Ready(_ context.Context) error { return nil }
@@ -126,6 +127,13 @@ func (f *fakeClient) ListKBs(_ context.Context, req *contract.ListKBsRequest) (*
 		return f.listKBsFunc(req)
 	}
 	return &contract.ListKBsResponse{}, nil
+}
+
+func (f *fakeClient) GetCapabilities(_ context.Context, tenantID, kbID string) (*contract.KBCapabilities, error) {
+	if f.getCapabilitiesFunc != nil {
+		return f.getCapabilitiesFunc(tenantID, kbID)
+	}
+	return &contract.KBCapabilities{}, nil
 }
 
 func (f *fakeClient) CreateDocument(_ context.Context, tenantID, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
@@ -359,4 +367,49 @@ func TestDeleteKnowledge_RollbackOnRagFailure(t *testing.T) {
 	got, err := i.mapping.KBByCozeID(context.Background(), 500)
 	require.NoError(t, err)
 	require.Equal(t, "rag-kb-500", got.RagKBID)
+}
+
+// TestRagimpl_GetCapabilities verifies that ragimpl.GetCapabilities resolves
+// coze KB id → rag UUID via mapping, then passes through.
+func TestRagimpl_GetCapabilities(t *testing.T) {
+	var gotTenant, gotKBID string
+	fc := &fakeClient{
+		getCapabilitiesFunc: func(tenantID, kbID string) (*contract.KBCapabilities, error) {
+			gotTenant, gotKBID = tenantID, kbID
+			return &contract.KBCapabilities{
+				KBID:                "rag-kb-Z",
+				EnabledChunkTypes:   []string{"text_chunk"},
+				SupportedQueryModes: []string{"text_input"},
+			}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 200, "rag-kb-Z", "icon", 0, 0, 1700000000))
+
+	got, err := i.GetCapabilities(context.Background(), 200)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, "rag-kb-Z", got.KBID)
+	require.Equal(t, []string{"text_chunk"}, got.EnabledChunkTypes)
+
+	require.Equal(t, "test-tenant", gotTenant)
+	require.Equal(t, "rag-kb-Z", gotKBID)
+}
+
+// TestRagimpl_GetCapabilities_MissingMapping verifies that an unknown coze KB
+// id surfaces ErrMappingNotFound without calling rag.
+func TestRagimpl_GetCapabilities_MissingMapping(t *testing.T) {
+	called := false
+	fc := &fakeClient{
+		getCapabilitiesFunc: func(_, _ string) (*contract.KBCapabilities, error) {
+			called = true
+			return nil, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+
+	_, err := i.GetCapabilities(context.Background(), 999)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrMappingNotFound)
+	require.False(t, called, "rag client should NOT be called when mapping is missing")
 }

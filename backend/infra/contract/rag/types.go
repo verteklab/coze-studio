@@ -20,17 +20,17 @@ package rag
 // the ones coze actually consumes; rag may serialise additional fields and Go's
 // JSON decoder silently ignores them.
 type ModelProvider struct {
-	ModelID      string    `json:"model_id"`
-	Type         string    `json:"type"` // "text" | "image"
-	Name         string    `json:"name"`
-	ModelName    string    `json:"model_name"`
-	Dimensions   *int      `json:"dimensions,omitempty"`
-	Capabilities []string  `json:"capabilities,omitempty"`
-	Modalities   []string  `json:"modalities,omitempty"`
-	Provider     string    `json:"provider,omitempty"`
-	IsActive     bool      `json:"is_active"`
-	CreatedAt    RagTime `json:"created_at"`
-	UpdatedAt    RagTime `json:"updated_at"`
+	ModelID      string   `json:"model_id"`
+	Type         string   `json:"type"` // "text" | "image"
+	Name         string   `json:"name"`
+	ModelName    string   `json:"model_name"`
+	Dimensions   *int     `json:"dimensions,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+	Modalities   []string `json:"modalities,omitempty"`
+	Provider     string   `json:"provider,omitempty"`
+	IsActive     bool     `json:"is_active"`
+	CreatedAt    RagTime  `json:"created_at"`
+	UpdatedAt    RagTime  `json:"updated_at"`
 }
 
 // ListModelProvidersResponse mirrors rag's ModelProviderListResponse — a single
@@ -88,14 +88,43 @@ type CreateKBRequest struct {
 // fields here unless coze actually needs them: every field is a contract
 // surface we have to keep aligned.
 type KB struct {
-	KBID                  string    `json:"kb_id"`
-	Name                  string    `json:"name"`
-	Description           string    `json:"description"`
-	TextEmbeddingModelID  string    `json:"text_embedding_model_id"`
-	ImageEmbeddingModelID string    `json:"image_embedding_model_id"`
-	Status                string    `json:"status"`
+	KBID                  string  `json:"kb_id"`
+	Name                  string  `json:"name"`
+	Description           string  `json:"description"`
+	TextEmbeddingModelID  string  `json:"text_embedding_model_id"`
+	ImageEmbeddingModelID string  `json:"image_embedding_model_id"`
+	Status                string  `json:"status"`
 	CreatedAt             RagTime `json:"created_at"`
 	UpdatedAt             RagTime `json:"updated_at"`
+}
+
+// KBCapabilities mirrors rag's KnowledgeBaseCapabilityDescriptor as of 0e1f49b.
+// Returned by GET /api/v1/knowledgebases/{kb_id}/capabilities. Describes what
+// the KB supports — chunk types, modalities, retrievers, search types — and
+// what defaults it carries. Nullable numeric defaults are pointer-typed so JSON
+// null distinguishes "no default set" from "default is zero."
+//
+// MetadataSchema and RetrieverDefaults are opaque map[string]any because rag's
+// shape varies per provider and coze does not interpret these client-side.
+type KBCapabilities struct {
+	KBID                      string         `json:"kb_id"`
+	EnabledChunkTypes         []string       `json:"enabled_chunk_types"`
+	SupportedSourceModalities []string       `json:"supported_source_modalities"`
+	EnabledRetrievers         []string       `json:"enabled_retrievers"`
+	SupportedQueryModes       []string       `json:"supported_query_modes"`
+	SupportedSearchTypes      []string       `json:"supported_search_types"`
+	MetadataSchema            map[string]any `json:"metadata_schema,omitempty"`
+	FilterableFields          []string       `json:"filterable_fields"`
+	RetrievableFields         []string       `json:"retrievable_fields"`
+	DefaultChunkSize          *int           `json:"default_chunk_size,omitempty"`
+	DefaultChunkOverlap       *int           `json:"default_chunk_overlap,omitempty"`
+	DefaultSearchType         *string        `json:"default_search_type,omitempty"`
+	DefaultCandidateK         *int           `json:"default_candidate_k,omitempty"`
+	DefaultTopK               *int           `json:"default_top_k,omitempty"`
+	DefaultFusionPolicy       FusionPolicy   `json:"default_fusion_policy"`
+	RetrieverDefaults         map[string]any `json:"retriever_defaults,omitempty"`
+	SupportedQueryStrategies  []string       `json:"supported_query_strategies"`
+	RequestOverrideableFields []string       `json:"request_overrideable_fields"`
 }
 
 type UpdateKBRequest struct {
@@ -176,7 +205,7 @@ type ListDocumentsResponse struct {
 // unix epoch, masking the unset state.
 type Task struct {
 	TaskID     string   `json:"task_id"`
-	Type       string   `json:"type"` // "ingestion" today; future types may exist
+	Type       string   `json:"type"`   // "ingestion" today; future types may exist
 	Status     string   `json:"status"` // pending | running | retrying | success | failed
 	RetryCount int      `json:"retry_count"`
 	ErrorMsg   string   `json:"error_msg,omitempty"`
@@ -235,4 +264,3 @@ type RetrieveResponse struct {
 	Items []RetrieveHit  `json:"items"`
 	Debug map[string]any `json:"debug,omitempty"`
 }
-

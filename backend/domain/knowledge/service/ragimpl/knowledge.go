@@ -305,3 +305,20 @@ func (i *Impl) ListKnowledge(ctx context.Context, req *service.ListKnowledgeRequ
 		Total:         int64(resp.Total),
 	}, nil
 }
+
+// GetCapabilities fetches rag-side capabilities for a coze KB. Resolves the
+// coze KB id to its rag UUID via the mapping table and passes through. The
+// response is the rag-side typed shape; coze does not translate to an entity
+// type — R2-D-frontend will introduce that translation when the UI's needs
+// are concrete.
+func (i *Impl) GetCapabilities(ctx context.Context, cozeKBID int64) (*contract.KBCapabilities, error) {
+	tenant, err := i.tenant(ctx)
+	if err != nil {
+		return nil, err
+	}
+	m, err := i.mapping.KBByCozeID(ctx, cozeKBID)
+	if err != nil {
+		return nil, err
+	}
+	return i.rag.GetCapabilities(ctx, tenant, m.RagKBID)
+}
