@@ -466,6 +466,25 @@ func TestGetTask_FieldShape(t *testing.T) {
 	if got.FinishedAt == nil {
 		t.Errorf("FinishedAt = nil, want non-nil")
 	}
+	// Lock the decoded millisecond representation so a future RagTime
+	// regression that silently drops microseconds or applies the wrong
+	// timezone fails loudly. Wire values were:
+	//   2026-05-14T13:25:57.009000 UTC -> 1778765157009 ms
+	//   2026-05-14T13:26:00.055000 UTC -> 1778765160055 ms
+	//   2026-05-14T13:26:04.484000 UTC -> 1778765164484 ms
+	if gotCreatedMs := got.CreatedAt.UnixMilli(); gotCreatedMs != 1778765157009 {
+		t.Errorf("CreatedAt.UnixMilli() = %d, want 1778765157009", gotCreatedMs)
+	}
+	if got.StartedAt != nil {
+		if gotStartedMs := got.StartedAt.UnixMilli(); gotStartedMs != 1778765160055 {
+			t.Errorf("StartedAt.UnixMilli() = %d, want 1778765160055", gotStartedMs)
+		}
+	}
+	if got.FinishedAt != nil {
+		if gotFinishedMs := got.FinishedAt.UnixMilli(); gotFinishedMs != 1778765164484 {
+			t.Errorf("FinishedAt.UnixMilli() = %d, want 1778765164484", gotFinishedMs)
+		}
+	}
 }
 
 // TestGetTask_NullableTimestamps verifies that JSON null for started_at /
