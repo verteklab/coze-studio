@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import React from 'react';
+import React, { useEffect } from 'react';
 
 import qs from 'qs';
 import {
@@ -37,6 +37,7 @@ import {
   KnowledgeResourceProcessor,
 } from '@coze-data/knowledge-resource-processor-adapter';
 import { type ActionType } from '@coze-data/knowledge-ide-base/types';
+import { useDataSetDetailReq } from '@coze-data/knowledge-ide-base';
 import { BizProjectKnowledgeIDE } from '@coze-data/knowledge-ide-adapter';
 
 const Main = () => {
@@ -67,12 +68,26 @@ const Main = () => {
     create,
   } = queryObject;
 
+  const datasetID = uri?.path.name ?? '';
+
+  // Fetch kb detail so we can route the upload wizard by kb.backend.
+  // See docs/superpowers/specs/2026-05-13-coze-ui-rag-flow-alignment-design.md §4.3.
+  // When kb hasn't loaded yet, backend === undefined and getUploadConfig
+  // falls back to the legacy wizard (safe default).
+  const { data: dataSetDetail, run: fetchDataSetDetail } =
+    useDataSetDetailReq();
+  useEffect(() => {
+    if (datasetID && module === 'upload') {
+      fetchDataSetDetail({ datasetID });
+    }
+  }, [datasetID, module]);
+  const backend = dataSetDetail?.backend;
+
   const uploadConfig = getUploadConfig(
     (type as UnitType) ?? UnitType.TEXT,
     (opt as OptType) ?? OptType.ADD,
+    backend,
   );
-
-  const datasetID = uri?.path.name ?? '';
 
   return (
     <KnowledgeParamsStoreProvider
@@ -120,6 +135,7 @@ const Main = () => {
           <KnowledgeResourceProcessor
             keepDocTitle
             uploadConfig={uploadConfig}
+            backend={backend}
           />
         ) : null
       ) : (
