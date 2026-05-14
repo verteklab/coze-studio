@@ -27,15 +27,24 @@ import {
 import { getUploadConfig } from './config';
 
 export type KnowledgeResourceProcessorProps =
-  KnowledgeResourceProcessorLayoutProps;
+  KnowledgeResourceProcessorLayoutProps & {
+    /**
+     * kb.backend — gates rag vs legacy upload wizard. Optional; absent → legacy
+     * (safe fallback). Callers that have fetched the KB should pass it.
+     * See docs/superpowers/specs/2026-05-13-coze-ui-rag-flow-alignment-design.md §4.3.
+     */
+    backend?: string;
+  };
 
-export const KnowledgeResourceProcessor = (
-  props: KnowledgeResourceProcessorProps,
-) => {
+export const KnowledgeResourceProcessor = ({
+  backend,
+  ...props
+}: KnowledgeResourceProcessorProps) => {
   const { type, opt } = useKnowledgeParams();
   const uploadConfig = getUploadConfig(
     type ?? UnitType.TEXT,
     opt ?? OptType.ADD,
+    backend,
   );
   if (!uploadConfig) {
     return <></>;

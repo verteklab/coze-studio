@@ -15,6 +15,7 @@
  */
 
 import { useNavigate, useParams } from 'react-router-dom';
+import { useEffect } from 'react';
 
 import qs from 'qs';
 import {
@@ -29,6 +30,7 @@ import {
   getUploadConfig,
   KnowledgeResourceProcessor,
 } from '@coze-data/knowledge-resource-processor-adapter';
+import { useDataSetDetailReq } from '@coze-data/knowledge-ide-base';
 import { useSpaceStore } from '@coze-arch/bot-studio-store';
 
 export const KnowledgeUploadPage = () => {
@@ -52,9 +54,23 @@ export const KnowledgeUploadPage = () => {
     biz: 'library',
   };
 
+  // Fetch kb detail so we can route the upload wizard by kb.backend.
+  // See docs/superpowers/specs/2026-05-13-coze-ui-rag-flow-alignment-design.md §4.3.
+  // When kb hasn't loaded yet, backend === undefined and getUploadConfig
+  // falls back to the legacy wizard (safe default).
+  const { data: dataSetDetail, run: fetchDataSetDetail } =
+    useDataSetDetailReq();
+  useEffect(() => {
+    if (params.datasetID) {
+      fetchDataSetDetail({ datasetID: params.datasetID });
+    }
+  }, [params.datasetID]);
+  const backend = dataSetDetail?.backend;
+
   const uploadConfig = getUploadConfig(
     type ?? UnitType.TEXT,
     opt ?? OptType.ADD,
+    backend,
   );
   if (!uploadConfig) {
     return <></>;
@@ -81,7 +97,10 @@ export const KnowledgeUploadPage = () => {
           ),
       }}
     >
-      <KnowledgeResourceProcessor uploadConfig={uploadConfig} />
+      <KnowledgeResourceProcessor
+        uploadConfig={uploadConfig}
+        backend={backend}
+      />
     </KnowledgeParamsStoreProvider>
   );
 };
