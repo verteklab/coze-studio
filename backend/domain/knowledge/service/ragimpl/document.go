@@ -18,6 +18,7 @@ package ragimpl
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	knowledgeModel "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
@@ -80,9 +81,11 @@ func taskStatusToDoc(s string) entity.DocumentStatus {
 // CreateDocument creates one rag document per input entity. Each rag doc gets
 // an int64 coze id from idgen, and a mapping row is written before we return.
 //
-// We deliberately process docs sequentially: rag's CreateDocument is async (it
-// returns a task_id immediately) and the typical batch size from the upload
-// UI is small (1-20). A parallel fan-out can be added later if it matters.
+// Since the 2026-05-14 rag contract change, rag's POST .../documents is
+// multipart-with-bytes. We fetch the file bytes from MinIO (the URI is the
+// coze-side object key) and forward them inline. Sequential per-doc loop is
+// preserved — the upload UI typical batch is 1-20 and rag's CreateDocument is
+// already async (it returns a task_id immediately).
 func (i *Impl) CreateDocument(ctx context.Context, req *service.CreateDocumentRequest) (*service.CreateDocumentResponse, error) {
 	tenant, err := i.tenant(ctx)
 	if err != nil {
@@ -94,10 +97,42 @@ func (i *Impl) CreateDocument(ctx context.Context, req *service.CreateDocumentRe
 		if err != nil {
 			return nil, err
 		}
+
+		fileBytes, err := i.storage.GetObject(ctx, d.URI)
+		if err != nil {
+			return nil, err
+		}
+
+		var chunkSize, chunkOverlap *int
+		if d.ChunkingStrategy != nil {
+			if d.ChunkingStrategy.ChunkSize > 0 {
+				s := int(d.ChunkingStrategy.ChunkSize)
+				chunkSize = &s
+			}
+			if d.ChunkingStrategy.Overlap > 0 {
+				o := int(d.ChunkingStrategy.Overlap)
+				chunkOverlap = &o
+			}
+		}
+
+		// buildDocMetadata already produces snake_case keys rag expects.
+		// Marshal errors here are not surfaced: the map only ever holds
+		// primitives that always marshal cleanly. An empty map serialises to
+		// "{}" which we then drop to "" so rag sees the optional field absent.
+		mdJSON, _ := json.Marshal(buildDocMetadata(d))
+		extraMetadata := string(mdJSON)
+		if extraMetadata == "{}" {
+			extraMetadata = ""
+		}
+
 		ragReq := &contract.CreateDocumentRequest{
-			SourceURI:      d.URI,
+			FileBytes:      fileBytes,
+			Filename:       d.Name,
+			FileType:       string(d.FileExtension),
 			SourceModality: sourceModalityFor(d),
-			Metadata:       buildDocMetadata(d),
+			ChunkSize:      chunkSize,
+			ChunkOverlap:   chunkOverlap,
+			ExtraMetadata:  extraMetadata,
 		}
 		ragResp, err := i.rag.CreateDocument(ctx, tenant, m.RagKBID, ragReq)
 		if err != nil {

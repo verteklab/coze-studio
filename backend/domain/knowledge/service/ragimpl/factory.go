@@ -25,6 +25,7 @@ import (
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
 	contract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
 	"github.com/coze-dev/coze-studio/backend/infra/idgen"
+	"github.com/coze-dev/coze-studio/backend/infra/storage"
 )
 
 // Compile-time check: Impl satisfies the wider Knowledge interface. If a new
@@ -37,6 +38,10 @@ type Impl struct {
 	mapping  *MappingRepo
 	idgen    idgen.IDGenerator
 	resolver TenantResolver
+	// storage is used by CreateDocument to fetch file bytes from MinIO and
+	// forward them to rag as a multipart body. Required since the 2026-05-14
+	// rag contract change; previously rag fetched by source_uri itself.
+	storage storage.Storage
 
 	defaultTextEmbeddingModelID  string
 	defaultImageEmbeddingModelID string
@@ -47,6 +52,7 @@ func New(
 	db *gorm.DB,
 	idgen idgen.IDGenerator,
 	resolver TenantResolver,
+	storage storage.Storage,
 	defaultTextModel, defaultImageModel string,
 ) *Impl {
 	return &Impl{
@@ -54,6 +60,7 @@ func New(
 		mapping:                      NewMappingRepo(db),
 		idgen:                        idgen,
 		resolver:                     resolver,
+		storage:                      storage,
 		defaultTextEmbeddingModelID:  defaultTextModel,
 		defaultImageEmbeddingModelID: defaultImageModel,
 	}
