@@ -3808,6 +3808,11 @@ type Dataset struct {
 	ProcessingFileIDList []string `thrift:"processing_file_id_list,24" form:"processing_file_id_list" json:"processing_file_id_list" query:"processing_file_id_list"`
 	//project ID
 	ProjectID string `thrift:"project_id,25" form:"project_id" json:"project_id" query:"project_id"`
+	// MANUAL EDIT — added 2026-05-13 per plan 2026-05-13-coze-ui-rag-flow-alignment.
+	// Codegen toolchain is not wired in OSS repo (see Task 0 discovery findings).
+	// Backend that owns this KB's knowledge data: "rag" or "legacy". Optional;
+	// absent on responses from older servers (clients treat as "legacy").
+	Backend *string `thrift:"backend,26,optional" form:"backend" json:"backend,omitempty" query:"backend"`
 }
 
 func NewDataset() *Dataset {
@@ -3914,6 +3919,15 @@ func (p *Dataset) GetProjectID() (v string) {
 	return p.ProjectID
 }
 
+var Dataset_Backend_DEFAULT string
+
+func (p *Dataset) GetBackend() (v string) {
+	if !p.IsSetBackend() {
+		return Dataset_Backend_DEFAULT
+	}
+	return *p.Backend
+}
+
 var fieldIDToName_Dataset = map[int16]string{
 	1:  "dataset_id",
 	2:  "name",
@@ -3938,10 +3952,15 @@ var fieldIDToName_Dataset = map[int16]string{
 	23: "chunk_strategy",
 	24: "processing_file_id_list",
 	25: "project_id",
+	26: "backend",
 }
 
 func (p *Dataset) IsSetChunkStrategy() bool {
 	return p.ChunkStrategy != nil
+}
+
+func (p *Dataset) IsSetBackend() bool {
+	return p.Backend != nil
 }
 
 func (p *Dataset) Read(iprot thrift.TProtocol) (err error) {
@@ -4141,6 +4160,14 @@ func (p *Dataset) Read(iprot thrift.TProtocol) (err error) {
 		case 25:
 			if fieldTypeId == thrift.STRING {
 				if err = p.ReadField25(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 26:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField26(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -4473,6 +4500,17 @@ func (p *Dataset) ReadField25(iprot thrift.TProtocol) error {
 	p.ProjectID = _field
 	return nil
 }
+func (p *Dataset) ReadField26(iprot thrift.TProtocol) error {
+
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.Backend = _field
+	return nil
+}
 
 func (p *Dataset) Write(oprot thrift.TProtocol) (err error) {
 	var fieldId int16
@@ -4570,6 +4608,10 @@ func (p *Dataset) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField25(oprot); err != nil {
 			fieldId = 25
+			goto WriteFieldError
+		}
+		if err = p.writeField26(oprot); err != nil {
+			fieldId = 26
 			goto WriteFieldError
 		}
 	}
@@ -4989,6 +5031,24 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 25 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 25 end error: ", p), err)
+}
+func (p *Dataset) writeField26(oprot thrift.TProtocol) (err error) {
+	if p.IsSetBackend() {
+		if err = oprot.WriteFieldBegin("backend", thrift.STRING, 26); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.Backend); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 26 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 26 end error: ", p), err)
 }
 
 func (p *Dataset) String() string {
