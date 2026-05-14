@@ -115,15 +115,28 @@ type ListKBsResponse struct {
 	Total int  `json:"total"`
 }
 
-// CreateDocumentRequest is the JSON body for POST
-// /api/v1/knowledgebases/{kb_id}/documents. Tenant comes from the
-// X-Tenant-Id header.
+// CreateDocumentRequest is the in-memory representation of the multipart body
+// for POST /api/v1/knowledgebases/{kb_id}/documents. The JSON tags are
+// intentionally absent — this struct is NEVER marshalled; the Client builds a
+// multipart/form-data body field-by-field. The tenant comes from the
+// X-Tenant-Id header, not the form. See rag's app/api/routes/documents.py
+// upload_document for the authoritative contract.
 type CreateDocumentRequest struct {
-	SourceURI        string         `json:"source_uri"`
-	SourceModality   string         `json:"source_modality"` // text_source | image_source | scanned_document_source
-	ParsingStrategy  map[string]any `json:"parsing_strategy,omitempty"`
-	ChunkingStrategy map[string]any `json:"chunking_strategy,omitempty"`
-	Metadata         map[string]any `json:"metadata,omitempty"`
+	// Required: the file bytes (loaded into memory; storage is []byte-based).
+	FileBytes []byte
+	// Required: file's display name; becomes the multipart filename attribute.
+	Filename string
+	// Required: rag's file_type form field (e.g. "pdf", "txt", "docx").
+	FileType string
+	// Required: rag's source_modality enum — text_source | image_source | scanned_document_source.
+	SourceModality string
+	// Optional: rag's chunk_size form field; nil means "rag's default".
+	ChunkSize *int
+	// Optional: rag's chunk_overlap form field; nil means "rag's default".
+	ChunkOverlap *int
+	// Optional: rag's extra_metadata form field. JSON-stringified by the
+	// caller; empty string means "omit the field".
+	ExtraMetadata string
 }
 
 type CreateDocumentResponse struct {
