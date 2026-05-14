@@ -25,6 +25,7 @@ import (
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/entity"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
 	contract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
+	"github.com/coze-dev/coze-studio/backend/infra/document/parser"
 	"github.com/coze-dev/coze-studio/backend/pkg/logs"
 )
 
@@ -236,13 +237,14 @@ func (i *Impl) ListDocument(ctx context.Context, req *service.ListDocumentReques
 		out = append(out, &entity.Document{
 			Info: knowledgeModel.Info{
 				ID:          dm.CozeID,
-				Name:        rd.Name,
+				Name:        rd.Filename,
 				CreatorID:   dm.CreatorID,
 				CreatedAtMs: rd.CreatedAt.UnixMilli(),
 				UpdatedAtMs: rd.UpdatedAt.UnixMilli(),
 			},
-			KnowledgeID: dm.KBID,
-			Status:      RagStatusToEntity(rd.Status),
+			KnowledgeID:   dm.KBID,
+			Status:        RagStatusToEntity(rd.Status),
+			FileExtension: parser.FileExtension(rd.FileType),
 		})
 	}
 	return &service.ListDocumentResponse{
@@ -280,13 +282,14 @@ func (i *Impl) MGetDocument(ctx context.Context, req *service.MGetDocumentReques
 		out = append(out, &entity.Document{
 			Info: knowledgeModel.Info{
 				ID:          m.CozeID,
-				Name:        rd.Name,
+				Name:        rd.Filename,
 				CreatorID:   m.CreatorID,
 				CreatedAtMs: rd.CreatedAt.UnixMilli(),
 				UpdatedAtMs: rd.UpdatedAt.UnixMilli(),
 			},
-			KnowledgeID: m.KBID,
-			Status:      RagStatusToEntity(rd.Status),
+			KnowledgeID:   m.KBID,
+			Status:        RagStatusToEntity(rd.Status),
+			FileExtension: parser.FileExtension(rd.FileType),
 		})
 	}
 	return &service.MGetDocumentResponse{Documents: out}, nil
