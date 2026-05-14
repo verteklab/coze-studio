@@ -77,7 +77,7 @@ func TestCreateDocument_InsertsMapping(t *testing.T) {
 func TestMGetDocumentProgress_NoMirror(t *testing.T) {
 	fc := &fakeClient{
 		getTaskFunc: func(_, _ string) (*contract.Task, error) {
-			return &contract.Task{TaskID: "task-Z", Status: "success", Progress: 100}, nil
+			return &contract.Task{TaskID: "task-Z", Status: "success"}, nil
 		},
 	}
 	i := newTestImpl(t, fc)

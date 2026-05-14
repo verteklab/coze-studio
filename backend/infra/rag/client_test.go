@@ -336,7 +336,7 @@ func TestGetTask(t *testing.T) {
 		if r.URL.Path != "/api/v1/tasks/task-1" {
 			t.Fatalf("got %s", r.URL.Path)
 		}
-		_, _ = w.Write(envelopeBody(t, contract.Task{TaskID: "task-1", Status: "success", Progress: 100}))
+		_, _ = w.Write(envelopeBody(t, contract.Task{TaskID: "task-1", Status: "success"}))
 	}))
 	out, err := c.GetTask(context.Background(), "42", "task-1")
 	if err != nil {
@@ -401,6 +401,108 @@ func TestRetrieve(t *testing.T) {
 	}
 	if len(out.Items) != 1 || out.Items[0].Content != "hello" {
 		t.Fatalf("got %+v", out)
+	}
+}
+
+// TestGetTask_FieldShape locks rag's GetTask wire shape after the 2026-05-14
+// round-2 audit. The handler returns the full new envelope; the test asserts
+// every coze-side field decodes correctly, including null-handling for
+// StartedAt/FinishedAt.
+func TestGetTask_FieldShape(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if !strings.HasSuffix(r.URL.Path, "/api/v1/tasks/task-abc") {
+			t.Errorf("path = %s, want suffix /api/v1/tasks/task-abc", r.URL.Path)
+		}
+		if got := r.Header.Get("X-Tenant-Id"); got != "t1" {
+			t.Errorf("X-Tenant-Id = %q, want %q", got, "t1")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    0,
+			"message": "ok",
+			"data": map[string]any{
+				"task_id":     "task-abc",
+				"type":        "ingestion",
+				"status":      "success",
+				"retry_count": 2,
+				"error_msg":   "transient embed error retried",
+				"created_at":  "2026-05-14T13:25:57.009000",
+				"started_at":  "2026-05-14T13:26:00.055000",
+				"finished_at": "2026-05-14T13:26:04.484000",
+			},
+			"request_id": "req-1",
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{
+		BaseURL: srv.URL,
+		Timeout: 5 * time.Second,
+	})
+	got, err := c.GetTask(context.Background(), "t1", "task-abc")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if got.TaskID != "task-abc" {
+		t.Errorf("TaskID = %q, want %q", got.TaskID, "task-abc")
+	}
+	if got.Type != "ingestion" {
+		t.Errorf("Type = %q, want ingestion", got.Type)
+	}
+	if got.Status != "success" {
+		t.Errorf("Status = %q, want success", got.Status)
+	}
+	if got.RetryCount != 2 {
+		t.Errorf("RetryCount = %d, want 2", got.RetryCount)
+	}
+	if got.ErrorMsg != "transient embed error retried" {
+		t.Errorf("ErrorMsg = %q", got.ErrorMsg)
+	}
+	if got.StartedAt == nil {
+		t.Errorf("StartedAt = nil, want non-nil")
+	}
+	if got.FinishedAt == nil {
+		t.Errorf("FinishedAt = nil, want non-nil")
+	}
+}
+
+// TestGetTask_NullableTimestamps verifies that JSON null for started_at /
+// finished_at decodes to a nil pointer rather than zero-time.
+func TestGetTask_NullableTimestamps(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    0,
+			"message": "ok",
+			"data": map[string]any{
+				"task_id":     "task-pending",
+				"type":        "ingestion",
+				"status":      "pending",
+				"retry_count": 0,
+				"error_msg":   nil,
+				"created_at":  "2026-05-14T13:25:57.009000",
+				"started_at":  nil,
+				"finished_at": nil,
+			},
+			"request_id": "req-2",
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second})
+	got, err := c.GetTask(context.Background(), "t1", "task-pending")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if got.StartedAt != nil {
+		t.Errorf("StartedAt = %v, want nil", got.StartedAt)
+	}
+	if got.FinishedAt != nil {
+		t.Errorf("FinishedAt = %v, want nil", got.FinishedAt)
+	}
+	if got.ErrorMsg != "" {
+		t.Errorf("ErrorMsg = %q, want empty (null)", got.ErrorMsg)
 	}
 }
 

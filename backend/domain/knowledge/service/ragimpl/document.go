@@ -325,8 +325,8 @@ func (i *Impl) MGetDocumentProgress(ctx context.Context, req *service.MGetDocume
 			continue
 		}
 		dp.Status = taskStatusToDoc(task.Status)
-		dp.Progress = task.Progress
-		dp.StatusMsg = task.Error
+		dp.Progress = progressForStatus(task.Status)
+		dp.StatusMsg = task.ErrorMsg
 		list = append(list, dp)
 	}
 	return &service.MGetDocumentProgressResponse{ProgressList: list}, nil

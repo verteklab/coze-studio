@@ -101,3 +101,27 @@ func RagStatusToEntity(s string) entity.DocumentStatus {
 		return entity.DocumentStatusFailed
 	}
 }
+
+// progressForStatus maps rag's task status string to a coarse 0-100 progress
+// value for UI display. Rag dropped its numeric progress field in 0e1f49b; this
+// is the best approximation until /capabilities exposes per-phase progress
+// (planned for R2-D).
+//
+// Pending shows a small non-zero so the UI's progress bar isn't visually
+// indistinguishable from "no doc yet." Failed maps to 0 because a failed bar
+// at 100% would be misleading; the failure state is communicated separately
+// via dp.Status + dp.StatusMsg.
+func progressForStatus(s string) int {
+	switch s {
+	case "pending":
+		return 10
+	case "running", "retrying":
+		return 50
+	case "success":
+		return 100
+	case "failed":
+		return 0
+	default:
+		return 0
+	}
+}
