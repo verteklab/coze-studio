@@ -203,6 +203,13 @@ func _resegmentMw() []app.HandlerFunc {
 	return nil
 }
 
+// MANUAL EDIT: codegen toolchain not wired (see commit e2dcc807).
+// Matches the empty-middleware pattern of neighboring document routes.
+func _retrydocumentMw() []app.HandlerFunc {
+	// your code...
+	return nil
+}
+
 func _updatedocumentMw() []app.HandlerFunc {
 	// your code...
 	return nil

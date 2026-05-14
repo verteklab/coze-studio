@@ -145,6 +145,8 @@ func Register(r *server.Hertz) {
 				_document.POST("/delete", append(_deletedocumentMw(), coze.DeleteDocument)...)
 				_document.POST("/list", append(_listdocumentMw(), coze.ListDocument)...)
 				_document.POST("/resegment", append(_resegmentMw(), coze.Resegment)...)
+				// MANUAL EDIT: codegen toolchain not wired (see commit e2dcc807).
+				_document.POST("/retry", append(_retrydocumentMw(), coze.RetryDocument)...)
 				_document.POST("/update", append(_updatedocumentMw(), coze.UpdateDocument)...)
 				{
 					_progress := _document.Group("/progress", _progressMw()...)

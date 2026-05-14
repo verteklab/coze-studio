@@ -236,6 +236,19 @@ struct GetDocumentProgressResponse {
     255: optional base.BaseResp BaseResp
 }
 
+struct RetryDocumentRequest {
+    1: required i64 document_id (agw.js_conv="str", agw.key="document_id", api.js_conv="true", api.body="document_id")
+
+    255: optional base.Base Base
+}
+struct RetryDocumentResponse {
+    1: optional DocumentInfo document_info
+
+    253: required i64 code
+    254: required string msg
+    255: optional base.BaseResp BaseResp
+}
+
 // Get the table file meta information uploaded by the database
 struct GetTableSchemaRequest {
    1: optional TableSheet  table_sheet;                                                // Table parsing information, the default initial value is 0, 0, 1, which represents the first table, the first row of the table header, and the data row starts from the second row

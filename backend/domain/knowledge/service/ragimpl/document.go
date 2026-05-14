@@ -338,17 +338,19 @@ func (i *Impl) MGetDocumentProgress(ctx context.Context, req *service.MGetDocume
 	return &service.MGetDocumentProgressResponse{ProgressList: list}, nil
 }
 
-// RetryDocument re-runs ingestion for a previously-failed coze document by
-// resolving the coze doc id to its rag-side UUID + owning rag KB UUID, then
-// passing through to the rag client. The mapping table's last_task_id is NOT
-// updated here — R2-D-backend is intentionally pass-through; the caller (or
-// a future R2-D-frontend) decides whether to record the new task_id.
-func (i *Impl) RetryDocument(ctx context.Context, cozeDocID int64) (*contract.CreateDocumentResponse, error) {
+// RetryDocument re-runs ingestion for a previously-failed coze document.
+// Resolves coze→rag IDs via the mapping table, forwards to the rag client,
+// bumps rag_doc_mapping.last_task_id so MGetDocumentProgress follows the
+// retry's new task, and returns a refreshed entity.Document with the
+// post-retry status. The mapping update is best-effort on failure: rag
+// has already accepted the retry, so a logged warning is preferable to
+// returning an error that suggests the retry didn't trigger.
+func (i *Impl) RetryDocument(ctx context.Context, req *service.RetryDocumentRequest) (*service.RetryDocumentResponse, error) {
 	tenant, err := i.tenant(ctx)
 	if err != nil {
 		return nil, err
 	}
-	dm, err := i.mapping.DocByCozeID(ctx, cozeDocID)
+	dm, err := i.mapping.DocByCozeID(ctx, req.DocumentID)
 	if err != nil {
 		return nil, err
 	}
@@ -356,5 +358,22 @@ func (i *Impl) RetryDocument(ctx context.Context, cozeDocID int64) (*contract.Cr
 	if err != nil {
 		return nil, err
 	}
-	return i.rag.RetryDocument(ctx, tenant, kb.RagKBID, dm.RagDocID)
+	ragResp, err := i.rag.RetryDocument(ctx, tenant, kb.RagKBID, dm.RagDocID)
+	if err != nil {
+		return nil, err
+	}
+	if err := i.mapping.UpdateLastTaskID(ctx, req.DocumentID, ragResp.TaskID); err != nil {
+		logs.CtxWarnf(ctx, "ragimpl: RetryDocument: UpdateLastTaskID(%d, %s) failed: %v", req.DocumentID, ragResp.TaskID, err)
+	}
+	nowMs := time.Now().UnixMilli()
+	refreshed := &entity.Document{
+		Info: knowledgeModel.Info{
+			ID:          dm.CozeID,
+			CreatorID:   dm.CreatorID,
+			UpdatedAtMs: nowMs,
+		},
+		KnowledgeID: dm.KBID,
+		Status:      RagStatusToEntity(ragResp.Status),
+	}
+	return &service.RetryDocumentResponse{Document: refreshed}, nil
 }

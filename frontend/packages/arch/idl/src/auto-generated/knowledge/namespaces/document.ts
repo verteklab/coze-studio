@@ -329,6 +329,26 @@ export interface GetDocumentProgressResponse {
   BaseResp?: base.BaseResp;
 }
 
+// MANUAL EDIT: codegen toolchain not wired in this OSS repo (see commit e2dcc807).
+// Mirrors thrift struct RetryDocumentRequest from idl/data/knowledge/document.thrift.
+// document_id is i64 on the wire but transported as a string via api.js_conv="true"
+// (Agw-Js-Conv: str header), so the TS type is string.
+export interface RetryDocumentRequest {
+  document_id: string;
+  Base?: base.Base;
+}
+
+// MANUAL EDIT: see RetryDocumentRequest comment. Mirrors thrift struct
+// RetryDocumentResponse. document_info is the refreshed DocumentInfo with the
+// post-retry status (typically pending/processing); subsequent polls follow
+// the retry's new task via the server-side mapping update.
+export interface RetryDocumentResponse {
+  document_info?: DocumentInfo;
+  code: Int64;
+  msg: string;
+  BaseResp?: base.BaseResp;
+}
+
 export interface GetTableSchemaRequest {
   /** 表格解析信息, 默认初始值0,0,1 */
   table_sheet?: TableSheet;

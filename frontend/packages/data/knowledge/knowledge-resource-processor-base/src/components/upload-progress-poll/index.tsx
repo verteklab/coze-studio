@@ -14,9 +14,9 @@
  * limitations under the License.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
-import { Button } from '@coze-arch/coze-design';
+import { Button, Toast } from '@coze-arch/coze-design';
 import { Progress } from '@coze-arch/bot-semi';
 import { KnowledgeApi } from '@coze-arch/bot-api';
 
@@ -62,11 +62,12 @@ const isFailed = (status?: number) =>
  * per-doc list and an aggregate `N/M` header, and fires `onComplete` once
  * every doc has reached the ready status.
  *
- * Failed docs surface the rag-supplied `status_descript` plus a disabled
- * "联系管理员" CTA — `ragimpl.RetryDocument` is not yet wired through to the
- * rag service's `POST /documents/:id/retry` (see Task 0 of the rag-flow
- * alignment plan), so retry is intentionally unavailable for now. Once
- * that's wired through this becomes a real retry button.
+ * Failed docs surface the rag-supplied `status_descript` plus a `重试` button
+ * that calls `KnowledgeApi.RetryDocument`. On success, the local progress
+ * state for that doc is cleared so the next polling tick picks up the new
+ * task via the server-side mapping update (ragimpl bumps
+ * rag_doc_mapping.last_task_id so MGetDocumentProgress follows the retry's
+ * new task). Failure surfaces as a toast.
  */
 export const UploadProgressPoll = ({
   docIds,
@@ -157,6 +158,26 @@ export const UploadProgressPoll = ({
 
   const readyCount = docIds.filter(id => isReady(progress[id]?.status)).length;
 
+  // handleRetry calls the RetryDocument RPC and clears the failed doc from
+  // local progress state. The next polling tick repopulates the row with the
+  // new task's status — the server bumped rag_doc_mapping.last_task_id so
+  // MGetDocumentProgress now reflects the retry. completedRef is re-armed in
+  // case onComplete had already fired and the user retried after that.
+  const handleRetry = useCallback(async (docId: string) => {
+    try {
+      await KnowledgeApi.RetryDocument({ document_id: docId });
+      setProgress(prev => {
+        const next = { ...prev };
+        delete next[docId];
+        return next;
+      });
+      completedRef.current = false;
+    } catch (err) {
+      Toast.error('重试失败，请稍后再试');
+      void err;
+    }
+  }, []);
+
   return (
     <div className={styles['upload-progress-poll']}>
       <div className={styles.summary}>
@@ -177,8 +198,7 @@ export const UploadProgressPoll = ({
                     {p?.status_descript ?? '上传失败'}
                   </span>
                   {/* TODO: i18n — wait for spec to register a key. */}
-                  {/* RetryDocument isn't wired yet (Task 0); disabled. */}
-                  <Button disabled>联系管理员</Button>
+                  <Button onClick={() => handleRetry(id)}>重试</Button>
                 </div>
               ) : null}
             </li>
