@@ -19,6 +19,9 @@ package rag
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -155,28 +158,160 @@ func TestGetKB_NotFound(t *testing.T) {
 	}
 }
 
-func TestCreateDocument(t *testing.T) {
-	c, _ := newTestClient(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/knowledgebases/uuid-1/documents" || r.Method != http.MethodPost {
-			t.Fatalf("got %s %s", r.Method, r.URL.Path)
+// TestCreateDocument_Multipart locks the wire shape of CreateDocument against
+// rag's multipart contract. The handler asserts every property of the request
+// that coze controls; the test fails immediately if a future change reverts
+// the body shape, drops a header, or breaks a field name.
+func TestCreateDocument_Multipart(t *testing.T) {
+	const (
+		tenantID = "t1"
+		kbID     = "kb-abc"
+		filename = "hello.txt"
+		fileType = "txt"
+		modality = "text_source"
+	)
+	wantBytes := []byte("hello world")
+
+	chunkSize, chunkOverlap := 512, 64
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
 		}
-		if r.Header.Get("X-Tenant-Id") != "42" {
-			t.Fatalf("missing X-Tenant-Id")
+		wantPath := "/api/v1/knowledgebases/" + kbID + "/documents"
+		if r.URL.Path != wantPath {
+			t.Errorf("path = %s, want %s", r.URL.Path, wantPath)
 		}
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(envelopeBody(t, contract.CreateDocumentResponse{
-			DocID: "doc-1", TaskID: "task-1", Status: "pending",
-		}))
+		if got := r.Header.Get("X-Tenant-Id"); got != tenantID {
+			t.Errorf("X-Tenant-Id header = %q, want %q", got, tenantID)
+		}
+
+		ct, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil {
+			t.Fatalf("Content-Type parse: %v", err)
+		}
+		if ct != "multipart/form-data" {
+			t.Errorf("Content-Type = %s, want multipart/form-data", ct)
+		}
+		boundary := params["boundary"]
+		if boundary == "" {
+			t.Fatalf("Content-Type missing boundary")
+		}
+
+		mr := multipart.NewReader(r.Body, boundary)
+		fields := map[string]string{}
+		var gotFile []byte
+		var gotFilename string
+		for {
+			part, err := mr.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatalf("multipart NextPart: %v", err)
+			}
+			body, err := io.ReadAll(part)
+			if err != nil {
+				t.Fatalf("read part %q: %v", part.FormName(), err)
+			}
+			if part.FormName() == "file" {
+				gotFile = body
+				gotFilename = part.FileName()
+			} else {
+				fields[part.FormName()] = string(body)
+			}
+		}
+
+		if string(gotFile) != string(wantBytes) {
+			t.Errorf("file bytes = %q, want %q", gotFile, wantBytes)
+		}
+		if gotFilename != filename {
+			t.Errorf("file part filename = %q, want %q", gotFilename, filename)
+		}
+		if fields["file_type"] != fileType {
+			t.Errorf("file_type = %q, want %q", fields["file_type"], fileType)
+		}
+		if fields["source_modality"] != modality {
+			t.Errorf("source_modality = %q, want %q", fields["source_modality"], modality)
+		}
+		if fields["chunk_size"] != "512" {
+			t.Errorf("chunk_size = %q, want \"512\"", fields["chunk_size"])
+		}
+		if fields["chunk_overlap"] != "64" {
+			t.Errorf("chunk_overlap = %q, want \"64\"", fields["chunk_overlap"])
+		}
+		if fields["extra_metadata"] != `{"creator_id":42}` {
+			t.Errorf("extra_metadata = %q, want %q", fields["extra_metadata"], `{"creator_id":42}`)
+		}
+
+		// Respond with a rag-shaped envelope.
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    0,
+			"message": "ok",
+			"data": map[string]any{
+				"doc_id":  "d1",
+				"task_id": "t1",
+				"status":  "pending",
+			},
+			"request_id": "req-1",
+		})
 	}))
-	out, err := c.CreateDocument(context.Background(), "42", "uuid-1", &contract.CreateDocumentRequest{
-		SourceURI:      "minio://bucket/file.pdf",
-		SourceModality: "text_source",
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{
+		BaseURL:         srv.URL,
+		Timeout:         5 * time.Second,
+		UploadTimeoutMs: 5000,
+	})
+	resp, err := c.CreateDocument(context.Background(), tenantID, kbID, &contract.CreateDocumentRequest{
+		FileBytes:      wantBytes,
+		Filename:       filename,
+		FileType:       fileType,
+		SourceModality: modality,
+		ChunkSize:      &chunkSize,
+		ChunkOverlap:   &chunkOverlap,
+		ExtraMetadata:  `{"creator_id":42}`,
 	})
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("CreateDocument: %v", err)
 	}
-	if out.DocID != "doc-1" || out.TaskID != "task-1" {
-		t.Fatalf("got %+v", out)
+	if resp.DocID != "d1" || resp.TaskID != "t1" || resp.Status != "pending" {
+		t.Errorf("decoded response = %+v, want {DocID:d1 TaskID:t1 Status:pending}", resp)
+	}
+}
+
+// TestCreateDocument_Multipart_ErrorEnvelope covers rag's current FastAPI
+// HTTPException shape on 4xx. We assert the error surfaces; we do NOT pin the
+// specific classification because R2-C will rework MapRagError to also accept
+// the flat envelope and pydantic 422 array shapes.
+func TestCreateDocument_Multipart_ErrorEnvelope(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"detail": map[string]any{
+				"code":    40001,
+				"message": "X-Tenant-Id header is required",
+			},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{
+		BaseURL:         srv.URL,
+		Timeout:         5 * time.Second,
+		UploadTimeoutMs: 5000,
+	})
+	_, err := c.CreateDocument(context.Background(), "t1", "kb", &contract.CreateDocumentRequest{
+		FileBytes:      []byte("x"),
+		Filename:       "x.txt",
+		FileType:       "txt",
+		SourceModality: "text_source",
+	})
+	if err == nil {
+		t.Fatalf("CreateDocument: want error, got nil")
+	}
+	if !strings.Contains(err.Error(), "X-Tenant-Id") {
+		t.Errorf("error = %v, want it to mention the upstream message", err)
 	}
 }
 

@@ -25,7 +25,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
+	"strconv"
 	"time"
 
 	ragconf "github.com/coze-dev/coze-studio/backend/conf/rag"
@@ -200,6 +202,63 @@ func (c *Client) doOnce(ctx context.Context, method, path, tenantID string, body
 	return nil
 }
 
+// doMultipart executes a multipart-in/JSON-out POST. The caller owns the body
+// reader and Content-Type (typically from multipart.Writer.FormDataContentType()).
+// Response handling mirrors doJSON: ResponseEnvelope is decoded, code != 0 is
+// mapped via MapRagError, and the data payload is unmarshalled into out.
+//
+// No retries — multipart payloads are bound to a non-idempotent POST and we
+// cannot safely re-send. Matches doJSON's POST behavior.
+func (c *Client) doMultipart(ctx context.Context, method, path, tenantID string, body io.Reader, contentType string, out any, timeout time.Duration) error {
+	reqCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(reqCtx, method, c.cfg.BaseURL+path, body)
+	if err != nil {
+		return fmt.Errorf("new request: %w", err)
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Accept", "application/json")
+	if tenantID != "" {
+		req.Header.Set(tenantHeader, tenantID)
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("rag http %s %s: %w", method, path, err)
+	}
+	defer resp.Body.Close()
+
+	raw, readErr := io.ReadAll(resp.Body)
+	if readErr != nil {
+		return fmt.Errorf("read response body: %w", readErr)
+	}
+
+	if resp.StatusCode >= 400 {
+		var errBody contract.ErrorBody
+		_ = json.Unmarshal(raw, &errBody)
+		return MapRagError(resp.StatusCode, errBody.Detail.Code, errBody.Detail.Message)
+	}
+
+	if out == nil {
+		return nil
+	}
+	var env envelope
+	if err := json.Unmarshal(raw, &env); err != nil {
+		return fmt.Errorf("decode envelope: %w", err)
+	}
+	if env.Code != 0 {
+		return MapRagError(resp.StatusCode, env.Code, env.Message)
+	}
+	if len(env.Data) == 0 || string(env.Data) == "null" {
+		return nil
+	}
+	if err := json.Unmarshal(env.Data, out); err != nil {
+		return fmt.Errorf("decode response data: %w", err)
+	}
+	return nil
+}
+
 // idempotent reports whether method is safe to retry without side effects.
 // Intentionally narrow: only GET and DELETE. PUT is idempotent by HTTP spec
 // but in practice the rag contract does not use it, and we'd rather force a
@@ -257,9 +316,52 @@ func (c *Client) ListKBs(ctx context.Context, req *contract.ListKBsRequest) (*co
 }
 
 func (c *Client) CreateDocument(ctx context.Context, tenantID, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
+	var buf bytes.Buffer
+	w := multipart.NewWriter(&buf)
+
+	// file (required) — use CreateFormFile so the part carries the filename attribute.
+	fw, err := w.CreateFormFile("file", req.Filename)
+	if err != nil {
+		return nil, fmt.Errorf("multipart create file part: %w", err)
+	}
+	if _, err := fw.Write(req.FileBytes); err != nil {
+		return nil, fmt.Errorf("multipart write file bytes: %w", err)
+	}
+
+	// Required form fields.
+	if err := w.WriteField("file_type", req.FileType); err != nil {
+		return nil, fmt.Errorf("multipart write file_type: %w", err)
+	}
+	if err := w.WriteField("source_modality", req.SourceModality); err != nil {
+		return nil, fmt.Errorf("multipart write source_modality: %w", err)
+	}
+
+	// Optional form fields. We omit on nil/empty so rag applies its defaults
+	// instead of seeing empty strings (which pydantic would reject under extra="forbid").
+	if req.ChunkSize != nil {
+		if err := w.WriteField("chunk_size", strconv.Itoa(*req.ChunkSize)); err != nil {
+			return nil, fmt.Errorf("multipart write chunk_size: %w", err)
+		}
+	}
+	if req.ChunkOverlap != nil {
+		if err := w.WriteField("chunk_overlap", strconv.Itoa(*req.ChunkOverlap)); err != nil {
+			return nil, fmt.Errorf("multipart write chunk_overlap: %w", err)
+		}
+	}
+	if req.ExtraMetadata != "" {
+		if err := w.WriteField("extra_metadata", req.ExtraMetadata); err != nil {
+			return nil, fmt.Errorf("multipart write extra_metadata: %w", err)
+		}
+	}
+
+	if err := w.Close(); err != nil {
+		return nil, fmt.Errorf("multipart close: %w", err)
+	}
+
 	out := &contract.CreateDocumentResponse{}
 	path := apiPrefix + "/knowledgebases/" + kbID + "/documents"
-	if err := c.doJSON(ctx, http.MethodPost, path, tenantID, req, out, time.Duration(c.cfg.UploadTimeoutMs)*time.Millisecond); err != nil {
+	timeout := time.Duration(c.cfg.UploadTimeoutMs) * time.Millisecond
+	if err := c.doMultipart(ctx, http.MethodPost, path, tenantID, &buf, w.FormDataContentType(), out, timeout); err != nil {
 		return nil, err
 	}
 	return out, nil
