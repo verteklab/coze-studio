@@ -93,8 +93,23 @@ export const UploadProgressPoll = ({
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
 
     const tick = async () => {
+      if (cancelled) {
+        return;
+      }
+      const currentDocIds = docIdsRef.current;
+      // Nothing to poll yet — caller may still be populating docIds
+      // asynchronously (e.g. waiting on a CreateDocument response).
+      // Skip the wasted (and potentially error-prone) `document_ids: []`
+      // request and re-check on the next tick. Critically, also skip the
+      // allReady evaluation: [].every(...) is vacuously true and would
+      // fire onComplete before any doc exists.
+      if (currentDocIds.length === 0) {
+        if (!completedRef.current) {
+          timeoutId = setTimeout(tick, pollIntervalMs);
+        }
+        return;
+      }
       try {
-        const currentDocIds = docIdsRef.current;
         const resp = await KnowledgeApi.GetDocumentProgress({
           document_ids: currentDocIds,
         });
@@ -109,7 +124,9 @@ export const UploadProgressPoll = ({
         }
         setProgress(next);
 
-        const allReady = currentDocIds.every(id => isReady(next[id]?.status));
+        const allReady =
+          currentDocIds.length > 0 &&
+          currentDocIds.every(id => isReady(next[id]?.status));
         if (allReady && !completedRef.current) {
           completedRef.current = true;
           onCompleteRef.current();

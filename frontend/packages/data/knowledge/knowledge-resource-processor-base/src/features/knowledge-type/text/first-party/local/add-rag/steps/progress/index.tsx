@@ -16,7 +16,6 @@
 
 import { type FC, useEffect, useRef, useState } from 'react';
 
-import { useShallow } from 'zustand/react/shallow';
 import { DataNamespace, dataReporter } from '@coze-data/reporter';
 import {
   useDataNavigate,
@@ -31,6 +30,8 @@ import { UploadProgressPoll } from '@/components';
 
 import type { UploadTextLocalAddUpdateStore } from '../../../add/store';
 import { getCreateDocumentParams } from '../../../add/steps/processing/utils';
+
+import styles from './index.module.less';
 
 /**
  * Rag-mode progress step for text local upload.
@@ -62,30 +63,17 @@ export const TextProgress: FC<
   const params = useKnowledgeParams();
 
   const [docIds, setDocIds] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
   // Guards against StrictMode-driven double-invocation of the create effect.
   // We intentionally do NOT include this in any deps array — it's a "fire
   // exactly once per mount" latch.
   const createdRef = useRef(false);
 
-  const {
-    unitList,
-    segmentMode,
-    segmentRule,
-    enableStorageStrategy,
-    storageLocation,
-    openSearchConfig,
-    docReviewList,
-  } = useStore(
-    useShallow(state => ({
-      unitList: state.unitList,
-      segmentMode: state.segmentMode,
-      segmentRule: state.segmentRule,
-      enableStorageStrategy: state.enableStorageStrategy,
-      storageLocation: state.storageLocation,
-      openSearchConfig: state.openSearchConfig,
-      docReviewList: state.docReviewList,
-    })),
-  );
+  // The store API (`useStore`) is used only to read a one-shot snapshot
+  // via `getState()` inside the effect below. We deliberately do NOT
+  // subscribe via `useShallow` — the effect runs exactly once on mount
+  // (gated by createdRef), so subscribing to store mutations would only
+  // trigger wasted re-renders without changing behaviour.
 
   useEffect(() => {
     if (createdRef.current) {
@@ -95,8 +83,18 @@ export const TextProgress: FC<
 
     const run = async () => {
       try {
-        const { parsingStrategy, filterStrategy, levelChunkStrategy } =
-          useStore.getState();
+        const {
+          unitList,
+          segmentMode,
+          segmentRule,
+          enableStorageStrategy,
+          storageLocation,
+          openSearchConfig,
+          docReviewList,
+          parsingStrategy,
+          filterStrategy,
+          levelChunkStrategy,
+        } = useStore.getState();
         const reqParams = getCreateDocumentParams({
           unitList,
           segmentMode,
@@ -123,6 +121,8 @@ export const TextProgress: FC<
           eventName: REPORT_EVENTS.KnowledgeCreateDocument,
           error: e as Error,
         });
+        // TODO: i18n — wait for spec to register a key.
+        setError(e instanceof Error ? e.message : '创建文档失败');
       }
     };
     void run();
@@ -137,8 +137,33 @@ export const TextProgress: FC<
     resourceNavigate.toResource?.('knowledge', params.datasetID, query);
   };
 
-  // Before CreateDocument resolves, docIds is empty — the poll component
-  // gracefully renders an empty list with a 0/0 summary in that window.
-  // Once the response lands, ids populate and polling kicks off.
+  // CreateDocument rejected — surface the error and DO NOT mount the poll
+  // component. Mounting it with an empty docIds is also defended against
+  // upstream in <UploadProgressPoll />, but bailing here keeps the user-
+  // facing semantics explicit: failed create == no progress UI, no nav.
+  if (error) {
+    return (
+      <div className={styles.error}>
+        {/* TODO: i18n — wait for spec to register a key. */}
+        <p className={styles['error-message']}>{error}</p>
+        {/* TODO: i18n — wait for spec to register a key. */}
+        <p className={styles['error-hint']}>请刷新页面或联系管理员。</p>
+      </div>
+    );
+  }
+
+  // CreateDocument is still in flight — render a loading state rather than
+  // mounting <UploadProgressPoll /> with empty docIds. The poll component
+  // itself also guards against this, but keeping the loading state local
+  // here avoids the 0/0 summary flash before the response lands.
+  if (docIds.length === 0) {
+    return (
+      <div className={styles.loading}>
+        {/* TODO: i18n — wait for spec to register a key. */}
+        正在创建文档…
+      </div>
+    );
+  }
+
   return <UploadProgressPoll docIds={docIds} onComplete={handleComplete} />;
 };

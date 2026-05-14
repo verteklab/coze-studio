@@ -148,6 +148,24 @@ describe('<UploadProgressPoll />', () => {
     expect(onComplete).not.toHaveBeenCalled();
   });
 
+  it('does not fire onComplete on empty docIds', async () => {
+    // [].every(...) is vacuously true. A buggy version would fire
+    // onComplete on the very first tick before any doc exists. We also
+    // expect zero GetDocumentProgress requests — polling { document_ids:
+    // [] } is wasted work and rejected by some backends.
+    const onComplete = vi.fn();
+    render(
+      <UploadProgressPoll
+        docIds={[]}
+        onComplete={onComplete}
+        pollIntervalMs={5}
+      />,
+    );
+    await new Promise(r => setTimeout(r, 50));
+    expect(onComplete).not.toHaveBeenCalled();
+    expect(mockGetProgress).not.toHaveBeenCalled();
+  });
+
   it('does not refire poll immediately on parent rerender with a fresh same-content docIds reference', async () => {
     // A buggy version (effect depending on the array identity of docIds)
     // would tear down + re-init the effect on every parent rerender that
