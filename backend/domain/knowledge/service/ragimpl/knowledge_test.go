@@ -19,6 +19,7 @@ package ragimpl
 import (
 	"context"
 	"errors"
+	"io"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	knowledgeModel "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
 	contract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
+	"github.com/coze-dev/coze-studio/backend/infra/storage"
 	"github.com/coze-dev/coze-studio/backend/types/consts"
 )
 
@@ -216,9 +218,46 @@ func newTestImpl(t *testing.T, fc *fakeClient, ids ...int64) *Impl {
 		mapping:                      NewMappingRepo(db),
 		idgen:                        &stubIDGen{ids: ids},
 		resolver:                     NewEnvTenantResolver("test-tenant"),
+		storage:                      &stubStorage{},
 		defaultTextEmbeddingModelID:  "text-model-default",
 		defaultImageEmbeddingModelID: "image-model-default",
 	}
+}
+
+// stubStorage returns a fixed payload from GetObject; other methods are no-ops.
+// Tests don't assert on bytes content, only on mapping/status side effects.
+type stubStorage struct{}
+
+var _ storage.Storage = (*stubStorage)(nil)
+
+func (*stubStorage) PutObject(_ context.Context, _ string, _ []byte, _ ...storage.PutOptFn) error {
+	return nil
+}
+
+func (*stubStorage) PutObjectWithReader(_ context.Context, _ string, _ io.Reader, _ ...storage.PutOptFn) error {
+	return nil
+}
+
+func (*stubStorage) GetObject(_ context.Context, _ string) ([]byte, error) {
+	return []byte("test-payload"), nil
+}
+
+func (*stubStorage) DeleteObject(_ context.Context, _ string) error { return nil }
+
+func (*stubStorage) GetObjectUrl(_ context.Context, _ string, _ ...storage.GetOptFn) (string, error) {
+	return "", nil
+}
+
+func (*stubStorage) HeadObject(_ context.Context, _ string, _ ...storage.GetOptFn) (*storage.FileInfo, error) {
+	return nil, nil
+}
+
+func (*stubStorage) ListAllObjects(_ context.Context, _ string, _ ...storage.GetOptFn) ([]*storage.FileInfo, error) {
+	return nil, nil
+}
+
+func (*stubStorage) ListObjectsPaginated(_ context.Context, _ *storage.ListObjectsPaginatedInput, _ ...storage.GetOptFn) (*storage.ListObjectsPaginatedOutput, error) {
+	return nil, nil
 }
 
 // TestCreateKnowledge_HappyPath asserts that:

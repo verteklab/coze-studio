@@ -100,6 +100,7 @@ func initRag(ctx context.Context, c *ServiceComponents, bus search.ResourceEvent
 		c.DB,
 		c.IDGen,
 		resolver,
+		c.Storage,
 		cfg.Rag.DefaultTextEmbeddingModelID,
 		cfg.Rag.DefaultImageEmbeddingModelID,
 	)

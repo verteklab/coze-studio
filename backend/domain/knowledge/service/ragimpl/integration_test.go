@@ -40,6 +40,7 @@ package ragimpl
 
 import (
 	"context"
+	"io"
 	"os"
 	"testing"
 	"time"
@@ -53,6 +54,7 @@ import (
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/entity"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
 	infrarag "github.com/coze-dev/coze-studio/backend/infra/rag"
+	"github.com/coze-dev/coze-studio/backend/infra/storage"
 )
 
 // integrationIDGen is a wall-clock-based ID generator for integration runs.
@@ -103,6 +105,7 @@ func TestIntegration_EndToEnd(t *testing.T) {
 		db,
 		integrationIDGen{},
 		resolver,
+		newSmokeStorage(t),
 		os.Getenv("RAG_DEFAULT_TEXT_EMBEDDING_MODEL_ID"),
 		os.Getenv("RAG_DEFAULT_IMAGE_EMBEDDING_MODEL_ID"),
 	)
@@ -168,4 +171,53 @@ func TestIntegration_EndToEnd(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.NotEmpty(t, rr.RetrieveSlices, "retrieval returned zero slices")
+}
+
+// smokeStorage is a deliberately-thin storage.Storage substitute for the
+// build-tag-gated integration test. After R2-A, ragimpl.CreateDocument fetches
+// bytes via i.storage.GetObject before calling rag, so the test needs SOME
+// Storage to construct Impl. Providing a real MinIO handle here would duplicate
+// the configuration that the application layer already does (init.go wires
+// c.Storage from the same MinIO config). The "true" end-to-end test for the
+// rag-backed upload path lives at the application layer; here we only verify
+// the per-doc flow with a constant payload.
+type smokeStorage struct{ payload []byte }
+
+var _ storage.Storage = (*smokeStorage)(nil)
+
+func newSmokeStorage(t *testing.T) *smokeStorage {
+	t.Helper()
+	return &smokeStorage{payload: []byte("rag-integration-test payload")}
+}
+
+func (s *smokeStorage) PutObject(ctx context.Context, objectKey string, content []byte, opts ...storage.PutOptFn) error {
+	return nil
+}
+
+func (s *smokeStorage) PutObjectWithReader(ctx context.Context, objectKey string, content io.Reader, opts ...storage.PutOptFn) error {
+	return nil
+}
+
+func (s *smokeStorage) GetObject(ctx context.Context, objectKey string) ([]byte, error) {
+	return s.payload, nil
+}
+
+func (s *smokeStorage) DeleteObject(ctx context.Context, objectKey string) error {
+	return nil
+}
+
+func (s *smokeStorage) GetObjectUrl(ctx context.Context, objectKey string, opts ...storage.GetOptFn) (string, error) {
+	return "", nil
+}
+
+func (s *smokeStorage) HeadObject(ctx context.Context, objectKey string, opts ...storage.GetOptFn) (*storage.FileInfo, error) {
+	return nil, nil
+}
+
+func (s *smokeStorage) ListAllObjects(ctx context.Context, prefix string, opts ...storage.GetOptFn) ([]*storage.FileInfo, error) {
+	return nil, nil
+}
+
+func (s *smokeStorage) ListObjectsPaginated(ctx context.Context, input *storage.ListObjectsPaginatedInput, opts ...storage.GetOptFn) (*storage.ListObjectsPaginatedOutput, error) {
+	return nil, nil
 }
