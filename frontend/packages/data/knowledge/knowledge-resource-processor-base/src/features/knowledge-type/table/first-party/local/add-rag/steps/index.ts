@@ -14,9 +14,8 @@
  * limitations under the License.
  */
 
-export { TableLocalAddConfig } from './add/config';
-export { TableLocalIncrementalConfig } from './incremental/config';
-// Rag-mode wizard variant. Legacy `TableLocalAddConfig` above stays the
-// default; the gating in `scenes/base/config.ts` (Task 10) picks between them
-// based on `kb.backend === 'rag'`.
-export { TableLocalAddRagConfig, TableLocalAddRagStep } from './add-rag';
+// Rag wizard reuses the legacy upload step as-is — no rag-specific behaviour
+// is needed during file selection; the only divergence is the post-upload
+// flow, handled by the new `<TableProgress />`.
+export { TableUpload } from '../../add/steps/upload';
+export { TableProgress } from './progress';

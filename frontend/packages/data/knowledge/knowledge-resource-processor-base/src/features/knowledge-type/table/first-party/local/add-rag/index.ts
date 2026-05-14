@@ -14,9 +14,5 @@
  * limitations under the License.
  */
 
-export { TableLocalAddConfig } from './add/config';
-export { TableLocalIncrementalConfig } from './incremental/config';
-// Rag-mode wizard variant. Legacy `TableLocalAddConfig` above stays the
-// default; the gating in `scenes/base/config.ts` (Task 10) picks between them
-// based on `kb.backend === 'rag'`.
-export { TableLocalAddRagConfig, TableLocalAddRagStep } from './add-rag';
+export { TableLocalAddRagConfig } from './config';
+export { TableLocalAddRagStep } from './constants';
