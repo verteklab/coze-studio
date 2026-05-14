@@ -546,3 +546,121 @@ func TestEnvelope_NonZeroCodeIsError(t *testing.T) {
 		t.Fatalf("error didn't surface envelope message: %v", err)
 	}
 }
+
+// TestGetDocument_FieldShape locks rag's GetDocument wire shape after the
+// 2026-05-14 round-2 audit. Asserts every renamed and new field decodes.
+// Explicitly does NOT assert anything about Name, KBID, or Size — those
+// fields are not on rag's response.
+func TestGetDocument_FieldShape(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		wantSuffix := "/api/v1/knowledgebases/kb-1/documents/doc-1"
+		if !strings.HasSuffix(r.URL.Path, wantSuffix) {
+			t.Errorf("path = %s, want suffix %s", r.URL.Path, wantSuffix)
+		}
+		if got := r.Header.Get("X-Tenant-Id"); got != "t1" {
+			t.Errorf("X-Tenant-Id = %q, want %q", got, "t1")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    0,
+			"message": "ok",
+			"data": map[string]any{
+				"doc_id":          "doc-1",
+				"filename":        "7.测试计划.docx",
+				"file_type":       "docx",
+				"status":          "ready",
+				"chunk_count":     80,
+				"error_msg":       nil,
+				"source_modality": "text_source",
+				"created_at":      "2026-05-14T13:25:57.009000",
+				"updated_at":      "2026-05-14T13:26:04.484000",
+			},
+			"request_id": "req-3",
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second})
+	got, err := c.GetDocument(context.Background(), "t1", "kb-1", "doc-1")
+	if err != nil {
+		t.Fatalf("GetDocument: %v", err)
+	}
+	if got.DocID != "doc-1" {
+		t.Errorf("DocID = %q, want doc-1", got.DocID)
+	}
+	if got.Filename != "7.测试计划.docx" {
+		t.Errorf("Filename = %q", got.Filename)
+	}
+	if got.FileType != "docx" {
+		t.Errorf("FileType = %q, want docx", got.FileType)
+	}
+	if got.Status != "ready" {
+		t.Errorf("Status = %q, want ready", got.Status)
+	}
+	if got.ChunkCount != 80 {
+		t.Errorf("ChunkCount = %d, want 80", got.ChunkCount)
+	}
+	if got.ErrorMsg != "" {
+		t.Errorf("ErrorMsg = %q, want empty (null)", got.ErrorMsg)
+	}
+	if got.SourceModality != "text_source" {
+		t.Errorf("SourceModality = %q", got.SourceModality)
+	}
+}
+
+// TestListDocuments_FieldShape locks the list endpoint's envelope shape.
+// Returns one item with the same fields as the singleton case to share
+// assertion logic; the meaningful new bit is the {items, total} wrapper.
+func TestListDocuments_FieldShape(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    0,
+			"message": "ok",
+			"data": map[string]any{
+				"items": []map[string]any{
+					{
+						"doc_id":          "doc-1",
+						"filename":        "a.txt",
+						"file_type":       "txt",
+						"status":          "ready",
+						"chunk_count":     3,
+						"error_msg":       nil,
+						"source_modality": "text_source",
+						"created_at":      "2026-05-14T13:25:57.009000",
+						"updated_at":      "2026-05-14T13:26:04.484000",
+					},
+				},
+				"total": 1,
+			},
+			"request_id": "req-4",
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second})
+	got, err := c.ListDocuments(context.Background(), "t1", "kb-1", 1, 50)
+	if err != nil {
+		t.Fatalf("ListDocuments: %v", err)
+	}
+	if got.Total != 1 {
+		t.Errorf("Total = %d, want 1", got.Total)
+	}
+	if len(got.Items) != 1 {
+		t.Fatalf("len(Items) = %d, want 1", len(got.Items))
+	}
+	item := got.Items[0]
+	if item.Filename != "a.txt" {
+		t.Errorf("Items[0].Filename = %q, want a.txt", item.Filename)
+	}
+	if item.FileType != "txt" {
+		t.Errorf("Items[0].FileType = %q", item.FileType)
+	}
+	if item.ChunkCount != 3 {
+		t.Errorf("Items[0].ChunkCount = %d", item.ChunkCount)
+	}
+}
