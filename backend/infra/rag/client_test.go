@@ -608,6 +608,15 @@ func TestGetDocument_FieldShape(t *testing.T) {
 	if got.SourceModality != "text_source" {
 		t.Errorf("SourceModality = %q", got.SourceModality)
 	}
+	// Lock the time decoding too — Phase A learned that nil/value checks alone
+	// won't catch a RagTime.UnmarshalJSON regression that drops microseconds or
+	// applies the wrong timezone. The wire values below decode to UTC milliseconds.
+	if got.CreatedAt.UnixMilli() != 1778765157009 {
+		t.Errorf("CreatedAt.UnixMilli() = %d, want 1778765157009", got.CreatedAt.UnixMilli())
+	}
+	if got.UpdatedAt.UnixMilli() != 1778765164484 {
+		t.Errorf("UpdatedAt.UnixMilli() = %d, want 1778765164484", got.UpdatedAt.UnixMilli())
+	}
 }
 
 // TestListDocuments_FieldShape locks the list endpoint's envelope shape.
@@ -662,5 +671,11 @@ func TestListDocuments_FieldShape(t *testing.T) {
 	}
 	if item.ChunkCount != 3 {
 		t.Errorf("Items[0].ChunkCount = %d", item.ChunkCount)
+	}
+	if item.CreatedAt.UnixMilli() != 1778765157009 {
+		t.Errorf("Items[0].CreatedAt.UnixMilli() = %d, want 1778765157009", item.CreatedAt.UnixMilli())
+	}
+	if item.UpdatedAt.UnixMilli() != 1778765164484 {
+		t.Errorf("Items[0].UpdatedAt.UnixMilli() = %d, want 1778765164484", item.UpdatedAt.UnixMilli())
 	}
 }

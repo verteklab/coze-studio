@@ -242,8 +242,13 @@ func (i *Impl) ListDocument(ctx context.Context, req *service.ListDocumentReques
 				CreatedAtMs: rd.CreatedAt.UnixMilli(),
 				UpdatedAtMs: rd.UpdatedAt.UnixMilli(),
 			},
-			KnowledgeID:   dm.KBID,
-			Status:        RagStatusToEntity(rd.Status),
+			KnowledgeID: dm.KBID,
+			Status:      RagStatusToEntity(rd.Status),
+			// TODO(coze-rag): rag's file_type is unconstrained on the wire; this
+			// cast accepts anything but parser dispatch downstream only knows
+			// coze's parser.FileExtension enum. Validate via parser.ValidateFileExtension
+			// (or filter rag's supported set via R2-D's /capabilities) when the
+			// enum stabilizes.
 			FileExtension: parser.FileExtension(rd.FileType),
 		})
 	}
@@ -287,8 +292,13 @@ func (i *Impl) MGetDocument(ctx context.Context, req *service.MGetDocumentReques
 				CreatedAtMs: rd.CreatedAt.UnixMilli(),
 				UpdatedAtMs: rd.UpdatedAt.UnixMilli(),
 			},
-			KnowledgeID:   m.KBID,
-			Status:        RagStatusToEntity(rd.Status),
+			KnowledgeID: m.KBID,
+			Status:      RagStatusToEntity(rd.Status),
+			// TODO(coze-rag): rag's file_type is unconstrained on the wire; this
+			// cast accepts anything but parser dispatch downstream only knows
+			// coze's parser.FileExtension enum. Validate via parser.ValidateFileExtension
+			// (or filter rag's supported set via R2-D's /capabilities) when the
+			// enum stabilizes.
 			FileExtension: parser.FileExtension(rd.FileType),
 		})
 	}
