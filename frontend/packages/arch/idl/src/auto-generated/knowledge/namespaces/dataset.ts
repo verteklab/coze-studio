@@ -233,6 +233,11 @@ export interface Dataset {
   dataset_type?: DatasetType;
   /** storage_config详细信息 */
   storage_config?: StorageConfig;
+  /** MANUAL EDIT — added 2026-05-13 per plan 2026-05-13-coze-ui-rag-flow-alignment.
+   *  Codegen toolchain is not wired in OSS repo (see Task 0 discovery findings).
+   *  "rag" = managed by standalone rag service; "legacy" = in-tree module.
+   *  Absent on older-server responses; clients treat as "legacy". */
+  backend?: string;
 }
 
 export interface DatasetDetailRequest {
