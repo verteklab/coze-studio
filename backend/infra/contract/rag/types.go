@@ -159,13 +159,21 @@ type ListDocumentsResponse struct {
 	Total int        `json:"total"`
 }
 
+// Task mirrors rag's TaskDetail as of 0e1f49b. The wire shape changed in the
+// 2026-05-14 round-2 audit: DocID and Progress were dropped; Error was renamed
+// to ErrorMsg; UpdatedAt became FinishedAt; CreatedAt/StartedAt/Type/RetryCount
+// are new. Pre-transition phases emit JSON null for StartedAt/FinishedAt, which
+// is why they're pointer-typed — a value receiver would decode null into the
+// unix epoch, masking the unset state.
 type Task struct {
-	TaskID    string    `json:"task_id"`
-	DocID     string    `json:"doc_id"`
-	Status    string    `json:"status"` // pending | running | retrying | success | failed
-	Progress  int       `json:"progress"`
-	Error     string    `json:"error,omitempty"`
-	UpdatedAt RagTime `json:"updated_at"`
+	TaskID     string   `json:"task_id"`
+	Type       string   `json:"type"` // "ingestion" today; future types may exist
+	Status     string   `json:"status"` // pending | running | retrying | success | failed
+	RetryCount int      `json:"retry_count"`
+	ErrorMsg   string   `json:"error_msg,omitempty"`
+	CreatedAt  RagTime  `json:"created_at"`
+	StartedAt  *RagTime `json:"started_at,omitempty"`
+	FinishedAt *RagTime `json:"finished_at,omitempty"`
 }
 
 // RetrieveRequest mirrors rag's RetrievalRequest. Tenant comes from the
