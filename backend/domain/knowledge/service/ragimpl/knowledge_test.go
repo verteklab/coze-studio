@@ -66,18 +66,18 @@ type fakeClient struct {
 	retrieveReq     *contract.RetrieveRequest
 
 	// Stubs: override return values from the test.
-	createKBFunc  func(tenantID string, req *contract.CreateKBRequest) (*contract.KB, error)
-	deleteKBFunc  func(tenantID, kbID string) error
-	getKBFunc     func(tenantID, kbID string) (*contract.KB, error)
-	updateKBFunc  func(tenantID, kbID string, req *contract.UpdateKBRequest) (*contract.KB, error)
-	listKBsFunc   func(*contract.ListKBsRequest) (*contract.ListKBsResponse, error)
+	createKBFunc      func(tenantID string, req *contract.CreateKBRequest) (*contract.KB, error)
+	deleteKBFunc      func(tenantID, kbID string) error
+	getKBFunc         func(tenantID, kbID string) (*contract.KB, error)
+	updateKBFunc      func(tenantID, kbID string, req *contract.UpdateKBRequest) (*contract.KB, error)
+	listKBsFunc       func(*contract.ListKBsRequest) (*contract.ListKBsResponse, error)
 	createDocFunc     func(tenantID, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error)
 	retryDocumentFunc func(tenantID, kbID, docID string) (*contract.CreateDocumentResponse, error)
 	deleteDocFunc     func(tenantID, kbID, docID string) error
-	listDocsFunc  func(tenantID, kbID string, page, pageSize int) (*contract.ListDocumentsResponse, error)
-	getDocFunc    func(tenantID, kbID, docID string) (*contract.Document, error)
-	getTaskFunc   func(tenantID, taskID string) (*contract.Task, error)
-	retrieveFunc  func(tenantID string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error)
+	listDocsFunc      func(tenantID, kbID string, page, pageSize int) (*contract.ListDocumentsResponse, error)
+	getDocFunc        func(tenantID, kbID, docID string) (*contract.Document, error)
+	getTaskFunc       func(tenantID, taskID string) (*contract.Task, error)
+	retrieveFunc      func(tenantID string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error)
 }
 
 func (f *fakeClient) Ready(_ context.Context) error { return nil }
