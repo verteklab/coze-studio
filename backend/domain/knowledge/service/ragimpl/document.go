@@ -337,3 +337,24 @@ func (i *Impl) MGetDocumentProgress(ctx context.Context, req *service.MGetDocume
 	}
 	return &service.MGetDocumentProgressResponse{ProgressList: list}, nil
 }
+
+// RetryDocument re-runs ingestion for a previously-failed coze document by
+// resolving the coze doc id to its rag-side UUID + owning rag KB UUID, then
+// passing through to the rag client. The mapping table's last_task_id is NOT
+// updated here — R2-D-backend is intentionally pass-through; the caller (or
+// a future R2-D-frontend) decides whether to record the new task_id.
+func (i *Impl) RetryDocument(ctx context.Context, cozeDocID int64) (*contract.CreateDocumentResponse, error) {
+	tenant, err := i.tenant(ctx)
+	if err != nil {
+		return nil, err
+	}
+	dm, err := i.mapping.DocByCozeID(ctx, cozeDocID)
+	if err != nil {
+		return nil, err
+	}
+	kb, err := i.mapping.KBByCozeID(ctx, dm.KBID)
+	if err != nil {
+		return nil, err
+	}
+	return i.rag.RetryDocument(ctx, tenant, kb.RagKBID, dm.RagDocID)
+}

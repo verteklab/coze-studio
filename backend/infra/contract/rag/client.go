@@ -46,6 +46,10 @@ type Client interface {
 	GetDocument(ctx context.Context, tenantID, kbID, docID string) (*Document, error)
 	ListDocuments(ctx context.Context, tenantID, kbID string, page, pageSize int) (*ListDocumentsResponse, error)
 	DeleteDocument(ctx context.Context, tenantID, kbID, docID string) error
+	// RetryDocument re-runs ingestion for a failed task. Rag returns the
+	// standard UploadDocumentResponse, identical in shape to CreateDocument,
+	// so the response type is reused.
+	RetryDocument(ctx context.Context, tenantID, kbID, docID string) (*CreateDocumentResponse, error)
 
 	// Tasks.
 	GetTask(ctx context.Context, tenantID, taskID string) (*Task, error)

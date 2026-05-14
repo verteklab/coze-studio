@@ -71,8 +71,9 @@ type fakeClient struct {
 	getKBFunc     func(tenantID, kbID string) (*contract.KB, error)
 	updateKBFunc  func(tenantID, kbID string, req *contract.UpdateKBRequest) (*contract.KB, error)
 	listKBsFunc   func(*contract.ListKBsRequest) (*contract.ListKBsResponse, error)
-	createDocFunc func(tenantID, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error)
-	deleteDocFunc func(tenantID, kbID, docID string) error
+	createDocFunc     func(tenantID, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error)
+	retryDocumentFunc func(tenantID, kbID, docID string) (*contract.CreateDocumentResponse, error)
+	deleteDocFunc     func(tenantID, kbID, docID string) error
 	listDocsFunc  func(tenantID, kbID string, page, pageSize int) (*contract.ListDocumentsResponse, error)
 	getDocFunc    func(tenantID, kbID, docID string) (*contract.Document, error)
 	getTaskFunc   func(tenantID, taskID string) (*contract.Task, error)
@@ -157,6 +158,13 @@ func (f *fakeClient) DeleteDocument(_ context.Context, tenantID, kbID, docID str
 		return f.deleteDocFunc(tenantID, kbID, docID)
 	}
 	return nil
+}
+
+func (f *fakeClient) RetryDocument(_ context.Context, tenantID, kbID, docID string) (*contract.CreateDocumentResponse, error) {
+	if f.retryDocumentFunc != nil {
+		return f.retryDocumentFunc(tenantID, kbID, docID)
+	}
+	return &contract.CreateDocumentResponse{}, nil
 }
 
 func (f *fakeClient) GetTask(_ context.Context, tenantID, taskID string) (*contract.Task, error) {
