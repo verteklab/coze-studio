@@ -433,3 +433,16 @@ func (c *Client) Retrieve(ctx context.Context, tenantID string, req *contract.Re
 	}
 	return out, nil
 }
+
+// ListDocumentParameterSchemas returns rag's system-wide catalog of per-
+// schema_id parameter forms. The rag endpoint is NOT KB-scoped (no kb_id
+// in the path), but the tenant header still travels per rag's request-
+// context invariant.
+func (c *Client) ListDocumentParameterSchemas(ctx context.Context, tenantID string) ([]contract.DocumentParameterSchema, error) {
+	var out []contract.DocumentParameterSchema
+	path := apiPrefix + "/document-parameter-schemas"
+	if err := c.doJSON(ctx, http.MethodGet, path, tenantID, nil, &out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}

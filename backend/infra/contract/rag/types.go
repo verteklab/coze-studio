@@ -264,3 +264,36 @@ type RetrieveResponse struct {
 	Items []RetrieveHit  `json:"items"`
 	Debug map[string]any `json:"debug,omitempty"`
 }
+
+// DocumentParameterSchema mirrors one entry in rag's response to
+// GET /api/v1/document-parameter-schemas. Each schema scopes a typed
+// parameter form to a set of file_types and source_modalities. The
+// list is system-wide (not KB-scoped); the consumer is the upload
+// wizard, which picks the schema matching the document being uploaded.
+type DocumentParameterSchema struct {
+	SchemaID         string              `json:"schema_id"`
+	Description      string              `json:"description"`
+	FileTypes        []string            `json:"file_types"`
+	SourceModalities []string            `json:"source_modalities"`
+	Parameters       []DocumentParameter `json:"parameters"`
+}
+
+// DocumentParameter describes a single tunable knob in a schema. Default
+// and AllowedValues are `any` because their JSON type depends on the
+// Type field (a boolean param's default is a bool, an integer's is a
+// number, etc.); the consumer narrows at use time.
+type DocumentParameter struct {
+	Name          string   `json:"name"`
+	Type          string   `json:"type"` // boolean | integer | string | ...
+	Group         string   `json:"group"`
+	Required      bool     `json:"required"`
+	Default       any      `json:"default,omitempty"`
+	AllowedValues []any    `json:"allowed_values,omitempty"`
+	MinValue      *float64 `json:"min_value,omitempty"`
+	MaxValue      *float64 `json:"max_value,omitempty"`
+	Description   string   `json:"description"`
+	UILabel       string   `json:"ui_label"`
+	UIComponent   string   `json:"ui_component"`
+	Advanced      bool     `json:"advanced"`
+	Internal      bool     `json:"internal"`
+}

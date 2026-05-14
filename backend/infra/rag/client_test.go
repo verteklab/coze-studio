@@ -1010,3 +1010,130 @@ func TestGetCapabilities_NullableDefaults(t *testing.T) {
 		t.Errorf("DefaultTopK = %v, want nil", got.DefaultTopK)
 	}
 }
+
+// TestListDocumentParameterSchemas_FieldShape locks rag's
+// GET /document-parameter-schemas wire shape. The response is a list; each
+// entry has nested Parameters. The test asserts both the outer envelope
+// (no kb_id in path; tenant header still required) and the nested
+// parameter shape across multiple parameter Type values (boolean, integer)
+// to cover the `any`-typed Default and pointer-typed Min/Max fields.
+func TestListDocumentParameterSchemas_FieldShape(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		if !strings.HasSuffix(r.URL.Path, "/api/v1/document-parameter-schemas") {
+			t.Errorf("path = %s, want suffix /api/v1/document-parameter-schemas", r.URL.Path)
+		}
+		if got := r.Header.Get("X-Tenant-Id"); got != "t1" {
+			t.Errorf("X-Tenant-Id = %q, want %q", got, "t1")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    0,
+			"message": "ok",
+			"data": []map[string]any{
+				{
+					"schema_id":         "text_document",
+					"description":       "Plain text paragraph processing parameters.",
+					"file_types":        []string{"txt", "text"},
+					"source_modalities": []string{"text_source"},
+					"parameters": []map[string]any{
+						{
+							"name":           "merge_blank_line_paragraphs",
+							"type":           "boolean",
+							"group":          "text_paragraph",
+							"required":       false,
+							"default":        true,
+							"allowed_values": []any{},
+							"min_value":      nil,
+							"max_value":      nil,
+							"description":    "Merge paragraphs separated by blank lines when packing chunks.",
+							"ui_label":       "Merge blank-line paragraphs",
+							"ui_component":   "switch",
+							"advanced":       false,
+							"internal":       false,
+						},
+						{
+							"name":           "chunk_size",
+							"type":           "integer",
+							"group":          "chunking",
+							"required":       false,
+							"default":        512,
+							"allowed_values": []any{},
+							"min_value":      64,
+							"max_value":      8192,
+							"description":    "Maximum chunk size for text chunking.",
+							"ui_label":       "Maximum merged paragraph length",
+							"ui_component":   "number",
+							"advanced":       false,
+							"internal":       false,
+						},
+					},
+				},
+				{
+					"schema_id":         "image_document",
+					"description":       "Image processing parameters.",
+					"file_types":        []string{"jpg", "png"},
+					"source_modalities": []string{"image_source"},
+					"parameters":        []map[string]any{},
+				},
+			},
+			"request_id": "req-ps-1",
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second})
+	got, err := c.ListDocumentParameterSchemas(context.Background(), "t1")
+	if err != nil {
+		t.Fatalf("ListDocumentParameterSchemas: %v", err)
+	}
+
+	if len(got) != 2 {
+		t.Fatalf("got %d schemas, want 2", len(got))
+	}
+	text := got[0]
+	if text.SchemaID != "text_document" {
+		t.Errorf("schemas[0].SchemaID = %q, want text_document", text.SchemaID)
+	}
+	if len(text.FileTypes) != 2 || text.FileTypes[0] != "txt" {
+		t.Errorf("schemas[0].FileTypes = %v", text.FileTypes)
+	}
+	if len(text.Parameters) != 2 {
+		t.Fatalf("schemas[0].Parameters len = %d, want 2", len(text.Parameters))
+	}
+
+	merge := text.Parameters[0]
+	if merge.Name != "merge_blank_line_paragraphs" || merge.Type != "boolean" {
+		t.Errorf("Parameters[0] name/type = %q/%q", merge.Name, merge.Type)
+	}
+	if merge.Default != true {
+		t.Errorf("Parameters[0].Default = %v, want true (bool)", merge.Default)
+	}
+	if merge.MinValue != nil || merge.MaxValue != nil {
+		t.Errorf("Parameters[0] min/max = %v/%v, want nil/nil for boolean", merge.MinValue, merge.MaxValue)
+	}
+
+	chunk := text.Parameters[1]
+	if chunk.Name != "chunk_size" || chunk.Type != "integer" {
+		t.Errorf("Parameters[1] name/type = %q/%q", chunk.Name, chunk.Type)
+	}
+	// JSON-decoded numbers arrive as float64 in `any`; coerce when asserting.
+	if v, ok := chunk.Default.(float64); !ok || v != 512 {
+		t.Errorf("Parameters[1].Default = %v (%T), want float64(512)", chunk.Default, chunk.Default)
+	}
+	if chunk.MinValue == nil || *chunk.MinValue != 64 {
+		t.Errorf("Parameters[1].MinValue = %v, want *float64(64)", chunk.MinValue)
+	}
+	if chunk.MaxValue == nil || *chunk.MaxValue != 8192 {
+		t.Errorf("Parameters[1].MaxValue = %v, want *float64(8192)", chunk.MaxValue)
+	}
+
+	image := got[1]
+	if image.SchemaID != "image_document" {
+		t.Errorf("schemas[1].SchemaID = %q", image.SchemaID)
+	}
+	if len(image.Parameters) != 0 {
+		t.Errorf("schemas[1].Parameters should be empty, got %d", len(image.Parameters))
+	}
+}
