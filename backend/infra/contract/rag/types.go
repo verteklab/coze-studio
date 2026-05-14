@@ -185,6 +185,18 @@ type Task struct {
 	FinishedAt *RagTime `json:"finished_at,omitempty"`
 }
 
+// QueryImage mirrors rag's ImageQueryDTO (app/api/schemas/retrieval.py).
+// Rag's RetrievalRequest enforces extra="forbid" at the top level, so a bare
+// base64 string in the query_image field is rejected with HTTP 422. Use this
+// object type to carry either an inline base64 payload or a reference to a
+// previously-uploaded image in the object store; at least one of the two
+// fields must be non-empty (rag's _has_query_input enforces it; coze does not
+// pre-validate, letting pydantic 422 surface back via DecodeErrorEnvelope).
+type QueryImage struct {
+	ImageBase64 string `json:"image_base64,omitempty"`
+	ImageRef    string `json:"image_ref,omitempty"`
+}
+
 // RetrieveRequest mirrors rag's RetrievalRequest. Tenant comes from the
 // X-Tenant-Id header, not the body. Doc-level filtering is intentionally not
 // exposed as a top-level field — rag's /retrieval endpoint has no `doc_ids`
@@ -193,7 +205,7 @@ type Task struct {
 type RetrieveRequest struct {
 	KBIDs            []string       `json:"kb_ids"`
 	Query            *string        `json:"query,omitempty"`
-	QueryImage       *string        `json:"query_image,omitempty"`
+	QueryImage       *QueryImage    `json:"query_image,omitempty"`
 	QueryMode        string         `json:"query_mode,omitempty"`
 	SearchType       string         `json:"search_type,omitempty"`
 	TopK             *int           `json:"top_k,omitempty"`
