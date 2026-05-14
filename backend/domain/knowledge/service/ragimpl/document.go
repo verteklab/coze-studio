@@ -148,7 +148,7 @@ func (i *Impl) CreateDocument(ctx context.Context, req *service.CreateDocumentRe
 			return nil, err
 		}
 		nowMs := time.Now().UnixMilli()
-		if err := i.mapping.InsertDoc(ctx, cozeID, ragResp.DocID, d.KnowledgeID, d.CreatorID, ragResp.TaskID, nowMs); err != nil {
+		if err := i.mapping.InsertDoc(ctx, cozeID, ragResp.DocID, d.KnowledgeID, d.CreatorID, ragResp.TaskID, int64(len(fileBytes)), nowMs); err != nil {
 			if delErr := i.rag.DeleteDocument(ctx, tenant, m.RagKBID, ragResp.DocID); delErr != nil {
 				logs.CtxWarnf(ctx, "ragimpl: rollback DeleteDocument after InsertDoc failure: %v", delErr)
 			}
@@ -250,6 +250,7 @@ func (i *Impl) ListDocument(ctx context.Context, req *service.ListDocumentReques
 			// (or filter rag's supported set via R2-D's /capabilities) when the
 			// enum stabilizes.
 			FileExtension: parser.FileExtension(rd.FileType),
+			Size:          dm.Size,
 		})
 	}
 	return &service.ListDocumentResponse{
@@ -300,6 +301,7 @@ func (i *Impl) MGetDocument(ctx context.Context, req *service.MGetDocumentReques
 			// (or filter rag's supported set via R2-D's /capabilities) when the
 			// enum stabilizes.
 			FileExtension: parser.FileExtension(rd.FileType),
+			Size:          m.Size,
 		})
 	}
 	return &service.MGetDocumentResponse{Documents: out}, nil

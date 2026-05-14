@@ -1906,6 +1906,13 @@ table "rag_doc_mapping" {
     type    = varchar(64)
     comment = "rag task id from last ingestion attempt (used by MGetDocumentProgress)"
   }
+  column "size" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+    comment  = "Document file size in bytes; coze-side, since rag does not return size on its Document response."
+  }
   column "created_at" {
     null     = false
     type     = bigint

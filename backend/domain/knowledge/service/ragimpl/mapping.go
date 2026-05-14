@@ -45,6 +45,7 @@ type DocMapping struct {
 	KBID       int64
 	CreatorID  int64
 	LastTaskID string
+	Size       int64 // file size in bytes; populated at upload, read on display
 }
 
 type MappingRepo struct {
@@ -190,10 +191,11 @@ func (m *MappingRepo) DocByCozeID(ctx context.Context, cozeID int64) (*DocMappin
 		CozeKBID   int64  `gorm:"column:coze_kb_id"`
 		CreatorID  int64  `gorm:"column:creator_id"`
 		LastTaskID string `gorm:"column:last_task_id"`
+		Size       int64  `gorm:"column:size"`
 	}
 	err := m.db.WithContext(ctx).
 		Table("rag_doc_mapping").
-		Select("coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id").
+		Select("coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id, size").
 		Where("coze_doc_id = ? AND (deleted_at IS NULL)", cozeID).
 		Take(&row).Error
 	if err != nil {
@@ -204,7 +206,7 @@ func (m *MappingRepo) DocByCozeID(ctx context.Context, cozeID int64) (*DocMappin
 	}
 	return &DocMapping{
 		CozeID: row.CozeDocID, RagDocID: row.RagDocID, KBID: row.CozeKBID,
-		CreatorID: row.CreatorID, LastTaskID: row.LastTaskID,
+		CreatorID: row.CreatorID, LastTaskID: row.LastTaskID, Size: row.Size,
 	}, nil
 }
 
@@ -218,10 +220,11 @@ func (m *MappingRepo) DocsByCozeIDs(ctx context.Context, ids []int64) ([]*DocMap
 		CozeKBID   int64  `gorm:"column:coze_kb_id"`
 		CreatorID  int64  `gorm:"column:creator_id"`
 		LastTaskID string `gorm:"column:last_task_id"`
+		Size       int64  `gorm:"column:size"`
 	}
 	err := m.db.WithContext(ctx).
 		Table("rag_doc_mapping").
-		Select("coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id").
+		Select("coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id, size").
 		Where("coze_doc_id IN ? AND (deleted_at IS NULL)", ids).
 		Scan(&rows).Error
 	if err != nil {
@@ -231,7 +234,7 @@ func (m *MappingRepo) DocsByCozeIDs(ctx context.Context, ids []int64) ([]*DocMap
 	for _, r := range rows {
 		out = append(out, &DocMapping{
 			CozeID: r.CozeDocID, RagDocID: r.RagDocID, KBID: r.CozeKBID,
-			CreatorID: r.CreatorID, LastTaskID: r.LastTaskID,
+			CreatorID: r.CreatorID, LastTaskID: r.LastTaskID, Size: r.Size,
 		})
 	}
 	return out, nil
@@ -245,10 +248,11 @@ func (m *MappingRepo) docByRagID(ctx context.Context, ragDocID string) (*DocMapp
 		CozeKBID   int64  `gorm:"column:coze_kb_id"`
 		CreatorID  int64  `gorm:"column:creator_id"`
 		LastTaskID string `gorm:"column:last_task_id"`
+		Size       int64  `gorm:"column:size"`
 	}
 	err := m.db.WithContext(ctx).
 		Table("rag_doc_mapping").
-		Select("coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id").
+		Select("coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id, size").
 		Where("rag_doc_id = ? AND (deleted_at IS NULL)", ragDocID).
 		Take(&row).Error
 	if err != nil {
@@ -259,7 +263,7 @@ func (m *MappingRepo) docByRagID(ctx context.Context, ragDocID string) (*DocMapp
 	}
 	return &DocMapping{
 		CozeID: row.CozeDocID, RagDocID: row.RagDocID, KBID: row.CozeKBID,
-		CreatorID: row.CreatorID, LastTaskID: row.LastTaskID,
+		CreatorID: row.CreatorID, LastTaskID: row.LastTaskID, Size: row.Size,
 	}, nil
 }
 
@@ -279,12 +283,12 @@ func (m *MappingRepo) InsertKB(ctx context.Context, cozeID int64, ragKBID, iconU
 	).Error
 }
 
-func (m *MappingRepo) InsertDoc(ctx context.Context, cozeID int64, ragDocID string, kbID, creatorID int64, lastTaskID string, nowMs int64) error {
+func (m *MappingRepo) InsertDoc(ctx context.Context, cozeID int64, ragDocID string, kbID, creatorID int64, lastTaskID string, size int64, nowMs int64) error {
 	return m.db.WithContext(ctx).Exec(
 		`INSERT INTO rag_doc_mapping
-		 (coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		cozeID, ragDocID, kbID, creatorID, lastTaskID, nowMs,
+		 (coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id, size, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		cozeID, ragDocID, kbID, creatorID, lastTaskID, size, nowMs,
 	).Error
 }
 
