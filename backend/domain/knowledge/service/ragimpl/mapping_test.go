@@ -210,7 +210,7 @@ func TestMapping_DocsByCozeIDs(t *testing.T) {
 func TestMapping_InsertDocAndSoftDelete(t *testing.T) {
 	db := setupDB(t)
 	m := NewMappingRepo(db)
-	require.NoError(t, m.InsertDoc(context.Background(), 500, "rag-doc-500", 100, 7, "task-99", 1024, 1700000000))
+	require.NoError(t, m.InsertDoc(context.Background(), 500, "rag-doc-500", 100, 7, "task-99", 1700000000, 1024))
 	got, err := m.DocByCozeID(context.Background(), 500)
 	require.NoError(t, err)
 	require.Equal(t, "rag-doc-500", got.RagDocID)

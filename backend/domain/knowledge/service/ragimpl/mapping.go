@@ -283,12 +283,12 @@ func (m *MappingRepo) InsertKB(ctx context.Context, cozeID int64, ragKBID, iconU
 	).Error
 }
 
-func (m *MappingRepo) InsertDoc(ctx context.Context, cozeID int64, ragDocID string, kbID, creatorID int64, lastTaskID string, size int64, nowMs int64) error {
+func (m *MappingRepo) InsertDoc(ctx context.Context, cozeID int64, ragDocID string, kbID, creatorID int64, lastTaskID string, nowMs int64, size int64) error {
 	return m.db.WithContext(ctx).Exec(
 		`INSERT INTO rag_doc_mapping
-		 (coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id, size, created_at)
+		 (coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id, created_at, size)
 		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		cozeID, ragDocID, kbID, creatorID, lastTaskID, size, nowMs,
+		cozeID, ragDocID, kbID, creatorID, lastTaskID, nowMs, size,
 	).Error
 }
 
