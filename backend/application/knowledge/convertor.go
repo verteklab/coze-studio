@@ -617,7 +617,39 @@ func convertDocumentTypeDataset2Entity(formatType dataset.FormatType) model.Docu
 	}
 }
 
+// resolveDatasetBackend returns a freshly-allocated *string ("rag" or "legacy")
+// describing which backend owns the given KB. A non-nil pointer is always
+// returned so the convertor can assign Dataset.Backend unconditionally; the
+// frontend's isRagBackend helper reads the string value.
+//
+// Pointer-aliasing safety: every call allocates its own string variable so
+// callers in a tight loop can store the returned pointer on distinct DTOs
+// without two records sharing storage.
+func resolveDatasetBackend(id int64, ragMapped map[int64]struct{}) *string {
+	s := "legacy"
+	if _, ok := ragMapped[id]; ok {
+		s = "rag"
+	}
+	return &s
+}
+
 func batchConvertKnowledgeEntity2Model(ctx context.Context, knowledgeEntity []*model.Knowledge) (map[int64]*dataset.Dataset, error) {
+	// Resolve "which backend owns each KB" in a single batched query before
+	// the per-record loop. On legacy deployments mappingRepo is nil — every
+	// KB resolves to "legacy" via the empty set, no DB hit.
+	var ragMapped map[int64]struct{}
+	if KnowledgeSVC.mappingRepo != nil {
+		ids := make([]int64, 0, len(knowledgeEntity))
+		for _, k := range knowledgeEntity {
+			ids = append(ids, k.ID)
+		}
+		m, err := KnowledgeSVC.mappingRepo.ExistsBatch(ctx, ids)
+		if err != nil {
+			logs.CtxErrorf(ctx, "rag mapping ExistsBatch failed, err: %v", err)
+			return nil, err
+		}
+		ragMapped = m
+	}
 	knowledgeMap := map[int64]*dataset.Dataset{}
 	for _, k := range knowledgeEntity {
 		documentEntity, err := KnowledgeSVC.DomainSVC.ListDocument(ctx, &service.ListDocumentRequest{
@@ -678,6 +710,7 @@ func batchConvertKnowledgeEntity2Model(ctx context.Context, knowledgeEntity []*m
 			ChunkStrategy:        convertChunkingStrategy2Model(rule),
 			ProcessingFileIDList: processingFileIDList,
 			ProjectID:            strconv.FormatInt(k.AppID, 10),
+			Backend:              resolveDatasetBackend(k.ID, ragMapped),
 		}
 	}
 	return knowledgeMap, nil

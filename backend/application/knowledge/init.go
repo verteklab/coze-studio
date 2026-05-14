@@ -112,6 +112,12 @@ func initRag(ctx context.Context, c *ServiceComponents, bus search.ResourceEvent
 	KnowledgeSVC.storage = c.Storage
 	KnowledgeSVC.rag = client
 	KnowledgeSVC.ragTenantResolver = resolver
+	// rag-only: tag outgoing Dataset DTOs with their owning backend so the
+	// frontend can route upload flows accordingly. The DAO is independent of
+	// the (private) MappingRepo embedded in ragimpl.Impl — application code
+	// can't reach into Impl.mapping, so we hold our own handle here against
+	// the same DB.
+	KnowledgeSVC.mappingRepo = ragimpl.NewMappingRepo(c.DB)
 	return KnowledgeSVC, nil
 }
 

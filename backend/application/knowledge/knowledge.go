@@ -62,6 +62,12 @@ type KnowledgeApplicationService struct {
 	// before dereferencing.
 	rag               ragcontract.Client
 	ragTenantResolver ragimpl.TenantResolver
+	// mappingRepo is the rag_kb_mapping DAO. Non-nil only when
+	// KNOWLEDGE_BACKEND=rag — on legacy deployments no rows can ever exist in
+	// rag_kb_mapping so the field is left nil and every Dataset.Backend resolves
+	// to "legacy" without paying a DB hit. Used by the convertor to tag
+	// outgoing DTOs with their owning backend ("rag" vs "legacy").
+	mappingRepo *ragimpl.MappingRepo
 }
 
 var KnowledgeSVC = &KnowledgeApplicationService{}
