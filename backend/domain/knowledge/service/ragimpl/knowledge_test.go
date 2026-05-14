@@ -66,19 +66,20 @@ type fakeClient struct {
 	retrieveReq     *contract.RetrieveRequest
 
 	// Stubs: override return values from the test.
-	createKBFunc        func(tenantID string, req *contract.CreateKBRequest) (*contract.KB, error)
-	deleteKBFunc        func(tenantID, kbID string) error
-	getKBFunc           func(tenantID, kbID string) (*contract.KB, error)
-	updateKBFunc        func(tenantID, kbID string, req *contract.UpdateKBRequest) (*contract.KB, error)
-	listKBsFunc         func(*contract.ListKBsRequest) (*contract.ListKBsResponse, error)
-	getCapabilitiesFunc func(tenantID, kbID string) (*contract.KBCapabilities, error)
-	createDocFunc       func(tenantID, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error)
-	retryDocumentFunc   func(tenantID, kbID, docID string) (*contract.CreateDocumentResponse, error)
-	deleteDocFunc       func(tenantID, kbID, docID string) error
-	listDocsFunc        func(tenantID, kbID string, page, pageSize int) (*contract.ListDocumentsResponse, error)
-	getDocFunc          func(tenantID, kbID, docID string) (*contract.Document, error)
-	getTaskFunc         func(tenantID, taskID string) (*contract.Task, error)
-	retrieveFunc        func(tenantID string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error)
+	createKBFunc                     func(tenantID string, req *contract.CreateKBRequest) (*contract.KB, error)
+	deleteKBFunc                     func(tenantID, kbID string) error
+	getKBFunc                        func(tenantID, kbID string) (*contract.KB, error)
+	updateKBFunc                     func(tenantID, kbID string, req *contract.UpdateKBRequest) (*contract.KB, error)
+	listKBsFunc                      func(*contract.ListKBsRequest) (*contract.ListKBsResponse, error)
+	getCapabilitiesFunc              func(tenantID, kbID string) (*contract.KBCapabilities, error)
+	createDocFunc                    func(tenantID, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error)
+	retryDocumentFunc                func(tenantID, kbID, docID string) (*contract.CreateDocumentResponse, error)
+	deleteDocFunc                    func(tenantID, kbID, docID string) error
+	listDocsFunc                     func(tenantID, kbID string, page, pageSize int) (*contract.ListDocumentsResponse, error)
+	getDocFunc                       func(tenantID, kbID, docID string) (*contract.Document, error)
+	getTaskFunc                      func(tenantID, taskID string) (*contract.Task, error)
+	retrieveFunc                     func(tenantID string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error)
+	listDocumentParameterSchemasFunc func(tenantID string) ([]contract.DocumentParameterSchema, error)
 }
 
 func (f *fakeClient) Ready(_ context.Context) error { return nil }
@@ -189,6 +190,13 @@ func (f *fakeClient) Retrieve(_ context.Context, tenantID string, req *contract.
 		return f.retrieveFunc(tenantID, req)
 	}
 	return &contract.RetrieveResponse{}, nil
+}
+
+func (f *fakeClient) ListDocumentParameterSchemas(_ context.Context, tenantID string) ([]contract.DocumentParameterSchema, error) {
+	if f.listDocumentParameterSchemasFunc != nil {
+		return f.listDocumentParameterSchemasFunc(tenantID)
+	}
+	return nil, nil
 }
 
 // stubIDGen returns IDs from a fixed slice, in order. Tests use this to assert
@@ -412,4 +420,37 @@ func TestRagimpl_GetCapabilities_MissingMapping(t *testing.T) {
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrMappingNotFound)
 	require.False(t, called, "rag client should NOT be called when mapping is missing")
+}
+
+// TestRagimpl_ListDocumentParameterSchemas verifies the pass-through
+// behavior: tenant resolver runs, no mapping lookup happens (rag's
+// endpoint is system-wide), and the rag client's return value
+// propagates unchanged.
+func TestRagimpl_ListDocumentParameterSchemas(t *testing.T) {
+	var gotTenant string
+	canned := []contract.DocumentParameterSchema{
+		{
+			SchemaID:    "text_document",
+			Description: "Plain text",
+			FileTypes:   []string{"txt"},
+			Parameters: []contract.DocumentParameter{
+				{Name: "chunk_size", Type: "integer", Default: 512.0},
+			},
+		},
+	}
+	fc := &fakeClient{
+		listDocumentParameterSchemasFunc: func(tenantID string) ([]contract.DocumentParameterSchema, error) {
+			gotTenant = tenantID
+			return canned, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+
+	got, err := i.ListDocumentParameterSchemas(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "test-tenant", gotTenant)
+	require.Len(t, got, 1)
+	require.Equal(t, "text_document", got[0].SchemaID)
+	require.Len(t, got[0].Parameters, 1)
+	require.Equal(t, "chunk_size", got[0].Parameters[0].Name)
 }

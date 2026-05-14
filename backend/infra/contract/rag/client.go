@@ -59,4 +59,8 @@ type Client interface {
 
 	// Retrieval.
 	Retrieve(ctx context.Context, tenantID string, req *RetrieveRequest) (*RetrieveResponse, error)
+
+	// Document parameter schemas — system-wide (no kb_id); the UI's source
+	// of truth for upload-wizard parameter forms.
+	ListDocumentParameterSchemas(ctx context.Context, tenantID string) ([]DocumentParameterSchema, error)
 }
