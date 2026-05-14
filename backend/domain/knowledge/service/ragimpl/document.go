@@ -366,6 +366,13 @@ func (i *Impl) RetryDocument(ctx context.Context, req *service.RetryDocumentRequ
 		logs.CtxWarnf(ctx, "ragimpl: RetryDocument: UpdateLastTaskID(%d, %s) failed: %v", req.DocumentID, ragResp.TaskID, err)
 	}
 	nowMs := time.Now().UnixMilli()
+	// The returned entity is intentionally sparse: only fields callable
+	// without an additional rag round-trip are populated. The frontend
+	// discards this body and re-polls MGetDocumentProgress (which reads
+	// the freshly-bumped mapping.last_task_id), so richer fields would be
+	// dead weight on the wire. If a future caller needs Name/Size/FileType
+	// post-retry, fetch via MGetDocument or enrich here with a GetDocument
+	// call.
 	refreshed := &entity.Document{
 		Info: knowledgeModel.Info{
 			ID:          dm.CozeID,

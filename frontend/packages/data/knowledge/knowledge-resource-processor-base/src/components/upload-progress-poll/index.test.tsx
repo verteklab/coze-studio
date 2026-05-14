@@ -145,16 +145,27 @@ describe('<UploadProgressPoll />', () => {
     // and the local progress for d1 to be cleared so the next polling tick
     // repopulates it (the server bumped rag_doc_mapping.last_task_id so
     // MGetDocumentProgress now follows the retry's new task).
-    mockGetProgress.mockResolvedValue({
-      data: [
-        {
-          document_id: 'd1',
-          status: STATUS_FAILED,
-          progress: 0,
-          status_descript: 'rate limit hit',
-        },
-      ],
-    });
+    //
+    // The subsequent poll tick returns a non-failed status — this models
+    // the server-side retry having taken effect (mapping.last_task_id now
+    // points at the fresh task). The load-bearing side effect under test
+    // is that the failure UI ("重试" CTA) is no longer rendered once the
+    // local progress state for d1 has been cleared and the next poll
+    // repopulates it with a non-failed status.
+    mockGetProgress
+      .mockResolvedValueOnce({
+        data: [
+          {
+            document_id: 'd1',
+            status: STATUS_FAILED,
+            progress: 0,
+            status_descript: 'rate limit hit',
+          },
+        ],
+      })
+      .mockResolvedValue({
+        data: [{ document_id: 'd1', status: STATUS_PROCESSING, progress: 10 }],
+      });
     mockRetryDocument.mockResolvedValue({
       document_info: { document_id: 'd1' },
     });
@@ -179,6 +190,15 @@ describe('<UploadProgressPoll />', () => {
     });
     expect(mockRetryDocument).toHaveBeenCalledTimes(1);
     expect(mockToastError).not.toHaveBeenCalled();
+    // Load-bearing side effect: handleRetry clears local progress for d1,
+    // and the next poll tick repopulates with a non-failed status, so the
+    // failure UI (重试 CTA, status_descript text) is no longer rendered.
+    // A refactor that breaks the setProgress(prev => { delete next[docId] })
+    // path would surface here as the 重试 button lingering in the DOM.
+    // (Sticking with not.toBeNull() to match the rest of this file —
+    // jest-dom matchers aren't wired into the project's vitest preset.)
+    await waitFor(() => expect(screen.queryByText('重试')).toBeNull());
+    expect(screen.queryByText(/rate limit hit/)).toBeNull();
   });
 
   it('shows a toast when RetryDocument fails', async () => {

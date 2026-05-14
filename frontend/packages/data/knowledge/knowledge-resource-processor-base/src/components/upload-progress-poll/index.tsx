@@ -172,9 +172,9 @@ export const UploadProgressPoll = ({
         return next;
       });
       completedRef.current = false;
-    } catch (err) {
+    } catch (_err) {
+      // TODO: i18n — share the retry-fail key with the button label TODO above.
       Toast.error('重试失败，请稍后再试');
-      void err;
     }
   }, []);
 
