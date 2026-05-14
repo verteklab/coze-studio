@@ -318,6 +318,18 @@ func (c *Client) ListKBs(ctx context.Context, req *contract.ListKBsRequest) (*co
 	return out, nil
 }
 
+// GetCapabilities fetches the rag-side capability descriptor for a KB. Used
+// to drive wizard config and feature gating in the UI layer. Read-only; safe
+// to retry on transient failures (doJSON handles GET retry idempotently).
+func (c *Client) GetCapabilities(ctx context.Context, tenantID, kbID string) (*contract.KBCapabilities, error) {
+	out := &contract.KBCapabilities{}
+	path := apiPrefix + "/knowledgebases/" + kbID + "/capabilities"
+	if err := c.doJSON(ctx, http.MethodGet, path, tenantID, nil, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *Client) CreateDocument(ctx context.Context, tenantID, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)

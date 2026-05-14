@@ -867,3 +867,146 @@ func TestRetryDocument(t *testing.T) {
 		t.Errorf("decoded = %+v, want {doc-1, task-retry-1, pending}", got)
 	}
 }
+
+// TestGetCapabilities_FieldShape locks rag's GET .../capabilities wire shape.
+// Asserts every top-level scalar/slice/map field; covers the "all defaults
+// present as numbers/strings" path (non-nil pointers with correct values).
+func TestGetCapabilities_FieldShape(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			t.Errorf("method = %s, want GET", r.Method)
+		}
+		wantSuffix := "/api/v1/knowledgebases/kb-1/capabilities"
+		if !strings.HasSuffix(r.URL.Path, wantSuffix) {
+			t.Errorf("path = %s, want suffix %s", r.URL.Path, wantSuffix)
+		}
+		if got := r.Header.Get("X-Tenant-Id"); got != "t1" {
+			t.Errorf("X-Tenant-Id = %q, want %q", got, "t1")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    0,
+			"message": "ok",
+			"data": map[string]any{
+				"kb_id":                       "kb-1",
+				"enabled_chunk_types":         []string{"text_chunk", "image_chunk"},
+				"supported_source_modalities": []string{"text_source", "image_source", "scanned_document_source"},
+				"enabled_retrievers":          []string{"dense", "bm25"},
+				"supported_query_modes":       []string{"text_input", "image_input"},
+				"supported_search_types":      []string{"dense", "hybrid"},
+				"metadata_schema":             map[string]any{},
+				"filterable_fields":           []string{},
+				"retrievable_fields":          []string{},
+				"default_chunk_size":          512,
+				"default_chunk_overlap":       64,
+				"default_search_type":         "hybrid",
+				"default_candidate_k":         100,
+				"default_top_k":               10,
+				"default_fusion_policy": map[string]any{
+					"mode":    "weighted_rrf",
+					"rrf_k":   60,
+					"weights": map[string]float64{"text": 0.6, "image": 0.4},
+				},
+				"retriever_defaults":         map[string]any{},
+				"supported_query_strategies": []string{"rewrite", "expansion"},
+				"request_overrideable_fields": []string{
+					"query_mode", "search_type", "top_k", "candidate_k", "filters",
+					"target_chunk_types", "retrievers", "fusion_policy",
+					"retriever_params", "query_strategy",
+				},
+			},
+			"request_id": "req-cap-1",
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second})
+	got, err := c.GetCapabilities(context.Background(), "t1", "kb-1")
+	if err != nil {
+		t.Fatalf("GetCapabilities: %v", err)
+	}
+
+	if got.KBID != "kb-1" {
+		t.Errorf("KBID = %q, want kb-1", got.KBID)
+	}
+	if len(got.EnabledChunkTypes) != 2 || got.EnabledChunkTypes[0] != "text_chunk" {
+		t.Errorf("EnabledChunkTypes = %v", got.EnabledChunkTypes)
+	}
+	if len(got.SupportedSourceModalities) != 3 {
+		t.Errorf("SupportedSourceModalities len = %d, want 3", len(got.SupportedSourceModalities))
+	}
+	if got.DefaultChunkSize == nil || *got.DefaultChunkSize != 512 {
+		t.Errorf("DefaultChunkSize = %v, want *int(512)", got.DefaultChunkSize)
+	}
+	if got.DefaultChunkOverlap == nil || *got.DefaultChunkOverlap != 64 {
+		t.Errorf("DefaultChunkOverlap = %v, want *int(64)", got.DefaultChunkOverlap)
+	}
+	if got.DefaultSearchType == nil || *got.DefaultSearchType != "hybrid" {
+		t.Errorf("DefaultSearchType = %v, want *string(hybrid)", got.DefaultSearchType)
+	}
+	if got.DefaultFusionPolicy.Mode != "weighted_rrf" || got.DefaultFusionPolicy.RrfK != 60 {
+		t.Errorf("DefaultFusionPolicy = %+v", got.DefaultFusionPolicy)
+	}
+	if len(got.SupportedQueryStrategies) != 2 {
+		t.Errorf("SupportedQueryStrategies len = %d, want 2", len(got.SupportedQueryStrategies))
+	}
+	if len(got.RequestOverrideableFields) != 10 {
+		t.Errorf("RequestOverrideableFields len = %d, want 10", len(got.RequestOverrideableFields))
+	}
+}
+
+// TestGetCapabilities_NullableDefaults verifies that JSON null in default_*
+// fields decodes to nil pointers, not zero-valued integers/strings.
+func TestGetCapabilities_NullableDefaults(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    0,
+			"message": "ok",
+			"data": map[string]any{
+				"kb_id":                       "kb-empty",
+				"enabled_chunk_types":         []string{"text_chunk"},
+				"supported_source_modalities": []string{"text_source"},
+				"enabled_retrievers":          []string{"dense"},
+				"supported_query_modes":       []string{"text_input"},
+				"supported_search_types":      []string{"dense"},
+				"metadata_schema":             map[string]any{},
+				"filterable_fields":           []string{},
+				"retrievable_fields":          []string{},
+				"default_chunk_size":          nil,
+				"default_chunk_overlap":       nil,
+				"default_search_type":         nil,
+				"default_candidate_k":         nil,
+				"default_top_k":               nil,
+				"default_fusion_policy": map[string]any{
+					"mode":  "weighted_rrf",
+					"rrf_k": 60,
+				},
+				"retriever_defaults":          map[string]any{},
+				"supported_query_strategies":  []string{},
+				"request_overrideable_fields": []string{},
+			},
+			"request_id": "req-cap-2",
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second})
+	got, err := c.GetCapabilities(context.Background(), "t1", "kb-empty")
+	if err != nil {
+		t.Fatalf("GetCapabilities: %v", err)
+	}
+	if got.DefaultChunkSize != nil {
+		t.Errorf("DefaultChunkSize = %v, want nil", got.DefaultChunkSize)
+	}
+	if got.DefaultChunkOverlap != nil {
+		t.Errorf("DefaultChunkOverlap = %v, want nil", got.DefaultChunkOverlap)
+	}
+	if got.DefaultSearchType != nil {
+		t.Errorf("DefaultSearchType = %v, want nil", got.DefaultSearchType)
+	}
+	if got.DefaultCandidateK != nil {
+		t.Errorf("DefaultCandidateK = %v, want nil", got.DefaultCandidateK)
+	}
+	if got.DefaultTopK != nil {
+		t.Errorf("DefaultTopK = %v, want nil", got.DefaultTopK)
+	}
+}
