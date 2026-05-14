@@ -768,3 +768,62 @@ func TestClient_DecodesPydantic422AsInvalidParam(t *testing.T) {
 		t.Errorf("Msg() = %q, want it to contain pydantic msg 'field required'", msg)
 	}
 }
+
+// TestRetrieve_QueryImageObject locks rag's RetrievalRequest.query_image wire
+// shape after the 0e1f49b audit. Before R2-C, coze sent a bare base64 string
+// here and rag's StrictBaseModel(extra="forbid") rejected it with HTTP 422.
+// This test posts a QueryImage{ImageBase64: ...} and asserts the wire body
+// has the nested object form `"query_image":{"image_base64":"..."}`.
+func TestRetrieve_QueryImageObject(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if !strings.HasSuffix(r.URL.Path, "/api/v1/retrieval") {
+			t.Errorf("path = %s, want suffix /api/v1/retrieval", r.URL.Path)
+		}
+		if got := r.Header.Get("X-Tenant-Id"); got != "t1" {
+			t.Errorf("X-Tenant-Id = %q, want %q", got, "t1")
+		}
+
+		// Decode the request body into a structurally-flexible map so we can
+		// assert on the nested query_image shape exactly. Decoding into
+		// contract.RetrieveRequest would tautologically succeed because the
+		// type itself is what we are locking; map-decode keeps the assertion
+		// honest at the wire level.
+		body, _ := io.ReadAll(r.Body)
+		var got map[string]any
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatalf("decode body: %v; body=%s", err, body)
+		}
+		qi, ok := got["query_image"].(map[string]any)
+		if !ok {
+			t.Fatalf("query_image is not an object, body=%s", body)
+		}
+		if qi["image_base64"] != "abc" {
+			t.Errorf("query_image.image_base64 = %v, want \"abc\"", qi["image_base64"])
+		}
+		// image_ref omitted on the wire (omitempty); the map should not have it.
+		if _, present := qi["image_ref"]; present {
+			t.Errorf("query_image.image_ref should be omitted when empty, got it present")
+		}
+
+		_, _ = w.Write(envelopeBody(t, contract.RetrieveResponse{
+			Items: []contract.RetrieveHit{{ChunkID: "c1", Score: 0.9}},
+		}))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second, RetrievalTimeoutMs: 5000})
+	out, err := c.Retrieve(context.Background(), "t1", &contract.RetrieveRequest{
+		KBIDs:      []string{"kb-1"},
+		QueryImage: &contract.QueryImage{ImageBase64: "abc"},
+		QueryMode:  "image_input",
+	})
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+	if len(out.Items) != 1 || out.Items[0].ChunkID != "c1" {
+		t.Errorf("decoded response = %+v, want one hit chunk_id=c1", out)
+	}
+}
