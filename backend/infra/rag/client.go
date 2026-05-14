@@ -209,11 +209,11 @@ func (c *Client) doOnce(ctx context.Context, method, path, tenantID string, body
 //
 // No retries — multipart payloads are bound to a non-idempotent POST and we
 // cannot safely re-send. Matches doJSON's POST behavior.
-func (c *Client) doMultipart(ctx context.Context, method, path, tenantID string, body io.Reader, contentType string, out any, timeout time.Duration) error {
+func (c *Client) doMultipart(ctx context.Context, path, tenantID string, body io.Reader, contentType string, out any, timeout time.Duration) error {
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	req, err := http.NewRequestWithContext(reqCtx, method, c.cfg.BaseURL+path, body)
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, c.cfg.BaseURL+path, body)
 	if err != nil {
 		return fmt.Errorf("new request: %w", err)
 	}
@@ -225,7 +225,7 @@ func (c *Client) doMultipart(ctx context.Context, method, path, tenantID string,
 
 	resp, err := c.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("rag http %s %s: %w", method, path, err)
+		return fmt.Errorf("rag http POST %s: %w", path, err)
 	}
 	defer resp.Body.Close()
 
@@ -361,7 +361,7 @@ func (c *Client) CreateDocument(ctx context.Context, tenantID, kbID string, req 
 	out := &contract.CreateDocumentResponse{}
 	path := apiPrefix + "/knowledgebases/" + kbID + "/documents"
 	timeout := time.Duration(c.cfg.UploadTimeoutMs) * time.Millisecond
-	if err := c.doMultipart(ctx, http.MethodPost, path, tenantID, &buf, w.FormDataContentType(), out, timeout); err != nil {
+	if err := c.doMultipart(ctx, path, tenantID, &buf, w.FormDataContentType(), out, timeout); err != nil {
 		return nil, err
 	}
 	return out, nil
