@@ -14,30 +14,14 @@
  * limitations under the License.
  */
 
-export { Upload } from './main';
-export type {
-  UploadBaseState,
-  UploadBaseAction,
-  GetUploadConfig,
-  UploadConfig,
-} from './protocol';
-export type {
-  ContentProps,
-  FooterControlsProps,
-  FooterControlProp,
-  FooterBtnProps,
-  ProgressItem,
-  UnitItem,
-  FooterPrefixType,
-} from './types';
-export {
-  UnitType,
-  OptType,
-  CreateUnitStatus,
-  FooterBtnStatus,
-  UploadStatus,
-  EntityStatus,
-  CheckedStatus,
-} from './constants';
-export { KnowledgeUploadStoreProvider } from './context';
-export { isRagBackend } from './utils';
+import { type Dataset } from '@coze-arch/bot-api/knowledge';
+
+/**
+ * Returns true iff the KB is served by the standalone rag service. Any
+ * other value — legacy, undefined, null, or an unknown string — falls back
+ * to legacy semantics. The frontend uses this to route the upload wizard.
+ * See docs/superpowers/specs/2026-05-13-coze-ui-rag-flow-alignment-design.md.
+ */
+export const isRagBackend = (
+  kb: Pick<Dataset, 'backend'> | undefined | null,
+): boolean => kb?.backend === 'rag';
