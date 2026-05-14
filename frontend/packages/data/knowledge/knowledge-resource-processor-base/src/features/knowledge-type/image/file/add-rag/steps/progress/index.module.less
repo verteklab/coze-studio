@@ -14,8 +14,37 @@
  * limitations under the License.
  */
 
-export { ImageFileAddConfig } from './config';
-// Rag-mode wizard variant. Legacy `ImageFileAddConfig` above stays the
-// default; the gating in `scenes/base/config.ts` (Task 10) picks between them
-// based on `kb.backend === 'rag'`.
-export { ImageFileAddRagConfig, ImageFileAddRagStep } from './add-rag';
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  padding: 24px;
+
+  font-size: 14px;
+  line-height: 20px;
+  color: var(--coz-fg-secondary);
+}
+
+.error {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 24px;
+
+  .error-message {
+    margin: 0;
+
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+    color: var(--coz-fg-hglt-red);
+  }
+
+  .error-hint {
+    margin: 0;
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--coz-fg-secondary);
+  }
+}

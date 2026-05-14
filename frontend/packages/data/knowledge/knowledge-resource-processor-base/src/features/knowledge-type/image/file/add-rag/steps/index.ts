@@ -14,8 +14,8 @@
  * limitations under the License.
  */
 
-export { ImageFileAddConfig } from './config';
-// Rag-mode wizard variant. Legacy `ImageFileAddConfig` above stays the
-// default; the gating in `scenes/base/config.ts` (Task 10) picks between them
-// based on `kb.backend === 'rag'`.
-export { ImageFileAddRagConfig, ImageFileAddRagStep } from './add-rag';
+// Rag wizard reuses the legacy upload step as-is — no rag-specific behaviour
+// is needed during file selection; the only divergence is the post-upload
+// flow, handled by the new `<ImageProgress />`.
+export { ImageUpload } from '../../steps/upload';
+export { ImageProgress } from './progress';
