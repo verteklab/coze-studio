@@ -21,3 +21,7 @@ export { TextLocalAddUpdateStep } from './add/constants';
 export { createTextLocalAddUpdateStore } from './add/store';
 export { SegmentPreviewStep } from './add/steps/preview';
 export { TextUpload, TextSegment, TextProcessing } from './add/steps';
+// Rag-mode wizard variant. Legacy `TextLocalAddUpdateConfig` above stays the
+// default; the gating in `scenes/base/config.ts` (Task 10) picks between them
+// based on `kb.backend === 'rag'`.
+export { TextLocalAddRagConfig, TextLocalAddRagStep } from './add-rag';
