@@ -18,6 +18,7 @@ package ragimpl
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -26,6 +27,8 @@ import (
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/entity"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
 	contract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
+	"github.com/coze-dev/coze-studio/backend/pkg/errorx"
+	"github.com/coze-dev/coze-studio/backend/types/errno"
 )
 
 // TestCreateDocument_InsertsMapping asserts that a successful rag CreateDocument
@@ -171,6 +174,116 @@ func TestMGetDocumentProgress_MixedFilenames(t *testing.T) {
 	require.Equal(t, "a.pdf", byID[5001])
 	require.Equal(t, "b.pdf", byID[5002])
 	require.Equal(t, "", byID[5003])
+}
+
+// TestUpdateDocument_HappyPath_RenameOnly verifies that ragimpl.UpdateDocument
+// translates a service.UpdateDocumentRequest{DocumentName: ptr("new.pdf")} to
+// a rag POST /documents/{doc_id}/update carrying filename only. The mapping is
+// resolved via DocByCozeID + KBByCozeID so the rag-side UUIDs are used; the
+// rag response body is discarded (service interface returns nil error on
+// success, the frontend will re-fetch via MGetDocument).
+func TestUpdateDocument_HappyPath_RenameOnly(t *testing.T) {
+	var gotTenant, gotKBID, gotDocID string
+	var gotReq *contract.UpdateDocumentRequest
+	fc := &fakeClient{
+		updateDocFunc: func(tenantID, kbID, docID string, req *contract.UpdateDocumentRequest) (*contract.Document, error) {
+			gotTenant, gotKBID, gotDocID, gotReq = tenantID, kbID, docID, req
+			return &contract.Document{DocID: docID, Filename: "new.pdf", Status: "ready"}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-1", 1700000000, 0))
+
+	newName := "new.pdf"
+	err := i.UpdateDocument(context.Background(), &service.UpdateDocumentRequest{
+		DocumentID:   500,
+		DocumentName: &newName,
+	})
+	require.NoError(t, err)
+
+	require.Equal(t, "test-tenant", gotTenant)
+	require.Equal(t, "rag-kb-X", gotKBID)
+	require.Equal(t, "rag-doc-Y", gotDocID)
+	require.NotNil(t, gotReq)
+	require.NotNil(t, gotReq.Filename)
+	require.Equal(t, "new.pdf", *gotReq.Filename)
+	// Other update fields are unset → nil → omitempty drops them on the wire.
+	require.Nil(t, gotReq.Tags)
+	require.Nil(t, gotReq.Category)
+}
+
+// TestUpdateDocument_TableInfo_Rejected asserts that requests carrying a
+// non-nil TableInfo are rejected up-front with ErrKnowledgeInvalidParamCode
+// and never reach the rag client. Rag's update DTO has no table fields; table
+// metadata updates are bucket-A's table-ingestion work, not this slice.
+func TestUpdateDocument_TableInfo_Rejected(t *testing.T) {
+	called := false
+	fc := &fakeClient{
+		updateDocFunc: func(_, _, _ string, _ *contract.UpdateDocumentRequest) (*contract.Document, error) {
+			called = true
+			return nil, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-1", 1700000000, 0))
+
+	newName := "new.pdf"
+	err := i.UpdateDocument(context.Background(), &service.UpdateDocumentRequest{
+		DocumentID:   500,
+		DocumentName: &newName,
+		TableInfo:    &entity.TableInfo{},
+	})
+	require.Error(t, err)
+	require.False(t, called, "rag client must NOT be called when TableInfo is set")
+
+	var se errorx.StatusError
+	require.True(t, errors.As(err, &se), "expected errorx.StatusError, got %T: %v", err, err)
+	require.Equal(t, int32(errno.ErrKnowledgeInvalidParamCode), se.Code())
+}
+
+// TestUpdateDocument_MappingNotFound asserts that an unknown coze doc id
+// surfaces ErrMappingNotFound without calling the rag client.
+func TestUpdateDocument_MappingNotFound(t *testing.T) {
+	called := false
+	fc := &fakeClient{
+		updateDocFunc: func(_, _, _ string, _ *contract.UpdateDocumentRequest) (*contract.Document, error) {
+			called = true
+			return nil, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+
+	newName := "new.pdf"
+	err := i.UpdateDocument(context.Background(), &service.UpdateDocumentRequest{
+		DocumentID:   999,
+		DocumentName: &newName,
+	})
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrMappingNotFound)
+	require.False(t, called, "rag client must NOT be called when mapping is missing")
+}
+
+// TestUpdateDocument_RagError_Propagated verifies that an error from the rag
+// client surfaces unwrapped to the caller (no swallowing, no re-classification).
+func TestUpdateDocument_RagError_Propagated(t *testing.T) {
+	want := errors.New("rag down")
+	fc := &fakeClient{
+		updateDocFunc: func(_, _, _ string, _ *contract.UpdateDocumentRequest) (*contract.Document, error) {
+			return nil, want
+		},
+	}
+	i := newTestImpl(t, fc)
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-1", 1700000000, 0))
+
+	newName := "new.pdf"
+	err := i.UpdateDocument(context.Background(), &service.UpdateDocumentRequest{
+		DocumentID:   500,
+		DocumentName: &newName,
+	})
+	require.ErrorIs(t, err, want)
 }
 
 // TestRagimpl_RetryDocument verifies that ragimpl.RetryDocument resolves the

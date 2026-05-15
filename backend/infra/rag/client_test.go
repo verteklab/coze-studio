@@ -934,6 +934,69 @@ func TestRetryDocument(t *testing.T) {
 	}
 }
 
+// TestUpdateDocument locks rag's POST .../documents/{doc_id}/update wire
+// shape. Asserts the HTTP method, nested path, tenant header, and that the
+// pointer-typed UpdateDocumentRequest serialises with `omitempty`: unset
+// fields must NOT appear on the wire (rag uses model_dump(exclude_unset=True)
+// to distinguish "leave alone" from "explicit empty").
+func TestUpdateDocument(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		wantSuffix := "/api/v1/knowledgebases/kb-1/documents/doc-1/update"
+		if !strings.HasSuffix(r.URL.Path, wantSuffix) {
+			t.Errorf("path = %s, want suffix %s", r.URL.Path, wantSuffix)
+		}
+		if got := r.Header.Get("X-Tenant-Id"); got != "t1" {
+			t.Errorf("X-Tenant-Id = %q, want %q", got, "t1")
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    0,
+			"message": "ok",
+			"data": map[string]any{
+				"doc_id":          "doc-1",
+				"filename":        "new.pdf",
+				"file_type":       "pdf",
+				"status":          "ready",
+				"chunk_count":     4,
+				"source_modality": "text_source",
+				"created_at":      "2026-05-15T08:00:00.000000",
+				"updated_at":      "2026-05-15T08:00:05.000000",
+			},
+			"request_id": "req-upd-1",
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second})
+	newName := "new.pdf"
+	got, err := c.UpdateDocument(context.Background(), "t1", "kb-1", "doc-1", &contract.UpdateDocumentRequest{
+		Filename: &newName,
+	})
+	if err != nil {
+		t.Fatalf("UpdateDocument: %v", err)
+	}
+	if got.DocID != "doc-1" || got.Filename != "new.pdf" {
+		t.Errorf("decoded = %+v, want {doc-1, new.pdf, ...}", got)
+	}
+
+	// Body must carry only the set field; pointer-nil fields must be absent
+	// so rag's exclude_unset distinguishes "rename" from "clear all metadata."
+	if gotBody["filename"] != "new.pdf" {
+		t.Errorf("body.filename = %v, want %q", gotBody["filename"], "new.pdf")
+	}
+	for _, k := range []string{"tags", "category", "source_type", "source_id", "extra_metadata"} {
+		if _, present := gotBody[k]; present {
+			t.Errorf("body.%s present (= %v), expected omitted via omitempty", k, gotBody[k])
+		}
+	}
+}
+
 // TestGetCapabilities_FieldShape locks rag's GET .../capabilities wire shape.
 // Asserts every top-level scalar/slice/map field; covers the "all defaults
 // present as numbers/strings" path (non-nil pointers with correct values).
