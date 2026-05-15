@@ -332,3 +332,103 @@ func TestRetrieve_MinScore_Nil(t *testing.T) {
 	require.NotNil(t, capturedReq)
 	require.Nil(t, capturedReq.MinScore)
 }
+
+// TestRetrieve_MaxTokens_Set verifies that Strategy.MaxTokens is forwarded as
+// rag's max_tokens (with int64 -> int conversion). Rag's cut is chunk-boundary
+// approximate, not strict; the wire contract is what this test locks.
+func TestRetrieve_MaxTokens_Set(t *testing.T) {
+	var capturedReq *contract.RetrieveRequest
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			capturedReq = req
+			return &contract.RetrieveResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+
+	mt := int64(2048)
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+		Strategy:     &knowledgeModel.RetrievalStrategy{MaxTokens: &mt},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, capturedReq)
+	require.NotNil(t, capturedReq.MaxTokens)
+	require.Equal(t, 2048, *capturedReq.MaxTokens)
+}
+
+// TestRetrieve_MaxTokens_Nil verifies that an unset Strategy.MaxTokens leaves
+// ragReq.MaxTokens nil (omitted from the wire).
+func TestRetrieve_MaxTokens_Nil(t *testing.T) {
+	var capturedReq *contract.RetrieveRequest
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			capturedReq = req
+			return &contract.RetrieveResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+		Strategy:     &knowledgeModel.RetrievalStrategy{},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, capturedReq)
+	require.Nil(t, capturedReq.MaxTokens)
+}
+
+// TestRetrieve_MaxTokens_Zero_Rejected verifies that *MaxTokens == 0 is
+// rejected on the coze side (rag's pydantic schema requires ge=1; pre-rejecting
+// surfaces a clearer ErrKnowledgeInvalidParam than rag's 422).
+func TestRetrieve_MaxTokens_Zero_Rejected(t *testing.T) {
+	called := false
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, _ *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			called = true
+			return &contract.RetrieveResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+
+	mt := int64(0)
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+		Strategy:     &knowledgeModel.RetrievalStrategy{MaxTokens: &mt},
+	})
+	require.Error(t, err)
+	require.False(t, called, "rag must not be called when MaxTokens is zero")
+}
+
+// TestRetrieve_MaxTokens_Negative_Rejected mirrors the zero case for negative
+// values. Both fall under "< 1" per rag's ge=1 constraint.
+func TestRetrieve_MaxTokens_Negative_Rejected(t *testing.T) {
+	called := false
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, _ *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			called = true
+			return &contract.RetrieveResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+
+	mt := int64(-1)
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+		Strategy:     &knowledgeModel.RetrievalStrategy{MaxTokens: &mt},
+	})
+	require.Error(t, err)
+	require.False(t, called, "rag must not be called when MaxTokens is negative")
+}

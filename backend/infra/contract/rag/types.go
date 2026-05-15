@@ -268,6 +268,7 @@ type RetrieveRequest struct {
 	CandidateK       *int           `json:"candidate_k,omitempty"`
 	DocumentIDs      []string       `json:"document_ids,omitempty"`
 	MinScore         *float64       `json:"min_score,omitempty"`
+	MaxTokens        *int           `json:"max_tokens,omitempty"`
 	Filters          map[string]any `json:"filters,omitempty"`
 	TargetChunkTypes []string       `json:"target_chunk_types,omitempty"`
 	Retrievers       []string       `json:"retrievers,omitempty"`
