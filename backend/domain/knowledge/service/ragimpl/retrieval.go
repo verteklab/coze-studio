@@ -111,6 +111,19 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 			ms := *req.Strategy.MinScore
 			ragReq.MinScore = &ms
 		}
+		if req.Strategy.MaxTokens != nil {
+			mt := int(*req.Strategy.MaxTokens)
+			if mt < 1 {
+				// Rag's pydantic schema requires ge=1; pre-rejecting here gives a
+				// clearer error than rag's 422.
+				return nil, errorx.New(errno.ErrKnowledgeInvalidParamCode,
+					errorx.KV("msg", fmt.Sprintf("MaxTokens must be >= 1 (got %d)", mt)))
+			}
+			// MaxTokens is enforced by rag at chunk boundary granularity (approximate;
+			// not exact token-count cutoff). Callers needing a strict budget should
+			// post-process the returned slices.
+			ragReq.MaxTokens = &mt
+		}
 		switch req.Strategy.SearchType {
 		case knowledgeModel.SearchTypeFullText:
 			ragReq.SearchType = "fulltext"
