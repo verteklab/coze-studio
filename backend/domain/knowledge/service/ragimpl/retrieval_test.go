@@ -432,3 +432,101 @@ func TestRetrieve_MaxTokens_Negative_Rejected(t *testing.T) {
 	require.Error(t, err)
 	require.False(t, called, "rag must not be called when MaxTokens is negative")
 }
+
+// TestRetrieve_EnableRerank_WithModelID verifies that when the caller requests
+// EnableRerank AND defaultRerankModelID is configured, ragimpl sends both
+// enable_rerank=true AND rerank_model_id in the rag query_strategy.
+func TestRetrieve_EnableRerank_WithModelID(t *testing.T) {
+	var capturedReq *contract.RetrieveRequest
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			capturedReq = req
+			return &contract.RetrieveResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	i.defaultLLMModelID = ""
+	i.defaultRerankModelID = "model-rerank-x"
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+		Strategy: &knowledgeModel.RetrievalStrategy{
+			EnableRerank: true,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, capturedReq)
+	require.NotNil(t, capturedReq.QueryStrategy, "rerank should be sent when rerank model id is configured")
+	require.Equal(t, true, capturedReq.QueryStrategy["enable_rerank"])
+	require.Equal(t, "model-rerank-x", capturedReq.QueryStrategy["rerank_model_id"])
+}
+
+// TestRetrieve_EnableRerank_NoModelID_Drops verifies that when EnableRerank is
+// true but defaultRerankModelID is empty, ragimpl drops the rerank enhancement
+// (no rerank keys written) rather than triggering rag 40004.
+func TestRetrieve_EnableRerank_NoModelID_Drops(t *testing.T) {
+	var capturedReq *contract.RetrieveRequest
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			capturedReq = req
+			return &contract.RetrieveResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	i.defaultLLMModelID = ""
+	i.defaultRerankModelID = ""
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+		Strategy: &knowledgeModel.RetrievalStrategy{
+			EnableRerank: true,
+		},
+	})
+	require.NoError(t, err, "basic retrieval should still succeed; rerank is dropped silently")
+	require.NotNil(t, capturedReq)
+	if capturedReq.QueryStrategy != nil {
+		_, hasEnable := capturedReq.QueryStrategy["enable_rerank"]
+		_, hasModel := capturedReq.QueryStrategy["rerank_model_id"]
+		require.False(t, hasEnable, "enable_rerank must NOT be present when rerank model id is empty")
+		require.False(t, hasModel, "rerank_model_id must NOT be present when rerank model id is empty")
+	}
+}
+
+// TestRetrieve_EnableRerank_WithRewrite_Coexist verifies that rewrite and
+// rerank populate query_strategy together without clobbering each other.
+func TestRetrieve_EnableRerank_WithRewrite_Coexist(t *testing.T) {
+	var capturedReq *contract.RetrieveRequest
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			capturedReq = req
+			return &contract.RetrieveResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	i.defaultLLMModelID = "model-openai-gpt-4o-mini"
+	i.defaultRerankModelID = "model-rerank-x"
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+		Strategy: &knowledgeModel.RetrievalStrategy{
+			EnableQueryRewrite: true,
+			EnableRerank:       true,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, capturedReq)
+	require.NotNil(t, capturedReq.QueryStrategy, "both rewrite and rerank should populate query_strategy")
+	require.Equal(t, true, capturedReq.QueryStrategy["rewrite"])
+	require.Equal(t, "model-openai-gpt-4o-mini", capturedReq.QueryStrategy["llm_model_id"])
+	require.Equal(t, true, capturedReq.QueryStrategy["enable_rerank"])
+	require.Equal(t, "model-rerank-x", capturedReq.QueryStrategy["rerank_model_id"])
+}

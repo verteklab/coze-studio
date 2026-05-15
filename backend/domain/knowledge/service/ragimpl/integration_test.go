@@ -1,3 +1,5 @@
+//go:build integration
+
 /*
  * Copyright 2025 coze-dev Authors
  *
@@ -13,8 +15,6 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-
-//go:build integration
 
 // Package ragimpl integration test.
 //
@@ -109,6 +109,7 @@ func TestIntegration_EndToEnd(t *testing.T) {
 		os.Getenv("RAG_DEFAULT_TEXT_EMBEDDING_MODEL_ID"),
 		os.Getenv("RAG_DEFAULT_IMAGE_EMBEDDING_MODEL_ID"),
 		os.Getenv("RAG_DEFAULT_LLM_MODEL_ID"),
+		os.Getenv("RAG_DEFAULT_RERANK_MODEL_ID"),
 	)
 
 	// Create KB.
