@@ -53,6 +53,12 @@ type Client interface {
 	// standard UploadDocumentResponse, identical in shape to CreateDocument,
 	// so the response type is reused.
 	RetryDocument(ctx context.Context, tenantID, kbID, docID string) (*CreateDocumentResponse, error)
+	// UpdateDocument patches document metadata (filename, tags, category,
+	// source_type, source_id, extra_metadata). Maps to rag's POST
+	// /knowledgebases/{kb_id}/documents/{doc_id}/update; the response is a
+	// full DocumentDetail so callers can refresh local state without a
+	// follow-up GetDocument.
+	UpdateDocument(ctx context.Context, tenantID, kbID, docID string, req *UpdateDocumentRequest) (*Document, error)
 
 	// Tasks.
 	GetTask(ctx context.Context, tenantID, taskID string) (*Task, error)

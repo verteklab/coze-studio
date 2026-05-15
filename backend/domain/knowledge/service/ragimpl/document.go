@@ -26,7 +26,9 @@ import (
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
 	contract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
 	"github.com/coze-dev/coze-studio/backend/infra/document/parser"
+	"github.com/coze-dev/coze-studio/backend/pkg/errorx"
 	"github.com/coze-dev/coze-studio/backend/pkg/logs"
+	"github.com/coze-dev/coze-studio/backend/types/errno"
 )
 
 // sourceModalityFor selects the rag source_modality string from a coze Document.
@@ -342,6 +344,46 @@ func (i *Impl) MGetDocumentProgress(ctx context.Context, req *service.MGetDocume
 		list = append(list, dp)
 	}
 	return &service.MGetDocumentProgressResponse{ProgressList: list}, nil
+}
+
+// UpdateDocument patches document metadata on the rag side. Today the
+// service-layer UpdateDocumentRequest only carries DocumentName (other
+// metadata knobs would need IDL + UI work to surface), so this method maps
+// DocumentName → Filename and leaves the remaining rag fields unset.
+//
+// TableInfo is rejected up-front: rag's update endpoint has no table-shape
+// fields, and table-metadata edits are bucket-A's table-ingestion work.
+// Surfacing ErrKnowledgeInvalidParamCode here keeps the contract honest
+// instead of silently dropping the caller's TableInfo on the floor.
+//
+// The rag response body (full DocumentDetail) is discarded: the service
+// interface returns error only, and the UI re-polls via MGetDocument once
+// the user-visible state needs refreshing.
+func (i *Impl) UpdateDocument(ctx context.Context, req *service.UpdateDocumentRequest) error {
+	if req.TableInfo != nil {
+		return errorx.New(errno.ErrKnowledgeInvalidParamCode, errorx.KV("msg",
+			"UpdateDocument: table metadata update is pending table ingestion support"))
+	}
+	dm, err := i.mapping.DocByCozeID(ctx, req.DocumentID)
+	if err != nil {
+		return err
+	}
+	kb, err := i.mapping.KBByCozeID(ctx, dm.KBID)
+	if err != nil {
+		return err
+	}
+	tenant, err := i.tenant(ctx)
+	if err != nil {
+		return err
+	}
+	payload := &contract.UpdateDocumentRequest{}
+	if req.DocumentName != nil {
+		payload.Filename = req.DocumentName
+	}
+	if _, err := i.rag.UpdateDocument(ctx, tenant, kb.RagKBID, dm.RagDocID, payload); err != nil {
+		return err
+	}
+	return nil
 }
 
 // RetryDocument re-runs ingestion for a previously-failed coze document.

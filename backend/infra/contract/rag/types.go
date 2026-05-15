@@ -197,6 +197,27 @@ type ListDocumentsResponse struct {
 	Total int        `json:"total"`
 }
 
+// UpdateDocumentRequest mirrors rag's UpdateDocumentRequest body for
+// POST /knowledgebases/{kb_id}/documents/{doc_id}/update. Every field is a
+// pointer with `omitempty` to match rag's pydantic semantics:
+// model_dump(exclude_unset=True) distinguishes "field omitted → leave alone"
+// from "field explicitly set → apply." A non-pointer field with omitempty
+// would conflate "unset" with the zero value (e.g. an empty Category would
+// look identical to a clear-this-field request, which rag doesn't support).
+//
+// ExtraMetadata is map[string]any rather than *map: a nil map already
+// serialises to absence under omitempty, so the extra pointer would add no
+// information. A caller wanting to clear extra metadata is out of scope —
+// rag's API has no "clear metadata" verb.
+type UpdateDocumentRequest struct {
+	Filename      *string        `json:"filename,omitempty"`
+	Tags          *[]string      `json:"tags,omitempty"`
+	Category      *string        `json:"category,omitempty"`
+	SourceType    *string        `json:"source_type,omitempty"`
+	SourceID      *string        `json:"source_id,omitempty"`
+	ExtraMetadata map[string]any `json:"extra_metadata,omitempty"`
+}
+
 // Task mirrors rag's TaskDetail as of 0e1f49b. The wire shape changed in the
 // 2026-05-14 round-2 audit: DocID and Progress were dropped; Error was renamed
 // to ErrorMsg; UpdatedAt became FinishedAt; CreatedAt/StartedAt/Type/RetryCount

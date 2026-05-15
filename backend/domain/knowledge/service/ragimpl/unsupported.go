@@ -40,10 +40,11 @@ func pending(method, roadmapAnchor string) error {
 }
 
 // --- Document metadata / lifecycle ---------------------------------------
-
-func (i *Impl) UpdateDocument(_ context.Context, _ *service.UpdateDocumentRequest) error {
-	return pending("UpdateDocument", "doc-metadata-update")
-}
+//
+// UpdateDocument now ships in document.go (R2-H: wire UpdateDocument to rag's
+// /documents/{doc_id}/update). The stub previously here returned
+// ErrRagFeaturePendingCode; the real implementation lives alongside the rest
+// of the document lifecycle methods.
 
 func (i *Impl) ResegmentDocument(_ context.Context, _ *service.ResegmentDocumentRequest) (*service.ResegmentDocumentResponse, error) {
 	return nil, pending("ResegmentDocument", "re-segmentation")

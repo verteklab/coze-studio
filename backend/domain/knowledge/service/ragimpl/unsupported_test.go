@@ -36,7 +36,8 @@ func TestUnsupported_AllReturnFeaturePending(t *testing.T) {
 		name string
 		call func() error
 	}{
-		{"UpdateDocument", func() error { return i.UpdateDocument(ctx, &service.UpdateDocumentRequest{}) }},
+		// UpdateDocument moved to document.go (R2-H wired it to rag's
+		// /documents/{doc_id}/update); it is no longer a bucket-B stub.
 		{"ResegmentDocument", func() error { _, e := i.ResegmentDocument(ctx, &service.ResegmentDocumentRequest{}); return e }},
 		{"CreateSlice", func() error { _, e := i.CreateSlice(ctx, &service.CreateSliceRequest{}); return e }},
 		{"UpdateSlice", func() error { return i.UpdateSlice(ctx, &service.UpdateSliceRequest{}) }},
@@ -60,8 +61,12 @@ func TestUnsupported_AllReturnFeaturePending(t *testing.T) {
 		{"MoveKnowledgeToLibrary", func() error { return i.MoveKnowledgeToLibrary(ctx, &service.MoveKnowledgeToLibraryRequest{}) }},
 	}
 
-	if want, got := 19, len(cases); want != got {
-		t.Fatalf("expected %d bucket-B methods covered, got %d — spec §5.2 lists 19", want, got)
+	// Bucket-B count drops by one each time a stub is replaced with a real
+	// implementation. R2-H wired UpdateDocument; the remaining 18 are still
+	// pending (re-segmentation, manual-chunk CRUD, table ingestion, photo
+	// caption, document review, KB copy/move).
+	if want, got := 18, len(cases); want != got {
+		t.Fatalf("expected %d bucket-B methods covered, got %d", want, got)
 	}
 
 	for _, c := range cases {

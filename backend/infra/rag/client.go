@@ -417,6 +417,24 @@ func (c *Client) RetryDocument(ctx context.Context, tenantID, kbID, docID string
 	return out, nil
 }
 
+// UpdateDocument patches document metadata via rag's POST
+// /knowledgebases/{kb_id}/documents/{doc_id}/update endpoint. Rag responds
+// with the full DocumentDetail; we hand it back to the caller so domain code
+// doesn't have to make a follow-up GetDocument round trip when it needs the
+// post-update state.
+//
+// No retries: rag's update endpoint is POST and not idempotent — repeating it
+// with the same body is safe in principle, but doJSON's retry policy is
+// intentionally narrow (GET/DELETE only) and we don't extend it here.
+func (c *Client) UpdateDocument(ctx context.Context, tenantID, kbID, docID string, req *contract.UpdateDocumentRequest) (*contract.Document, error) {
+	out := &contract.Document{}
+	path := apiPrefix + "/knowledgebases/" + kbID + "/documents/" + docID + "/update"
+	if err := c.doJSON(ctx, http.MethodPost, path, tenantID, req, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *Client) GetTask(ctx context.Context, tenantID, taskID string) (*contract.Task, error) {
 	out := &contract.Task{}
 	path := apiPrefix + "/tasks/" + taskID

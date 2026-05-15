@@ -74,6 +74,7 @@ type fakeClient struct {
 	getCapabilitiesFunc              func(tenantID, kbID string) (*contract.KBCapabilities, error)
 	createDocFunc                    func(tenantID, kbID string, req *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error)
 	retryDocumentFunc                func(tenantID, kbID, docID string) (*contract.CreateDocumentResponse, error)
+	updateDocFunc                    func(tenantID, kbID, docID string, req *contract.UpdateDocumentRequest) (*contract.Document, error)
 	deleteDocFunc                    func(tenantID, kbID, docID string) error
 	listDocsFunc                     func(tenantID, kbID string, page, pageSize int) (*contract.ListDocumentsResponse, error)
 	getDocFunc                       func(tenantID, kbID, docID string) (*contract.Document, error)
@@ -174,6 +175,13 @@ func (f *fakeClient) RetryDocument(_ context.Context, tenantID, kbID, docID stri
 		return f.retryDocumentFunc(tenantID, kbID, docID)
 	}
 	return &contract.CreateDocumentResponse{}, nil
+}
+
+func (f *fakeClient) UpdateDocument(_ context.Context, tenantID, kbID, docID string, req *contract.UpdateDocumentRequest) (*contract.Document, error) {
+	if f.updateDocFunc != nil {
+		return f.updateDocFunc(tenantID, kbID, docID, req)
+	}
+	return &contract.Document{DocID: docID}, nil
 }
 
 func (f *fakeClient) GetTask(_ context.Context, tenantID, taskID string) (*contract.Task, error) {
