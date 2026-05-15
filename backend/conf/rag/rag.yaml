@@ -7,6 +7,9 @@ rag:
   retry_backoff_ms: 200
   default_text_embedding_model_id: "${RAG_DEFAULT_TEXT_EMBEDDING_MODEL_ID}"
   default_image_embedding_model_id: "${RAG_DEFAULT_IMAGE_EMBEDDING_MODEL_ID}"
+  # LLM model id for query enhancement (rewrite/expansion/multi_query) in retrieval.
+  # Empty value disables enhancement at the ragimpl layer with a WARN log.
+  default_llm_model_id: "${RAG_DEFAULT_LLM_MODEL_ID}"
 
 # NOTE: no auth_token field. rag has no service-to-service auth; coze relies on
 # network isolation (rag bound to internal Docker network). See spec §11 risk #1.

@@ -45,6 +45,12 @@ type Impl struct {
 
 	defaultTextEmbeddingModelID  string
 	defaultImageEmbeddingModelID string
+	// defaultLLMModelID is the rag model id used for query_strategy.llm_model_id
+	// when the caller sets EnableQueryRewrite. Empty value disables the
+	// enhancement at request-build time (see retrieval.go); rag would otherwise
+	// reject with 40004 "llm_model_id is required when query enhancement is
+	// enabled".
+	defaultLLMModelID string
 }
 
 func New(
@@ -53,7 +59,7 @@ func New(
 	idgen idgen.IDGenerator,
 	resolver TenantResolver,
 	storage storage.Storage,
-	defaultTextModel, defaultImageModel string,
+	defaultTextModel, defaultImageModel, defaultLLMModel string,
 ) *Impl {
 	return &Impl{
 		rag:                          rag,
@@ -63,6 +69,7 @@ func New(
 		storage:                      storage,
 		defaultTextEmbeddingModelID:  defaultTextModel,
 		defaultImageEmbeddingModelID: defaultImageModel,
+		defaultLLMModelID:            defaultLLMModel,
 	}
 }
 

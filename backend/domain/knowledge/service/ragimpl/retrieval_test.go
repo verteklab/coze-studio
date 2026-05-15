@@ -85,3 +85,63 @@ func TestRetrieve_HappyPath(t *testing.T) {
 	require.NotNil(t, capturedReq.Query)
 	require.Equal(t, "hi", *capturedReq.Query)
 }
+
+// TestRetrieve_EnableQueryRewrite_WithLLMModelID verifies that when the caller
+// requests EnableQueryRewrite AND defaultLLMModelID is configured, ragimpl
+// sends both rewrite=true AND llm_model_id in the rag query_strategy. This is
+// the post-R2-F happy path; before R2-F, only rewrite was sent and rag 40004'd.
+func TestRetrieve_EnableQueryRewrite_WithLLMModelID(t *testing.T) {
+	var capturedReq *contract.RetrieveRequest
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			capturedReq = req
+			return &contract.RetrieveResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	i.defaultLLMModelID = "model-openai-gpt-4o-mini"
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+		Strategy: &knowledgeModel.RetrievalStrategy{
+			EnableQueryRewrite: true,
+		},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, capturedReq)
+	require.NotNil(t, capturedReq.QueryStrategy, "rewrite enhancement should be sent when LLM id is configured")
+	require.Equal(t, true, capturedReq.QueryStrategy["rewrite"])
+	require.Equal(t, "model-openai-gpt-4o-mini", capturedReq.QueryStrategy["llm_model_id"])
+}
+
+// TestRetrieve_EnableQueryRewrite_NoLLMModelID_DropsEnhancement verifies that
+// when EnableQueryRewrite is true but defaultLLMModelID is empty, ragimpl drops
+// the enhancement entirely (no query_strategy sent) rather than triggering rag
+// 40004. Basic retrieval still completes.
+func TestRetrieve_EnableQueryRewrite_NoLLMModelID_DropsEnhancement(t *testing.T) {
+	var capturedReq *contract.RetrieveRequest
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			capturedReq = req
+			return &contract.RetrieveResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	i.defaultLLMModelID = ""
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+		Strategy: &knowledgeModel.RetrievalStrategy{
+			EnableQueryRewrite: true,
+		},
+	})
+	require.NoError(t, err, "basic retrieval should still succeed; enhancement is dropped silently")
+	require.NotNil(t, capturedReq)
+	require.Nil(t, capturedReq.QueryStrategy, "query_strategy must be nil when LLM id is empty, even with EnableQueryRewrite=true")
+}
