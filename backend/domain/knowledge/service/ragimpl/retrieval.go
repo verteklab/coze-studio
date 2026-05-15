@@ -100,7 +100,19 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 			ragReq.SearchType = "semantic"
 		}
 		if req.Strategy.EnableQueryRewrite {
-			ragReq.QueryStrategy = map[string]any{"rewrite": true}
+			if i.defaultLLMModelID != "" {
+				ragReq.QueryStrategy = map[string]any{
+					"rewrite":      true,
+					"llm_model_id": i.defaultLLMModelID,
+				}
+			} else {
+				// EnableQueryRewrite was requested but RAG_DEFAULT_LLM_MODEL_ID
+				// is unset. Rag's validator rejects {rewrite:true} without an
+				// llm_model_id (40004), so dropping the enhancement is
+				// preferable to failing the whole retrieval. Basic retrieval
+				// still completes.
+				logs.CtxWarnf(ctx, "ragimpl.Retrieve: EnableQueryRewrite=true but RAG_DEFAULT_LLM_MODEL_ID is empty; dropping rewrite to avoid rag 40004")
+			}
 		}
 		// EnableRerank is exposed through fusion_policy or retriever_params on
 		// rag; the precise mapping is pending (see rag/docs §10.5). Leaving

@@ -108,6 +108,7 @@ func TestIntegration_EndToEnd(t *testing.T) {
 		newSmokeStorage(t),
 		os.Getenv("RAG_DEFAULT_TEXT_EMBEDDING_MODEL_ID"),
 		os.Getenv("RAG_DEFAULT_IMAGE_EMBEDDING_MODEL_ID"),
+		os.Getenv("RAG_DEFAULT_LLM_MODEL_ID"),
 	)
 
 	// Create KB.

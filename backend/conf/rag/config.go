@@ -43,6 +43,11 @@ type Config struct {
 	RetryBackoffMs               int           `yaml:"retry_backoff_ms"`
 	DefaultTextEmbeddingModelID  string        `yaml:"default_text_embedding_model_id"`
 	DefaultImageEmbeddingModelID string        `yaml:"default_image_embedding_model_id"`
+	// DefaultLLMModelID is the LLM model id used for query enhancement
+	// (rewrite / expansion / multi_query) on retrieval requests. When empty,
+	// ragimpl drops the enhancement with a WARN log to avoid rag's 40004
+	// "query_strategy.llm_model_id is required" validation error.
+	DefaultLLMModelID string `yaml:"default_llm_model_id"`
 }
 
 // FileConfig is the on-disk shape of backend/conf/rag/rag.yaml.
