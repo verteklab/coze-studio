@@ -940,6 +940,43 @@ func TestRetrieve_DocumentIDsWire(t *testing.T) {
 	}
 }
 
+// TestRetrieve_MinScoreWire locks rag's RetrievalRequest.min_score wire shape
+// (R2-J). MinScore is a *float64 in Go so omitempty kicks in when nil and the
+// field is omitted from the body entirely.
+func TestRetrieve_MinScoreWire(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		var got map[string]any
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatalf("decode body: %v; body=%s", err, body)
+		}
+		raw, ok := got["min_score"].(float64)
+		if !ok {
+			t.Fatalf("min_score is not a number, body=%s", body)
+		}
+		if raw != 0.7 {
+			t.Errorf("min_score = %v, want 0.7", raw)
+		}
+		_, _ = w.Write(envelopeBody(t, contract.RetrieveResponse{
+			Items: []contract.RetrieveHit{{ChunkID: "c1", Score: 0.9}},
+		}))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second, RetrievalTimeoutMs: 5000})
+	q := "hi"
+	ms := 0.7
+	_, err := c.Retrieve(context.Background(), "t1", &contract.RetrieveRequest{
+		KBIDs:     []string{"kb-1"},
+		Query:     &q,
+		QueryMode: "text_input",
+		MinScore:  &ms,
+	})
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+}
+
 // TestRetryDocument locks rag's POST .../documents/{doc_id}/retry wire shape.
 // Rag emits the standard UploadDocumentResponse envelope (same as CreateDocument);
 // the test asserts the wire path + headers and that the response decodes into

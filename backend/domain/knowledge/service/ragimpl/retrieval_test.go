@@ -280,3 +280,55 @@ func TestRetrieve_DocumentIDs_Empty_FallsThrough(t *testing.T) {
 	require.NotNil(t, capturedReq)
 	require.Nil(t, capturedReq.DocumentIDs, "ragReq.DocumentIDs should remain nil when caller passes no doc ids")
 }
+
+// TestRetrieve_MinScore_Set verifies that when the caller supplies
+// Strategy.MinScore, ragimpl forwards it on ragReq.MinScore so rag is the
+// single authoritative filtering point (no coze-side post-trim in this path).
+func TestRetrieve_MinScore_Set(t *testing.T) {
+	var capturedReq *contract.RetrieveRequest
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			capturedReq = req
+			return &contract.RetrieveResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+
+	ms := 0.7
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+		Strategy:     &knowledgeModel.RetrievalStrategy{MinScore: &ms},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, capturedReq)
+	require.NotNil(t, capturedReq.MinScore)
+	require.InDelta(t, 0.7, *capturedReq.MinScore, 1e-9)
+}
+
+// TestRetrieve_MinScore_Nil verifies that an unset Strategy.MinScore is not
+// forwarded — ragReq.MinScore stays nil and the field is omitted from the
+// JSON body (omitempty).
+func TestRetrieve_MinScore_Nil(t *testing.T) {
+	var capturedReq *contract.RetrieveRequest
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			capturedReq = req
+			return &contract.RetrieveResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+		Strategy:     &knowledgeModel.RetrievalStrategy{},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, capturedReq)
+	require.Nil(t, capturedReq.MinScore)
+}

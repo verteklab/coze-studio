@@ -107,9 +107,10 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 			topK := int(*req.Strategy.TopK)
 			ragReq.TopK = &topK
 		}
-		// MinScore / MaxTokens are coze-side post-filter knobs; rag does not
-		// accept them on /retrieval. We leave them un-applied here; the
-		// service-layer caller already trims by MinScore after the call.
+		if req.Strategy.MinScore != nil {
+			ms := *req.Strategy.MinScore
+			ragReq.MinScore = &ms
+		}
 		switch req.Strategy.SearchType {
 		case knowledgeModel.SearchTypeFullText:
 			ragReq.SearchType = "fulltext"
