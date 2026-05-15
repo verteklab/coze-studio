@@ -6,6 +6,24 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Coze Studio is an all-in-one AI agent development platform with both frontend (React + TypeScript) and backend (Go) components. The project uses a sophisticated monorepo architecture managed by Rush.js with 135+ frontend packages organized in a hierarchical dependency system.
 
+**This checkout is `verteklab/coze-studio`** — a downstream fork of `coze-dev/coze-studio`. The `upstream` remote points at the upstream repo. When picking up new work, prefer rebasing fork-specific commits onto upstream over duplicating logic. The fork is also embedded inside a larger workspace (`../backend/`, `../frontend/`, `../coze_publish_sdk/`) that talks to this Coze instance over its OpenAPI surface; see the parent repo's `CLAUDE.md` for the gateway story.
+
+### Fork-specific deltas (read before editing affected areas)
+
+These are the verteklab customizations on top of upstream — find them by feature, not by greedy file search:
+
+- **Custom HTTP model class** (`backend/bizpkg/llm/`, `backend/application/modelmgr/`, frontend `packages/workflow/playground/src/nodes-v2/llm/custom-http-utils.ts`). The "Other" model class (renamed from `CustomHTTP`) lets users wire arbitrary HTTP-backed LLMs. The fork distinguishes **chat-shaped** vs **raw HTTP** custom_http models via `isChatShapedCustomHTTP` / `showsLLMFields` helpers; chat-shaped models keep the prompt/skills UI and preserve those fields on submit, raw HTTP clears them. `payload_template` is exposed on `Model.custom_http`. For class "Other", defaults are `max_tokens=0`, min `1 → 0`.
+- **Model admin APIs** — `UpdateModel` and capability/connection/display patches in `backend/application/modelmgr/` (GORM `Select` so only the patched columns move). Capability is propagated from `CreateModelReq` through to `bizpkg`, and `pickCapability` lets the request override the meta default. Thrift bindings under `idl/` + generated handlers in `backend/api/handler/` were regenerated (`chore(thrift): regenerate admin/config bindings`); regenerate after any IDL change.
+- **OpenAI proxy client** (`backend/bizpkg/llm/modelbuilder/` + related) for the Custom HTTP integration.
+- **Workflow version history** — `VersionHistoryList` and `RevertDraft` are fork-added endpoints. Touch points: `backend/api/handler/coze/workflow_service.go`, `backend/api/model/workflow/version_history.go`, `backend/api/router/coze/api.go`, `backend/application/workflow/workflow.go`. The version-control UI is exposed in the OSS build (upstream hides it). `GetHistorySchema` had a panic fix — keep nil-safety when extending.
+- **OCR workflow node** — `backend/domain/workflow/internal/nodes/ocr/{ocr.go,helpers.go,ocr_test.go}`, with 4 provider protocol templates. The Go type is `OCRSetting` (renamed from `OCRNode.Setting` to fix an ambiguous selector); the node is enabled in the workflow node panel.
+- **Iframe / embed UX** — the fork supports embedding Coze pages inside the parent gateway. Auth accepts `session_key` from header **and** query string (`feat(auth): support session_key from header and query for iframe access`) for iframe consumers. Knowledge pages and workflow pages have iframe-aware layout tweaks; docx preview renders client-side instead of routing through PDF.js.
+- **Admin-key OpenAPI** — additional admin-bearer endpoints for dataset/photo details and workflow integration so the parent gateway can drive Coze without a user session. New middlewares in `backend/api/middleware/`.
+- **Admin-context plumbing** — `backend/pkg/ctxutil` exposes `IsAdminFromCtx`; `SaveWorkflow` now enforces admin checks for user-space access.
+- **Workflow `NodeProps`** gained `invalid` / `invalidReason` fields — propagated through canvas and node renderers.
+- **i18n default is `zh-CN`** (user profile updated to match) — when adding strings, ensure both zh-CN and en-US bundles exist.
+- **Docker** — Dockerfile pinned to `golang:1.24.4-alpine3.21`, Tsinghua mirrors for Alpine and Python packages, Go module proxy configured. The image build was unblocked with `c1a368d7`; don't reintroduce the broken base.
+
 ## Development Commands
 
 ### Environment Setup
