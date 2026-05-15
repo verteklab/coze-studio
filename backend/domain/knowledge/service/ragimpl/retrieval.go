@@ -134,10 +134,11 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 		}
 		if req.Strategy.EnableQueryRewrite {
 			if i.defaultLLMModelID != "" {
-				ragReq.QueryStrategy = map[string]any{
-					"rewrite":      true,
-					"llm_model_id": i.defaultLLMModelID,
+				if ragReq.QueryStrategy == nil {
+					ragReq.QueryStrategy = map[string]any{}
 				}
+				ragReq.QueryStrategy["rewrite"] = true
+				ragReq.QueryStrategy["llm_model_id"] = i.defaultLLMModelID
 			} else {
 				// EnableQueryRewrite was requested but RAG_DEFAULT_LLM_MODEL_ID
 				// is unset. Rag's validator rejects {rewrite:true} without an
@@ -147,9 +148,26 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 				logs.CtxWarnf(ctx, "ragimpl.Retrieve: EnableQueryRewrite=true but RAG_DEFAULT_LLM_MODEL_ID is empty; dropping rewrite to avoid rag 40004")
 			}
 		}
-		// EnableRerank is exposed through fusion_policy or retriever_params on
-		// rag; the precise mapping is pending (see rag/docs §10.5). Leaving
-		// the field un-translated keeps us forward-compatible.
+		if req.Strategy.EnableRerank {
+			if i.defaultRerankModelID != "" {
+				// Map-merge, not overwrite: query rewrite above may have
+				// already populated QueryStrategy with rewrite/llm_model_id.
+				// Rag's validator (retrieval_validator.py:294) requires
+				// rerank_model_id whenever enable_rerank is true.
+				if ragReq.QueryStrategy == nil {
+					ragReq.QueryStrategy = map[string]any{}
+				}
+				ragReq.QueryStrategy["enable_rerank"] = true
+				ragReq.QueryStrategy["rerank_model_id"] = i.defaultRerankModelID
+			} else {
+				// EnableRerank was requested but RAG_DEFAULT_RERANK_MODEL_ID
+				// is unset. Mirror the rewrite-drop pattern: dropping rerank
+				// keeps basic retrieval working instead of failing with rag
+				// 40004 ("rerank_model_id is required when enable_rerank is
+				// true").
+				logs.CtxWarnf(ctx, "ragimpl.Retrieve: EnableRerank=true but RAG_DEFAULT_RERANK_MODEL_ID is empty; dropping rerank to avoid rag 40004")
+			}
+		}
 	}
 
 	resp, err := i.rag.Retrieve(ctx, tenant, ragReq)

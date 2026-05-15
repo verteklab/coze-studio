@@ -104,6 +104,7 @@ func initRag(ctx context.Context, c *ServiceComponents, bus search.ResourceEvent
 		cfg.Rag.DefaultTextEmbeddingModelID,
 		cfg.Rag.DefaultImageEmbeddingModelID,
 		cfg.Rag.DefaultLLMModelID,
+		cfg.Rag.DefaultRerankModelID,
 	)
 
 	// NB: NO NSQ consumer is registered for the rag backend. rag emits no
