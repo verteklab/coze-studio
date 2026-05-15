@@ -19,6 +19,7 @@ package ragimpl
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	knowledgeModel "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
@@ -65,20 +66,38 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 		ragKBIDs = append(ragKBIDs, k.RagKBID)
 	}
 
-	// Doc-level scoping is not yet supported: rag's /api/v1/retrieval has no
-	// top-level `doc_ids` parameter (verified against rag OpenAPI, May 2026).
-	// Once rag exposes filtering by doc ids — likely via Filters with a
-	// well-known metadata key — translate req.DocumentIDs and inject it
-	// there. For now, surface the limitation via a warning so callers that
-	// pass DocumentIDs notice their scope isn't enforced.
-	if len(req.DocumentIDs) > 0 {
-		logs.CtxWarnf(ctx, "ragimpl.Retrieve: DocumentIDs scoping requested but rag /retrieval does not yet support doc-level filters; ignoring %d ids", len(req.DocumentIDs))
-	}
-
 	ragReq := &contract.RetrieveRequest{
 		KBIDs:     ragKBIDs,
 		QueryMode: "text_input",
 	}
+
+	// Translate coze int64 doc ids -> rag UUIDs via the mapping repo. Rag's
+	// pydantic validator caps document_ids at 200; reject earlier on the coze
+	// side so the error surfaces with a clearer message than rag's 422.
+	if len(req.DocumentIDs) > 0 {
+		if len(req.DocumentIDs) > 200 {
+			return nil, errorx.New(errno.ErrKnowledgeInvalidParamCode,
+				errorx.KV("msg", fmt.Sprintf("DocumentIDs exceeds 200 (got %d)", len(req.DocumentIDs))))
+		}
+		docs, err := i.mapping.DocsByCozeIDs(ctx, req.DocumentIDs)
+		if err != nil {
+			return nil, err
+		}
+		ragDocIDs := make([]string, 0, len(docs))
+		for _, d := range docs {
+			ragDocIDs = append(ragDocIDs, d.RagDocID)
+		}
+		if len(ragDocIDs) > 0 {
+			ragReq.DocumentIDs = ragDocIDs
+		} else {
+			// All ids unmapped (soft-deleted or drift). The user asked to scope
+			// retrieval; falling through to whole-KB search would be worse than
+			// returning nothing, so short-circuit with an empty response.
+			logs.CtxWarnf(ctx, "ragimpl.Retrieve: all %d DocumentIDs had no mapping; returning empty hits", len(req.DocumentIDs))
+			return &knowledgeModel.RetrieveResponse{}, nil
+		}
+	}
+
 	if req.Query != "" {
 		q := req.Query
 		ragReq.Query = &q

@@ -145,3 +145,138 @@ func TestRetrieve_EnableQueryRewrite_NoLLMModelID_DropsEnhancement(t *testing.T)
 	require.NotNil(t, capturedReq)
 	require.Nil(t, capturedReq.QueryStrategy, "query_strategy must be nil when LLM id is empty, even with EnableQueryRewrite=true")
 }
+
+// TestRetrieve_DocumentIDs_Translated verifies that when the caller supplies
+// req.DocumentIDs as coze int64s, ragimpl translates them through the mapping
+// repo and the resulting rag UUIDs land on ragReq.DocumentIDs.
+func TestRetrieve_DocumentIDs_Translated(t *testing.T) {
+	var capturedReq *contract.RetrieveRequest
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			capturedReq = req
+			return &contract.RetrieveResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertDoc(ctx, 1, "uuid-1", 100, 0, "", 0, 0))
+	require.NoError(t, i.mapping.InsertDoc(ctx, 2, "uuid-2", 100, 0, "", 0, 0))
+
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+		DocumentIDs:  []int64{1, 2},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, capturedReq)
+	require.ElementsMatch(t, []string{"uuid-1", "uuid-2"}, capturedReq.DocumentIDs)
+}
+
+// TestRetrieve_DocumentIDs_AllUnmapped verifies that if every coze doc id the
+// caller supplied has no mapping row, ragimpl short-circuits with an empty
+// response and does NOT call rag (avoids accidentally widening the scope to
+// "whole KB" when the user asked to narrow it).
+func TestRetrieve_DocumentIDs_AllUnmapped(t *testing.T) {
+	called := false
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, _ *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			called = true
+			return &contract.RetrieveResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	// No InsertDoc for ids 1 and 2.
+
+	resp, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+		DocumentIDs:  []int64{1, 2},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Empty(t, resp.RetrieveSlices)
+	require.False(t, called, "rag must NOT be called when every requested DocumentID is unmapped")
+}
+
+// TestRetrieve_DocumentIDs_PartiallyMapped verifies that mixed mapping (some
+// mapped, some not) results in only the mapped ones being forwarded; rag is
+// still called.
+func TestRetrieve_DocumentIDs_PartiallyMapped(t *testing.T) {
+	var capturedReq *contract.RetrieveRequest
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			capturedReq = req
+			return &contract.RetrieveResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertDoc(ctx, 1, "uuid-1", 100, 0, "", 0, 0))
+	// id=2 intentionally not inserted.
+
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+		DocumentIDs:  []int64{1, 2},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, capturedReq)
+	require.Equal(t, []string{"uuid-1"}, capturedReq.DocumentIDs)
+}
+
+// TestRetrieve_DocumentIDs_Over200 verifies that ragimpl pre-rejects oversized
+// DocumentIDs (rag's pydantic validator caps at 200) before calling either
+// the mapping repo or the rag client.
+func TestRetrieve_DocumentIDs_Over200(t *testing.T) {
+	called := false
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, _ *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			called = true
+			return &contract.RetrieveResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+
+	ids := make([]int64, 201)
+	for k := range ids {
+		ids[k] = int64(k + 1)
+	}
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+		DocumentIDs:  ids,
+	})
+	require.Error(t, err)
+	require.False(t, called, "rag must not be called when DocumentIDs exceeds 200")
+}
+
+// TestRetrieve_DocumentIDs_Empty_FallsThrough verifies that an empty
+// DocumentIDs slice leaves ragReq.DocumentIDs unset (nil), so rag-side
+// filtering is not invoked.
+func TestRetrieve_DocumentIDs_Empty_FallsThrough(t *testing.T) {
+	var capturedReq *contract.RetrieveRequest
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			capturedReq = req
+			return &contract.RetrieveResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hi",
+		KnowledgeIDs: []int64{100},
+		DocumentIDs:  nil,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, capturedReq)
+	require.Nil(t, capturedReq.DocumentIDs, "ragReq.DocumentIDs should remain nil when caller passes no doc ids")
+}
