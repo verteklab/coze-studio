@@ -333,6 +333,12 @@ func (i *Impl) MGetDocumentProgress(ctx context.Context, req *service.MGetDocume
 		dp.Status = taskStatusToDoc(task.Status)
 		dp.Progress = progressForStatus(task.Status)
 		dp.StatusMsg = task.ErrorMsg
+		// Filename is Optional[str] on the rag side; copy only when present so
+		// the frontend's `name || id` fallback still fires for old tasks that
+		// pre-date the field.
+		if task.Filename != nil {
+			dp.Name = *task.Filename
+		}
 		list = append(list, dp)
 	}
 	return &service.MGetDocumentProgressResponse{ProgressList: list}, nil

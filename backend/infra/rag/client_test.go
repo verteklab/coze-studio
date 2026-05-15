@@ -529,6 +529,72 @@ func TestGetTask_NullableTimestamps(t *testing.T) {
 	}
 }
 
+// TestGetTask_FilenameField verifies the new optional `filename` field on
+// rag's TaskDetail decodes to a non-nil *string when present on the wire.
+// MGetDocumentProgress consumes this to populate DocumentProgress.Name so
+// the upload-progress UI no longer falls back to rendering raw doc IDs.
+func TestGetTask_FilenameField(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    0,
+			"message": "ok",
+			"data": map[string]any{
+				"task_id":     "task-fn",
+				"type":        "ingestion",
+				"status":      "success",
+				"retry_count": 0,
+				"filename":    "doc.pdf",
+				"created_at":  "2026-05-15T08:00:00.000000",
+			},
+			"request_id": "req-fn",
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second})
+	got, err := c.GetTask(context.Background(), "t1", "task-fn")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if got.Filename == nil {
+		t.Fatalf("Filename = nil, want non-nil pointer to %q", "doc.pdf")
+	}
+	if *got.Filename != "doc.pdf" {
+		t.Errorf("*Filename = %q, want %q", *got.Filename, "doc.pdf")
+	}
+}
+
+// TestGetTask_FilenameNull verifies that `filename: null` decodes to a nil
+// pointer (rag's TaskDetail.filename is Optional[str], emitted as JSON null
+// during pre-ingest phases before the ingestion worker stamps it).
+func TestGetTask_FilenameNull(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    0,
+			"message": "ok",
+			"data": map[string]any{
+				"task_id":     "task-fnnull",
+				"type":        "ingestion",
+				"status":      "pending",
+				"retry_count": 0,
+				"filename":    nil,
+				"created_at":  "2026-05-15T08:00:00.000000",
+			},
+			"request_id": "req-fnnull",
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second})
+	got, err := c.GetTask(context.Background(), "t1", "task-fnnull")
+	if err != nil {
+		t.Fatalf("GetTask: %v", err)
+	}
+	if got.Filename != nil {
+		t.Errorf("Filename = %v, want nil", got.Filename)
+	}
+}
+
 // TestEnvelope_NonZeroCodeIsError verifies that a 200 OK with envelope.code != 0
 // is surfaced as an error (rag uses envelope.code for soft failures sometimes,
 // not just HTTP status).
