@@ -895,6 +895,51 @@ func TestRetrieve_QueryImageObject(t *testing.T) {
 	}
 }
 
+// TestRetrieve_DocumentIDsWire locks rag's RetrievalRequest.document_ids wire
+// shape (R2-I). The handler decodes the body into a structurally-flexible map
+// so the assertion exercises the JSON tag at the wire level rather than the Go
+// field name.
+func TestRetrieve_DocumentIDsWire(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		if !strings.HasSuffix(r.URL.Path, "/api/v1/retrieval") {
+			t.Errorf("path = %s, want suffix /api/v1/retrieval", r.URL.Path)
+		}
+
+		body, _ := io.ReadAll(r.Body)
+		var got map[string]any
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatalf("decode body: %v; body=%s", err, body)
+		}
+		raw, ok := got["document_ids"].([]any)
+		if !ok {
+			t.Fatalf("document_ids is not an array, body=%s", body)
+		}
+		if len(raw) != 1 || raw[0] != "uuid-1" {
+			t.Errorf("document_ids = %v, want [\"uuid-1\"]", raw)
+		}
+
+		_, _ = w.Write(envelopeBody(t, contract.RetrieveResponse{
+			Items: []contract.RetrieveHit{{ChunkID: "c1", Score: 0.9}},
+		}))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second, RetrievalTimeoutMs: 5000})
+	q := "hi"
+	_, err := c.Retrieve(context.Background(), "t1", &contract.RetrieveRequest{
+		KBIDs:       []string{"kb-1"},
+		Query:       &q,
+		QueryMode:   "text_input",
+		DocumentIDs: []string{"uuid-1"},
+	})
+	if err != nil {
+		t.Fatalf("Retrieve: %v", err)
+	}
+}
+
 // TestRetryDocument locks rag's POST .../documents/{doc_id}/retry wire shape.
 // Rag emits the standard UploadDocumentResponse envelope (same as CreateDocument);
 // the test asserts the wire path + headers and that the response decodes into

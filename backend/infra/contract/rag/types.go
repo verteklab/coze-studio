@@ -255,10 +255,9 @@ type QueryImage struct {
 }
 
 // RetrieveRequest mirrors rag's RetrievalRequest. Tenant comes from the
-// X-Tenant-Id header, not the body. Doc-level filtering is intentionally not
-// exposed as a top-level field — rag's /retrieval endpoint has no `doc_ids`
-// parameter; callers that need it must place it under Filters and rely on
-// rag's metadata-filter behaviour (see rag/docs §10.4).
+// X-Tenant-Id header, not the body. DocumentIDs scopes retrieval to the named
+// rag doc UUIDs; rag's pydantic validator caps the list at 200 entries, dedups,
+// and rejects empty strings, so callers should pre-clean before sending.
 type RetrieveRequest struct {
 	KBIDs            []string       `json:"kb_ids"`
 	Query            *string        `json:"query,omitempty"`
@@ -267,6 +266,7 @@ type RetrieveRequest struct {
 	SearchType       string         `json:"search_type,omitempty"`
 	TopK             *int           `json:"top_k,omitempty"`
 	CandidateK       *int           `json:"candidate_k,omitempty"`
+	DocumentIDs      []string       `json:"document_ids,omitempty"`
 	Filters          map[string]any `json:"filters,omitempty"`
 	TargetChunkTypes []string       `json:"target_chunk_types,omitempty"`
 	Retrievers       []string       `json:"retrievers,omitempty"`
