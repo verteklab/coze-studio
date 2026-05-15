@@ -203,12 +203,19 @@ type ListDocumentsResponse struct {
 // are new. Pre-transition phases emit JSON null for StartedAt/FinishedAt, which
 // is why they're pointer-typed — a value receiver would decode null into the
 // unix epoch, masking the unset state.
+//
+// Filename mirrors rag's TaskDetail.filename (Optional[str]). It surfaces the
+// owning document's display name so MGetDocumentProgress can populate
+// DocumentProgress.Name without a second GetDocument round-trip. Pointer-typed
+// because the field is optional on the wire: pre-stamp tasks emit JSON null
+// and older rag deployments may omit it entirely.
 type Task struct {
 	TaskID     string   `json:"task_id"`
 	Type       string   `json:"type"`   // "ingestion" today; future types may exist
 	Status     string   `json:"status"` // pending | running | retrying | success | failed
 	RetryCount int      `json:"retry_count"`
 	ErrorMsg   string   `json:"error_msg,omitempty"`
+	Filename   *string  `json:"filename,omitempty"`
 	CreatedAt  RagTime  `json:"created_at"`
 	StartedAt  *RagTime `json:"started_at,omitempty"`
 	FinishedAt *RagTime `json:"finished_at,omitempty"`

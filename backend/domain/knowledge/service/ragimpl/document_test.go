@@ -97,6 +97,82 @@ func TestMGetDocumentProgress_NoMirror(t *testing.T) {
 	require.Equal(t, "task-Z", got.LastTaskID, "MGetDocumentProgress must not mirror status to mapping table")
 }
 
+// TestMGetDocumentProgress_FilenameSet asserts that when rag's GetTask returns
+// a non-nil `filename`, MGetDocumentProgress copies it onto DocumentProgress.Name.
+// Without this, the upload-progress UI falls back to rendering raw doc IDs.
+func TestMGetDocumentProgress_FilenameSet(t *testing.T) {
+	fn := "report-q3.pdf"
+	fc := &fakeClient{
+		getTaskFunc: func(_, _ string) (*contract.Task, error) {
+			return &contract.Task{TaskID: "task-fn-1", Status: "running", Filename: &fn}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 4301, "rag-doc-fn-1", 100, 7, "task-fn-1", 1700000000, 0))
+
+	resp, err := i.MGetDocumentProgress(context.Background(), &service.MGetDocumentProgressRequest{
+		DocumentIDs: []int64{4301},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.ProgressList, 1)
+	require.Equal(t, "report-q3.pdf", resp.ProgressList[0].Name)
+}
+
+// TestMGetDocumentProgress_FilenameNil asserts that when rag returns a nil
+// filename pointer (Optional[str] = null on the wire), Name stays empty.
+// The frontend's `name || id` fallback covers the rendering.
+func TestMGetDocumentProgress_FilenameNil(t *testing.T) {
+	fc := &fakeClient{
+		getTaskFunc: func(_, _ string) (*contract.Task, error) {
+			return &contract.Task{TaskID: "task-fn-nil", Status: "pending", Filename: nil}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 4302, "rag-doc-fn-nil", 100, 7, "task-fn-nil", 1700000000, 0))
+
+	resp, err := i.MGetDocumentProgress(context.Background(), &service.MGetDocumentProgressRequest{
+		DocumentIDs: []int64{4302},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.ProgressList, 1)
+	require.Equal(t, "", resp.ProgressList[0].Name)
+}
+
+// TestMGetDocumentProgress_MixedFilenames covers the realistic upload-batch
+// case: a per-doc fakeClient returns a filename for some tasks and a nil for
+// others. Each progress entry must carry the right name (or "" for the nil).
+func TestMGetDocumentProgress_MixedFilenames(t *testing.T) {
+	a := "a.pdf"
+	b := "b.pdf"
+	filenames := map[string]*string{
+		"task-A": &a,
+		"task-B": &b,
+		"task-C": nil,
+	}
+	fc := &fakeClient{
+		getTaskFunc: func(_, taskID string) (*contract.Task, error) {
+			return &contract.Task{TaskID: taskID, Status: "success", Filename: filenames[taskID]}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 5001, "rag-doc-A", 100, 7, "task-A", 1700000000, 0))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 5002, "rag-doc-B", 100, 7, "task-B", 1700000000, 0))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 5003, "rag-doc-C", 100, 7, "task-C", 1700000000, 0))
+
+	resp, err := i.MGetDocumentProgress(context.Background(), &service.MGetDocumentProgressRequest{
+		DocumentIDs: []int64{5001, 5002, 5003},
+	})
+	require.NoError(t, err)
+	require.Len(t, resp.ProgressList, 3)
+	byID := map[int64]string{}
+	for _, dp := range resp.ProgressList {
+		byID[dp.ID] = dp.Name
+	}
+	require.Equal(t, "a.pdf", byID[5001])
+	require.Equal(t, "b.pdf", byID[5002])
+	require.Equal(t, "", byID[5003])
+}
+
 // TestRagimpl_RetryDocument verifies that ragimpl.RetryDocument resolves the
 // coze doc id to its rag UUID and the owning KB's rag UUID via the mapping
 // table, forwards the call to the rag client, and bumps the mapping's
