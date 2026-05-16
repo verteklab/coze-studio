@@ -175,8 +175,11 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 		return nil, err
 	}
 
-	// Translate hits. Chunk-level int64 ids are not stable across rag yet
-	// (rag returns string chunk uuids), so Slice.Info.ID is left as 0 in v1.
+	// Translate hits. Chunk-level int64 ids are materialised lazily via the
+	// rag_chunk_mapping table; ChunkInsertOrGetCozeID either reads the
+	// existing row or allocates a new int64 + inserts. Failure is logged and
+	// the hit is still returned with Slice.Info.ID = 0 -- graceful degradation
+	// rather than dropping a relevant chunk on a transient mapping error.
 	slices := make([]*knowledgeModel.RetrieveSlice, 0, len(resp.Items))
 	for idx := range resp.Items {
 		h := resp.Items[idx]
@@ -187,9 +190,10 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 			logs.CtxWarnf(ctx, "ragimpl.Retrieve: docByRagID(%s) failed, skipping hit: %v", h.DocID, err)
 			continue
 		}
+		cozeSliceID := i.resolveCozeSliceID(ctx, h.ChunkID, h.DocID, m.CozeID)
 		text := h.Content
 		s := &knowledgeModel.Slice{
-			Info:        knowledgeModel.Info{ID: 0},
+			Info:        knowledgeModel.Info{ID: cozeSliceID},
 			KnowledgeID: m.KBID,
 			DocumentID:  m.CozeID,
 			RawContent:  []*knowledgeModel.SliceContent{{Type: knowledgeModel.SliceContentTypeText, Text: &text}},

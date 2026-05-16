@@ -46,6 +46,8 @@ func TestRetrieve_RejectsNL2SQL(t *testing.T) {
 //   - coze KB ids are translated to rag UUIDs via the mapping
 //   - returned hits are re-keyed via docByRagID to coze int64 DocumentIDs
 //   - chunk content lands in Slice.RawContent as a Text entry
+//   - chunk-level int64 ids are populated via the rag_chunk_mapping table
+//     (R2-G: this used to be 0 in the pre-mapping-table implementation)
 func TestRetrieve_HappyPath(t *testing.T) {
 	var capturedTenant string
 	var capturedReq *contract.RetrieveRequest
@@ -59,7 +61,7 @@ func TestRetrieve_HappyPath(t *testing.T) {
 			}, nil
 		},
 	}
-	i := newTestImpl(t, fc)
+	i := newTestImpl(t, fc, 8800) // single id for the lazy backfill
 	ctx := context.Background()
 	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
 	require.NoError(t, i.mapping.InsertDoc(ctx, 555, "rag-doc-X", 100, 7, "task-1", 0, 0))
@@ -74,6 +76,7 @@ func TestRetrieve_HappyPath(t *testing.T) {
 	require.InDelta(t, 0.87, rs.Score, 1e-9)
 	require.Equal(t, int64(555), rs.Slice.DocumentID)
 	require.Equal(t, int64(100), rs.Slice.KnowledgeID)
+	require.Equal(t, int64(8800), rs.Slice.Info.ID, "chunk int64 id must be backfilled via rag_chunk_mapping (fixes gap doc §C row 3)")
 	require.Len(t, rs.Slice.RawContent, 1)
 	require.NotNil(t, rs.Slice.RawContent[0].Text)
 	require.Equal(t, "hello world", *rs.Slice.RawContent[0].Text)
@@ -84,6 +87,31 @@ func TestRetrieve_HappyPath(t *testing.T) {
 	require.Equal(t, []string{"rag-kb-100"}, capturedReq.KBIDs)
 	require.NotNil(t, capturedReq.Query)
 	require.Equal(t, "hi", *capturedReq.Query)
+}
+
+// TestRetrieve_ChunkIDBackfill_StableAcrossCalls verifies that the second
+// retrieve call hitting the same rag chunk returns the same Slice.Info.ID
+// (idgen is only called for genuinely fresh chunks).
+func TestRetrieve_ChunkIDBackfill_StableAcrossCalls(t *testing.T) {
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, _ *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			return &contract.RetrieveResponse{
+				Items: []contract.RetrieveHit{{ChunkID: "c-stable", DocID: "rag-doc-X", Content: "x"}},
+			}, nil
+		},
+	}
+	i := newTestImpl(t, fc, 9001) // only ONE id; second call must NOT need a fresh allocation
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertDoc(ctx, 555, "rag-doc-X", 100, 7, "task-1", 0, 0))
+
+	resp1, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{Query: "x", KnowledgeIDs: []int64{100}})
+	require.NoError(t, err)
+	require.Equal(t, int64(9001), resp1.RetrieveSlices[0].Slice.Info.ID)
+
+	resp2, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{Query: "x", KnowledgeIDs: []int64{100}})
+	require.NoError(t, err)
+	require.Equal(t, int64(9001), resp2.RetrieveSlices[0].Slice.Info.ID, "same chunk_id must resolve to same coze id; idgen was already exhausted")
 }
 
 // TestRetrieve_EnableQueryRewrite_WithLLMModelID verifies that when the caller
