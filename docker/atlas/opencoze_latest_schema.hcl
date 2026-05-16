@@ -1936,6 +1936,56 @@ table "rag_doc_mapping" {
     columns = [column.coze_kb_id, column.deleted_at]
   }
 }
+table "rag_chunk_mapping" {
+  schema  = schema.opencoze
+  comment = "Map coze int64 slice id to rag chunk UUID. Concurrency-safe lazy backfill on read paths permits short-lived multiple coze_slice_ids per rag_chunk_id; resolution policy is read-earliest (no UNIQUE on rag_chunk_id)."
+  column "coze_slice_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+    comment  = "coze int64 slice (chunk) id"
+  }
+  column "rag_chunk_id" {
+    null    = false
+    type    = varchar(64)
+    comment = "rag chunk UUID (authoritative)"
+  }
+  column "rag_doc_id" {
+    null    = false
+    type    = varchar(64)
+    comment = "rag doc UUID owning this chunk"
+  }
+  column "coze_doc_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+    comment  = "owning coze document (FK to rag_doc_mapping.coze_doc_id)"
+  }
+  column "created_at" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+    comment  = "Create Time in Milliseconds"
+  }
+  column "deleted_at" {
+    null    = true
+    type    = datetime(3)
+    comment = "Delete Time"
+  }
+  primary_key {
+    columns = [column.coze_slice_id]
+  }
+  index "idx_rag_chunk_id" {
+    columns = [column.rag_chunk_id]
+  }
+  index "idx_coze_doc_id" {
+    columns = [column.coze_doc_id, column.deleted_at]
+  }
+  index "idx_rag_doc_id" {
+    columns = [column.rag_doc_id, column.deleted_at]
+  }
+}
 table "kv_entries" {
   schema  = schema.opencoze
   comment = "kv data"

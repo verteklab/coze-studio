@@ -48,6 +48,24 @@ type DocMapping struct {
 	Size       int64 // file size in bytes; populated at upload, read on display
 }
 
+// ChunkMapping bridges coze's int64 slice id and rag's string chunk UUID. No
+// authoritative content lives here — caption / content / sequence_index are
+// returned live from rag. The mapping table exists solely so retrieval hits
+// can be re-keyed with a stable int64, matching the rest of coze's data model.
+//
+// Concurrency: rag_chunk_id is INDEXED but NOT UNIQUE (see
+// docker/atlas/migrations/...rag_chunk_mapping.sql). On lazy backfill, two
+// concurrent retrievals on the same unmapped chunk may insert two rows with
+// the same rag_chunk_id. Read paths resolve this by selecting the earliest
+// created_at; once a coze_slice_id is assigned it is stable. Strict
+// dedup (if ever required) belongs to a follow-up R2-G2 dedup task.
+type ChunkMapping struct {
+	CozeSliceID int64
+	RagChunkID  string
+	RagDocID    string
+	CozeDocID   int64
+}
+
 type MappingRepo struct {
 	db *gorm.DB
 }
@@ -330,3 +348,182 @@ func (m *MappingRepo) UpdateLastTaskID(ctx context.Context, cozeDocID int64, tas
 
 // Note: there is no UpdateDocStatus -- document status is rag's data, not coze's.
 // Status is read live from rag via GetTask / GetDocument; nothing is mirrored.
+
+// --- Chunk mapping helpers ------------------------------------------------
+//
+// Shape parallels DocMapping: lookup-by-coze-id, batch-by-coze-ids, list-by-doc,
+// insert, soft-delete. Reverse lookup by rag id (ChunkByRagID) plus the
+// concurrency-safe insert-or-get (ChunkInsertOrGetCozeID) are unique to chunks
+// because the read paths must materialise mappings lazily for chunks that
+// originated in rag (via document ingestion) and were never seen by coze before.
+
+func (m *MappingRepo) ChunkByCozeID(ctx context.Context, cozeSliceID int64) (*ChunkMapping, error) {
+	var row struct {
+		CozeSliceID int64  `gorm:"column:coze_slice_id"`
+		RagChunkID  string `gorm:"column:rag_chunk_id"`
+		RagDocID    string `gorm:"column:rag_doc_id"`
+		CozeDocID   int64  `gorm:"column:coze_doc_id"`
+	}
+	err := m.db.WithContext(ctx).
+		Table("rag_chunk_mapping").
+		Select("coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id").
+		Where("coze_slice_id = ? AND (deleted_at IS NULL)", cozeSliceID).
+		Take(&row).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("%w: slice id=%d", ErrMappingNotFound, cozeSliceID)
+		}
+		return nil, err
+	}
+	return &ChunkMapping{
+		CozeSliceID: row.CozeSliceID, RagChunkID: row.RagChunkID,
+		RagDocID: row.RagDocID, CozeDocID: row.CozeDocID,
+	}, nil
+}
+
+// ChunkByRagID resolves a rag chunk UUID to the earliest active coze mapping.
+// "Earliest" is by created_at -- when concurrent lazy backfills race they may
+// produce two rows with the same rag_chunk_id; the earliest one wins so the
+// surfaced coze_slice_id is stable for the lifetime of the chunk.
+func (m *MappingRepo) ChunkByRagID(ctx context.Context, ragChunkID string) (*ChunkMapping, error) {
+	var row struct {
+		CozeSliceID int64  `gorm:"column:coze_slice_id"`
+		RagChunkID  string `gorm:"column:rag_chunk_id"`
+		RagDocID    string `gorm:"column:rag_doc_id"`
+		CozeDocID   int64  `gorm:"column:coze_doc_id"`
+	}
+	err := m.db.WithContext(ctx).
+		Table("rag_chunk_mapping").
+		Select("coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id").
+		Where("rag_chunk_id = ? AND (deleted_at IS NULL)", ragChunkID).
+		Order("created_at ASC, coze_slice_id ASC").
+		Take(&row).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("%w: rag_chunk_id=%s", ErrMappingNotFound, ragChunkID)
+		}
+		return nil, err
+	}
+	return &ChunkMapping{
+		CozeSliceID: row.CozeSliceID, RagChunkID: row.RagChunkID,
+		RagDocID: row.RagDocID, CozeDocID: row.CozeDocID,
+	}, nil
+}
+
+func (m *MappingRepo) ChunksByCozeIDs(ctx context.Context, ids []int64) ([]*ChunkMapping, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var rows []struct {
+		CozeSliceID int64  `gorm:"column:coze_slice_id"`
+		RagChunkID  string `gorm:"column:rag_chunk_id"`
+		RagDocID    string `gorm:"column:rag_doc_id"`
+		CozeDocID   int64  `gorm:"column:coze_doc_id"`
+	}
+	err := m.db.WithContext(ctx).
+		Table("rag_chunk_mapping").
+		Select("coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id").
+		Where("coze_slice_id IN ? AND (deleted_at IS NULL)", ids).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*ChunkMapping, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, &ChunkMapping{
+			CozeSliceID: r.CozeSliceID, RagChunkID: r.RagChunkID,
+			RagDocID: r.RagDocID, CozeDocID: r.CozeDocID,
+		})
+	}
+	return out, nil
+}
+
+// ChunksByCozeDocID returns active mappings for a coze doc. Useful for
+// invalidation after a document delete (cleanup is a follow-up; for now we
+// rely on rag-side cascade behavior and leave chunk rows in place -- they
+// become orphaned but harmless because lookups always go through ChunkByRagID).
+func (m *MappingRepo) ChunksByCozeDocID(ctx context.Context, cozeDocID int64) ([]*ChunkMapping, error) {
+	var rows []struct {
+		CozeSliceID int64  `gorm:"column:coze_slice_id"`
+		RagChunkID  string `gorm:"column:rag_chunk_id"`
+		RagDocID    string `gorm:"column:rag_doc_id"`
+		CozeDocID   int64  `gorm:"column:coze_doc_id"`
+	}
+	err := m.db.WithContext(ctx).
+		Table("rag_chunk_mapping").
+		Select("coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id").
+		Where("coze_doc_id = ? AND (deleted_at IS NULL)", cozeDocID).
+		Order("created_at ASC, coze_slice_id ASC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	out := make([]*ChunkMapping, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, &ChunkMapping{
+			CozeSliceID: r.CozeSliceID, RagChunkID: r.RagChunkID,
+			RagDocID: r.RagDocID, CozeDocID: r.CozeDocID,
+		})
+	}
+	return out, nil
+}
+
+func (m *MappingRepo) ChunkInsert(ctx context.Context, mp *ChunkMapping, nowMs int64) error {
+	return m.db.WithContext(ctx).Exec(
+		`INSERT INTO rag_chunk_mapping
+		 (coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id, created_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		mp.CozeSliceID, mp.RagChunkID, mp.RagDocID, mp.CozeDocID, nowMs,
+	).Error
+}
+
+func (m *MappingRepo) ChunkSoftDelete(ctx context.Context, cozeSliceID int64) error {
+	return m.db.WithContext(ctx).Exec(
+		`UPDATE rag_chunk_mapping SET deleted_at = NOW(3) WHERE coze_slice_id = ?`, cozeSliceID,
+	).Error
+}
+
+// ChunkInsertOrGetCozeID materialises a coze_slice_id for a rag chunk_id seen
+// on a read path. The flow is:
+//
+//  1. Try an existing-row lookup first (ChunkByRagID). Most read traffic hits
+//     this branch -- chunks are seen many times once mapped.
+//  2. If not found, allocate a coze_slice_id from the supplied generator and
+//     insert. Concurrent inserts may both succeed (no UNIQUE on rag_chunk_id);
+//     after insert we re-lookup so the earliest-created row's id is the one
+//     returned to every caller. This keeps the returned id stable in the face
+//     of races without requiring a UNIQUE constraint that would serialise hot
+//     retrieval paths.
+//
+// The generator callback exists so the repo doesn't depend on idgen directly
+// -- keeps mapping_test.go usable without wiring an idgen stub.
+func (m *MappingRepo) ChunkInsertOrGetCozeID(
+	ctx context.Context,
+	ragChunkID, ragDocID string,
+	cozeDocID int64,
+	allocID func(context.Context) (int64, error),
+	nowMs int64,
+) (int64, error) {
+	if existing, err := m.ChunkByRagID(ctx, ragChunkID); err == nil {
+		return existing.CozeSliceID, nil
+	} else if !errors.Is(err, ErrMappingNotFound) {
+		return 0, err
+	}
+	cozeSliceID, err := allocID(ctx)
+	if err != nil {
+		return 0, err
+	}
+	if err := m.ChunkInsert(ctx, &ChunkMapping{
+		CozeSliceID: cozeSliceID, RagChunkID: ragChunkID,
+		RagDocID: ragDocID, CozeDocID: cozeDocID,
+	}, nowMs); err != nil {
+		return 0, err
+	}
+	// Re-resolve: under race, our row may not be the earliest. Reading earliest
+	// here means every concurrent caller converges on the same id.
+	resolved, err := m.ChunkByRagID(ctx, ragChunkID)
+	if err != nil {
+		return 0, err
+	}
+	return resolved.CozeSliceID, nil
+}
