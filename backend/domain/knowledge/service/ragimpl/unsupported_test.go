@@ -36,16 +36,11 @@ func TestUnsupported_AllReturnFeaturePending(t *testing.T) {
 		name string
 		call func() error
 	}{
-		// UpdateDocument moved to document.go (R2-H wired it to rag's
-		// /documents/{doc_id}/update); it is no longer a bucket-B stub.
+		// UpdateDocument was wired to rag in R2-H (document.go).
+		// The seven manual-chunk methods (Create/Update/Delete/List/Get/MGet/
+		// ListPhoto Slice) were wired to rag in R2-G (slice.go) -- they
+		// are no longer bucket-B stubs.
 		{"ResegmentDocument", func() error { _, e := i.ResegmentDocument(ctx, &service.ResegmentDocumentRequest{}); return e }},
-		{"CreateSlice", func() error { _, e := i.CreateSlice(ctx, &service.CreateSliceRequest{}); return e }},
-		{"UpdateSlice", func() error { return i.UpdateSlice(ctx, &service.UpdateSliceRequest{}) }},
-		{"DeleteSlice", func() error { return i.DeleteSlice(ctx, &service.DeleteSliceRequest{}) }},
-		{"ListSlice", func() error { _, e := i.ListSlice(ctx, &service.ListSliceRequest{}); return e }},
-		{"GetSlice", func() error { _, e := i.GetSlice(ctx, &service.GetSliceRequest{}); return e }},
-		{"MGetSlice", func() error { _, e := i.MGetSlice(ctx, &service.MGetSliceRequest{}); return e }},
-		{"ListPhotoSlice", func() error { _, e := i.ListPhotoSlice(ctx, &service.ListPhotoSliceRequest{}); return e }},
 		{"GetAlterTableSchema", func() error { _, e := i.GetAlterTableSchema(ctx, &service.AlterTableSchemaRequest{}); return e }},
 		{"ValidateTableSchema", func() error { _, e := i.ValidateTableSchema(ctx, &service.ValidateTableSchemaRequest{}); return e }},
 		{"GetDocumentTableInfo", func() error { _, e := i.GetDocumentTableInfo(ctx, &service.GetDocumentTableInfoRequest{}); return e }},
@@ -61,11 +56,11 @@ func TestUnsupported_AllReturnFeaturePending(t *testing.T) {
 		{"MoveKnowledgeToLibrary", func() error { return i.MoveKnowledgeToLibrary(ctx, &service.MoveKnowledgeToLibraryRequest{}) }},
 	}
 
-	// Bucket-B count drops by one each time a stub is replaced with a real
-	// implementation. R2-H wired UpdateDocument; the remaining 18 are still
-	// pending (re-segmentation, manual-chunk CRUD, table ingestion, photo
-	// caption, document review, KB copy/move).
-	if want, got := 18, len(cases); want != got {
+	// Bucket-B count drops as stubs are replaced. R2-H wired UpdateDocument
+	// (18 remaining). R2-G wired the 7 manual-chunk methods; 11 stubs remain
+	// pending (re-segmentation, table ingestion, photo caption, document
+	// review, KB copy/move).
+	if want, got := 11, len(cases); want != got {
 		t.Fatalf("expected %d bucket-B methods covered, got %d", want, got)
 	}
 

@@ -51,34 +51,11 @@ func (i *Impl) ResegmentDocument(_ context.Context, _ *service.ResegmentDocument
 }
 
 // --- Manual slice (chunk) CRUD -------------------------------------------
-
-func (i *Impl) CreateSlice(_ context.Context, _ *service.CreateSliceRequest) (*service.CreateSliceResponse, error) {
-	return nil, pending("CreateSlice", "manual-chunk-crud")
-}
-
-func (i *Impl) UpdateSlice(_ context.Context, _ *service.UpdateSliceRequest) error {
-	return pending("UpdateSlice", "manual-chunk-crud")
-}
-
-func (i *Impl) DeleteSlice(_ context.Context, _ *service.DeleteSliceRequest) error {
-	return pending("DeleteSlice", "manual-chunk-crud")
-}
-
-func (i *Impl) ListSlice(_ context.Context, _ *service.ListSliceRequest) (*service.ListSliceResponse, error) {
-	return nil, pending("ListSlice", "manual-chunk-crud")
-}
-
-func (i *Impl) GetSlice(_ context.Context, _ *service.GetSliceRequest) (*service.GetSliceResponse, error) {
-	return nil, pending("GetSlice", "manual-chunk-crud")
-}
-
-func (i *Impl) MGetSlice(_ context.Context, _ *service.MGetSliceRequest) (*service.MGetSliceResponse, error) {
-	return nil, pending("MGetSlice", "manual-chunk-crud")
-}
-
-func (i *Impl) ListPhotoSlice(_ context.Context, _ *service.ListPhotoSliceRequest) (*service.ListPhotoSliceResponse, error) {
-	return nil, pending("ListPhotoSlice", "manual-chunk-crud")
-}
+//
+// R2-G wired the seven manual-chunk methods (CreateSlice / UpdateSlice /
+// DeleteSlice / ListSlice / GetSlice / MGetSlice / ListPhotoSlice) to rag's
+// /chunks endpoints; real implementations live in slice.go. The stubs that
+// previously sat here have been removed.
 
 // --- Table / sheet ingestion ---------------------------------------------
 
