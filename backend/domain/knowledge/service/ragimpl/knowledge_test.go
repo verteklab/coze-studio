@@ -65,6 +65,35 @@ type fakeClient struct {
 	retrieveTenant  string
 	retrieveReq     *contract.RetrieveRequest
 
+	// Chunk endpoints -- last seen request fields, plus optional stubs. Tests
+	// that only need defaults can ignore both.
+	createChunkTenant    string
+	createChunkKBID      string
+	createChunkDocID     string
+	createChunkReq       *contract.CreateChunkRequest
+	updateChunkTenant    string
+	updateChunkKBID      string
+	updateChunkDocID     string
+	updateChunkChunkID   string
+	updateChunkReq       *contract.UpdateChunkRequest
+	deleteChunkTenant    string
+	deleteChunkKBID      string
+	deleteChunkDocID     string
+	deleteChunkChunkID   string
+	listChunksTenant     string
+	listChunksKBID       string
+	listChunksDocID      string
+	listChunksQuery      *contract.ListChunksQuery
+	getChunkTenant       string
+	getChunkKBID         string
+	getChunkChunkID      string
+	mgetChunksTenant     string
+	mgetChunksKBID       string
+	mgetChunksIDs        []string
+	listChunksByKBTenant string
+	listChunksByKBKBID   string
+	listChunksByKBQuery  *contract.ListChunksByKBQuery
+
 	// Stubs: override return values from the test.
 	createKBFunc                     func(tenantID string, req *contract.CreateKBRequest) (*contract.KB, error)
 	deleteKBFunc                     func(tenantID, kbID string) error
@@ -81,6 +110,14 @@ type fakeClient struct {
 	getTaskFunc                      func(tenantID, taskID string) (*contract.Task, error)
 	retrieveFunc                     func(tenantID string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error)
 	listDocumentParameterSchemasFunc func(tenantID string) ([]contract.DocumentParameterSchema, error)
+
+	createChunkFunc    func(tenantID, kbID, docID string, req *contract.CreateChunkRequest) (*contract.Chunk, error)
+	updateChunkFunc    func(tenantID, kbID, docID, chunkID string, req *contract.UpdateChunkRequest) (*contract.Chunk, error)
+	deleteChunkFunc    func(tenantID, kbID, docID, chunkID string) error
+	listChunksFunc     func(tenantID, kbID, docID string, q *contract.ListChunksQuery) (*contract.ListChunksResponse, error)
+	getChunkFunc       func(tenantID, kbID, chunkID string) (*contract.Chunk, error)
+	mgetChunksFunc     func(tenantID, kbID string, chunkIDs []string) (*contract.MGetChunksResponse, error)
+	listChunksByKBFunc func(tenantID, kbID string, q *contract.ListChunksByKBQuery) (*contract.ListChunksResponse, error)
 }
 
 func (f *fakeClient) Ready(_ context.Context) error { return nil }
@@ -205,6 +242,66 @@ func (f *fakeClient) ListDocumentParameterSchemas(_ context.Context, tenantID st
 		return f.listDocumentParameterSchemasFunc(tenantID)
 	}
 	return nil, nil
+}
+
+func (f *fakeClient) CreateChunk(_ context.Context, tenantID, kbID, docID string, req *contract.CreateChunkRequest) (*contract.Chunk, error) {
+	f.createChunkTenant, f.createChunkKBID, f.createChunkDocID, f.createChunkReq = tenantID, kbID, docID, req
+	if f.createChunkFunc != nil {
+		return f.createChunkFunc(tenantID, kbID, docID, req)
+	}
+	return &contract.Chunk{ChunkID: "rag-chunk-default", DocID: docID, KBID: kbID, ChunkType: req.ChunkType, Status: "ready"}, nil
+}
+
+func (f *fakeClient) UpdateChunk(_ context.Context, tenantID, kbID, docID, chunkID string, req *contract.UpdateChunkRequest) (*contract.Chunk, error) {
+	f.updateChunkTenant, f.updateChunkKBID, f.updateChunkDocID, f.updateChunkChunkID, f.updateChunkReq = tenantID, kbID, docID, chunkID, req
+	if f.updateChunkFunc != nil {
+		return f.updateChunkFunc(tenantID, kbID, docID, chunkID, req)
+	}
+	return &contract.Chunk{ChunkID: chunkID, DocID: docID, KBID: kbID, ChunkType: "text_chunk", Status: "ready"}, nil
+}
+
+func (f *fakeClient) DeleteChunk(_ context.Context, tenantID, kbID, docID, chunkID string) error {
+	f.deleteChunkTenant, f.deleteChunkKBID, f.deleteChunkDocID, f.deleteChunkChunkID = tenantID, kbID, docID, chunkID
+	if f.deleteChunkFunc != nil {
+		return f.deleteChunkFunc(tenantID, kbID, docID, chunkID)
+	}
+	return nil
+}
+
+func (f *fakeClient) ListChunks(_ context.Context, tenantID, kbID, docID string, q *contract.ListChunksQuery) (*contract.ListChunksResponse, error) {
+	f.listChunksTenant, f.listChunksKBID, f.listChunksDocID, f.listChunksQuery = tenantID, kbID, docID, q
+	if f.listChunksFunc != nil {
+		return f.listChunksFunc(tenantID, kbID, docID, q)
+	}
+	return &contract.ListChunksResponse{}, nil
+}
+
+func (f *fakeClient) GetChunk(_ context.Context, tenantID, kbID, chunkID string) (*contract.Chunk, error) {
+	f.getChunkTenant, f.getChunkKBID, f.getChunkChunkID = tenantID, kbID, chunkID
+	if f.getChunkFunc != nil {
+		return f.getChunkFunc(tenantID, kbID, chunkID)
+	}
+	return &contract.Chunk{ChunkID: chunkID, KBID: kbID, ChunkType: "text_chunk", Status: "ready"}, nil
+}
+
+func (f *fakeClient) MGetChunks(_ context.Context, tenantID, kbID string, chunkIDs []string) (*contract.MGetChunksResponse, error) {
+	f.mgetChunksTenant, f.mgetChunksKBID, f.mgetChunksIDs = tenantID, kbID, chunkIDs
+	if f.mgetChunksFunc != nil {
+		return f.mgetChunksFunc(tenantID, kbID, chunkIDs)
+	}
+	out := make([]contract.MGetChunksItem, 0, len(chunkIDs))
+	for _, id := range chunkIDs {
+		out = append(out, contract.MGetChunksItem{Chunk: contract.Chunk{ChunkID: id, KBID: kbID, ChunkType: "text_chunk", Status: "ready"}})
+	}
+	return &contract.MGetChunksResponse{Items: out}, nil
+}
+
+func (f *fakeClient) ListChunksByKB(_ context.Context, tenantID, kbID string, q *contract.ListChunksByKBQuery) (*contract.ListChunksResponse, error) {
+	f.listChunksByKBTenant, f.listChunksByKBKBID, f.listChunksByKBQuery = tenantID, kbID, q
+	if f.listChunksByKBFunc != nil {
+		return f.listChunksByKBFunc(tenantID, kbID, q)
+	}
+	return &contract.ListChunksResponse{}, nil
 }
 
 // stubIDGen returns IDs from a fixed slice, in order. Tests use this to assert

@@ -27,7 +27,9 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	ragconf "github.com/coze-dev/coze-studio/backend/conf/rag"
@@ -460,6 +462,130 @@ func (c *Client) ListDocumentParameterSchemas(ctx context.Context, tenantID stri
 	var out []contract.DocumentParameterSchema
 	path := apiPrefix + "/document-parameter-schemas"
 	if err := c.doJSON(ctx, http.MethodGet, path, tenantID, nil, &out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// --- Chunk endpoints ------------------------------------------------------
+//
+// Rag's chunk routes use GET / POST only -- update/delete are POST with
+// /update / /delete suffixes (see rag/app/api/routes/chunks.py). All write
+// paths are non-idempotent so doJSON's GET/DELETE-only retry policy
+// suppresses retries on them automatically.
+
+func (c *Client) CreateChunk(ctx context.Context, tenantID, kbID, docID string, req *contract.CreateChunkRequest) (*contract.Chunk, error) {
+	out := &contract.Chunk{}
+	path := apiPrefix + "/knowledgebases/" + kbID + "/documents/" + docID + "/chunks"
+	if err := c.doJSON(ctx, http.MethodPost, path, tenantID, req, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) UpdateChunk(ctx context.Context, tenantID, kbID, docID, chunkID string, req *contract.UpdateChunkRequest) (*contract.Chunk, error) {
+	out := &contract.Chunk{}
+	path := apiPrefix + "/knowledgebases/" + kbID + "/documents/" + docID + "/chunks/" + chunkID + "/update"
+	if err := c.doJSON(ctx, http.MethodPost, path, tenantID, req, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// DeleteChunk hits the doc-scoped /chunks/{id}/delete endpoint. The response
+// body's {"deleted": true} is discarded -- success is conveyed via no error.
+func (c *Client) DeleteChunk(ctx context.Context, tenantID, kbID, docID, chunkID string) error {
+	path := apiPrefix + "/knowledgebases/" + kbID + "/documents/" + docID + "/chunks/" + chunkID + "/delete"
+	return c.doJSON(ctx, http.MethodPost, path, tenantID, nil, nil, c.cfg.Timeout)
+}
+
+func (c *Client) ListChunks(ctx context.Context, tenantID, kbID, docID string, q *contract.ListChunksQuery) (*contract.ListChunksResponse, error) {
+	if q == nil {
+		q = &contract.ListChunksQuery{}
+	}
+	out := &contract.ListChunksResponse{}
+	values := url.Values{}
+	if q.Page > 0 {
+		values.Set("page", strconv.Itoa(q.Page))
+	}
+	if q.PageSize > 0 {
+		values.Set("page_size", strconv.Itoa(q.PageSize))
+	}
+	if q.Keyword != "" {
+		values.Set("keyword", q.Keyword)
+	}
+	if q.ChunkType != "" {
+		values.Set("chunk_type", q.ChunkType)
+	}
+	if q.AfterSequence != nil {
+		values.Set("after_sequence", strconv.Itoa(*q.AfterSequence))
+	}
+	path := apiPrefix + "/knowledgebases/" + kbID + "/documents/" + docID + "/chunks"
+	if encoded := values.Encode(); encoded != "" {
+		path = path + "?" + encoded
+	}
+	if err := c.doJSON(ctx, http.MethodGet, path, tenantID, nil, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// GetChunk uses the KB-scoped endpoint (rag exposes both kb- and doc-scoped
+// shapes; we use the kb-scoped one because ragimpl only carries a
+// chunk_id->doc_id mapping after a backfill, and may not have a doc_id
+// available at every call site).
+func (c *Client) GetChunk(ctx context.Context, tenantID, kbID, chunkID string) (*contract.Chunk, error) {
+	out := &contract.Chunk{}
+	path := apiPrefix + "/knowledgebases/" + kbID + "/chunks/" + chunkID
+	if err := c.doJSON(ctx, http.MethodGet, path, tenantID, nil, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// MGetChunks is POST + body (chunk_id lists can be 50-200 long; safer than
+// a query-string approach that may hit URL-length limits). The :mget colon
+// is part of rag's route, not a Go quirk.
+func (c *Client) MGetChunks(ctx context.Context, tenantID, kbID string, chunkIDs []string) (*contract.MGetChunksResponse, error) {
+	out := &contract.MGetChunksResponse{}
+	path := apiPrefix + "/knowledgebases/" + kbID + "/chunks:mget"
+	body := &contract.MGetChunksRequest{ChunkIDs: chunkIDs}
+	if err := c.doJSON(ctx, http.MethodPost, path, tenantID, body, out, c.cfg.Timeout); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *Client) ListChunksByKB(ctx context.Context, tenantID, kbID string, q *contract.ListChunksByKBQuery) (*contract.ListChunksResponse, error) {
+	if q == nil {
+		q = &contract.ListChunksByKBQuery{}
+	}
+	out := &contract.ListChunksResponse{}
+	values := url.Values{}
+	if q.Page > 0 {
+		values.Set("page", strconv.Itoa(q.Page))
+	}
+	if q.PageSize > 0 {
+		values.Set("page_size", strconv.Itoa(q.PageSize))
+	}
+	if q.Keyword != "" {
+		values.Set("keyword", q.Keyword)
+	}
+	if q.ChunkType != "" {
+		values.Set("chunk_type", q.ChunkType)
+	}
+	if len(q.DocIDs) > 0 {
+		// rag expects a single comma-separated string in `doc_ids`.
+		values.Set("doc_ids", strings.Join(q.DocIDs, ","))
+	}
+	if q.AfterSequence != nil {
+		values.Set("after_sequence", strconv.Itoa(*q.AfterSequence))
+	}
+	path := apiPrefix + "/knowledgebases/" + kbID + "/chunks"
+	if encoded := values.Encode(); encoded != "" {
+		path = path + "?" + encoded
+	}
+	if err := c.doJSON(ctx, http.MethodGet, path, tenantID, nil, out, c.cfg.Timeout); err != nil {
 		return nil, err
 	}
 	return out, nil
