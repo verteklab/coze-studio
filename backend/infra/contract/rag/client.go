@@ -69,4 +69,16 @@ type Client interface {
 	// Document parameter schemas — system-wide (no kb_id); the UI's source
 	// of truth for upload-wizard parameter forms.
 	ListDocumentParameterSchemas(ctx context.Context, tenantID string) ([]DocumentParameterSchema, error)
+
+	// Manual chunk CRUD. rag uses GET/POST-only verbs (no PUT/DELETE); update
+	// and delete are POST with /update and /delete path suffixes respectively.
+	// All endpoints take the kb_id; create/update/delete also take a doc_id.
+	// MGetChunks is a POST with a body so it can carry large chunk_id lists.
+	CreateChunk(ctx context.Context, tenantID, kbID, docID string, req *CreateChunkRequest) (*Chunk, error)
+	UpdateChunk(ctx context.Context, tenantID, kbID, docID, chunkID string, req *UpdateChunkRequest) (*Chunk, error)
+	DeleteChunk(ctx context.Context, tenantID, kbID, docID, chunkID string) error
+	ListChunks(ctx context.Context, tenantID, kbID, docID string, q *ListChunksQuery) (*ListChunksResponse, error)
+	GetChunk(ctx context.Context, tenantID, kbID, chunkID string) (*Chunk, error)
+	MGetChunks(ctx context.Context, tenantID, kbID string, chunkIDs []string) (*MGetChunksResponse, error)
+	ListChunksByKB(ctx context.Context, tenantID, kbID string, q *ListChunksByKBQuery) (*ListChunksResponse, error)
 }
