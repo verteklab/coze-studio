@@ -72,7 +72,10 @@ describe('dataset-search data-transformer documentIDs', () => {
           datasetSetting: {
             top_k: 5,
             strategy: 1,
-            document_ids: [101, 202, 303],
+            // Use a real coze-shaped int64 string to lock the precision-safety
+            // property -- coze ids exceed JS Number's 2^53 safe range, so
+            // Number-typed storage would silently truncate trailing digits.
+            document_ids: ['7640823870399709184', '7640823517784571904'],
           },
         },
       },
@@ -89,8 +92,11 @@ describe('dataset-search data-transformer documentIDs', () => {
     expect(docIdsBlock).toBeDefined();
     expect(docIdsBlock?.input).toMatchObject({
       type: 'list',
-      schema: { type: 'integer' },
-      value: { type: 'literal', content: [101, 202, 303] },
+      schema: { type: 'string' },
+      value: {
+        type: 'literal',
+        content: ['7640823870399709184', '7640823517784571904'],
+      },
     });
   });
 
@@ -149,20 +155,24 @@ describe('dataset-search data-transformer documentIDs', () => {
         name: 'documentIDs',
         input: {
           type: 'list',
-          schema: { type: 'integer' },
-          value: { type: 'literal', content: [101, 202] },
+          schema: { type: 'string' },
+          value: {
+            type: 'literal',
+            content: ['7640823870399709184', '7640823517784571904'],
+          },
         },
       },
     ]);
 
     const form = transformOnInit(dto) as {
       inputs: {
-        datasetParameters: { datasetSetting: { document_ids?: number[] } };
+        datasetParameters: { datasetSetting: { document_ids?: string[] } };
       };
     };
 
     expect(form.inputs.datasetParameters.datasetSetting.document_ids).toEqual([
-      101, 202,
+      '7640823870399709184',
+      '7640823517784571904',
     ]);
   });
 
@@ -184,7 +194,7 @@ describe('dataset-search data-transformer documentIDs', () => {
 
     const form = transformOnInit(dto) as {
       inputs: {
-        datasetParameters: { datasetSetting: { document_ids?: number[] } };
+        datasetParameters: { datasetSetting: { document_ids?: string[] } };
       };
     };
 
@@ -203,7 +213,8 @@ describe('dataset-search data-transformer documentIDs', () => {
           datasetSetting: {
             top_k: 5,
             strategy: 1,
-            document_ids: [42, 84],
+            // Real int64 strings to lock the round-trip precision-safety.
+            document_ids: ['7640823870399709184', '7640823517784571904'],
           },
         },
       },
@@ -221,12 +232,13 @@ describe('dataset-search data-transformer documentIDs', () => {
       outputs: [],
     }) as {
       inputs: {
-        datasetParameters: { datasetSetting: { document_ids?: number[] } };
+        datasetParameters: { datasetSetting: { document_ids?: string[] } };
       };
     };
 
     expect(form.inputs.datasetParameters.datasetSetting.document_ids).toEqual([
-      42, 84,
+      '7640823870399709184',
+      '7640823517784571904',
     ]);
   });
 });
