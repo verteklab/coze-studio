@@ -23,7 +23,13 @@ import { KnowledgeApi } from '@coze-arch/bot-api';
 
 interface DocumentOption {
   label: string;
-  value: number;
+  /**
+   * doc_id as STRING. Coze's int64 ids exceed JS Number's safe range (2^53),
+   * so storing as Number truncates the trailing 3-4 digits and breaks the
+   * coze→rag mapping lookup. Stay in string-land all the way through to the
+   * datasetParam payload; the backend `cast.ToInt64E` handles either form.
+   */
+  value: string;
   /** dataset_id the document belongs to -- shown as secondary text. */
   datasetId: string;
 }
@@ -34,9 +40,9 @@ interface DocumentIDsSelectProps {
    * listed KBs are merged into one option list.
    */
   datasetIDs: string[];
-  /** Currently-selected document IDs (number). Empty / undefined means "all". */
-  value?: number[];
-  onChange: (next: number[] | undefined) => void;
+  /** Currently-selected document IDs (string). Empty / undefined means "all". */
+  value?: string[];
+  onChange: (next: string[] | undefined) => void;
   readonly?: boolean;
   disabled?: boolean;
 }
@@ -98,13 +104,10 @@ export const DocumentIDsSelect: FC<DocumentIDsSelectProps> = ({
             if (!idStr) {
               continue;
             }
-            const idNum = Number(idStr);
-            if (!Number.isFinite(idNum)) {
-              continue;
-            }
+            // Keep as string -- Number(idStr) would truncate int64 ids above 2^53.
             merged.push({
               label: info.name || idStr,
-              value: idNum,
+              value: idStr,
               datasetId: datasetID,
             });
           }
@@ -153,7 +156,7 @@ export const DocumentIDsSelect: FC<DocumentIDsSelectProps> = ({
         'No documents available',
       )}
       onChange={next => {
-        const arr = (next as number[] | undefined) ?? [];
+        const arr = (next as string[] | undefined) ?? [];
         onChange(arr.length === 0 ? undefined : arr);
       }}
     />

@@ -88,7 +88,7 @@ export function transformOnInit(value) {
     // R2-I: optional list filter. Falls back to undefined (== "all docs")
     // rather than [] so consumers don't misread an empty array.
     document_ids: datasetParam.find(item => item.name === 'documentIDs')?.input
-      .value.content as number[] | undefined,
+      .value.content as string[] | undefined,
   };
 
   return formData;
@@ -178,8 +178,12 @@ export function transformOnSubmit(value) {
     datasetSetting.document_ids.length > 0
   ) {
     actualData.inputs.datasetParam.push(
+      // Carry ids as strings. Coze int64 ids > 2^53 lose precision through
+      // JS Number, which silently breaks the coze→rag mapping lookup. The
+      // backend (knowledge_retrieve.go) parses with cast.ToInt64E which
+      // accepts strings.
       BlockInput.createArray('documentIDs', datasetSetting.document_ids, {
-        type: 'integer',
+        type: 'string',
       }),
     );
   }
