@@ -28,4 +28,11 @@ export interface DataSetInfo {
   use_rerank?: boolean;
   use_rewrite?: boolean;
   is_personal_only?: boolean;
+  /**
+   * Optional list of rag document IDs to restrict retrieval to. Empty or
+   * undefined means "all documents in the selected KBs". Mapped to the
+   * top-level `document_ids` field of the rag /retrieval request via the
+   * `documentIDs` datasetParam block. See R2-I spec.
+   */
+  document_ids?: number[];
 }
