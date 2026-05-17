@@ -63,6 +63,7 @@ type chunkRow struct {
 	RagChunkID  string  `gorm:"column:rag_chunk_id"`
 	RagDocID    string  `gorm:"column:rag_doc_id"`
 	CozeDocID   int64   `gorm:"column:coze_doc_id"`
+	CreatorID   int64   `gorm:"column:creator_id"`
 	CreatedAt   int64   `gorm:"column:created_at"`
 	DeletedAt   *string `gorm:"column:deleted_at"`
 }
@@ -404,14 +405,14 @@ func TestChunkMapping_InsertOrGetCozeID_FreshInsert(t *testing.T) {
 		return int64(5000 + allocCount), nil
 	}
 
-	id, err := m.ChunkInsertOrGetCozeID(context.Background(), "chunk-new", "doc-new", 50, alloc, 1700000000)
+	id, err := m.ChunkInsertOrGetCozeID(context.Background(), "chunk-new", "doc-new", 50, 0, alloc, 1700000000)
 	require.NoError(t, err)
 	require.Equal(t, int64(5001), id)
 	require.Equal(t, 1, allocCount)
 
 	// Second call with the same rag_chunk_id must NOT allocate; returns the
 	// existing coze id.
-	id2, err := m.ChunkInsertOrGetCozeID(context.Background(), "chunk-new", "doc-new", 50, alloc, 1700000100)
+	id2, err := m.ChunkInsertOrGetCozeID(context.Background(), "chunk-new", "doc-new", 50, 0, alloc, 1700000100)
 	require.NoError(t, err)
 	require.Equal(t, int64(5001), id2)
 	require.Equal(t, 1, allocCount, "second call must not allocate")
@@ -429,7 +430,7 @@ func TestChunkMapping_InsertOrGetCozeID_ConcurrentRace(t *testing.T) {
 	allocA := func(_ context.Context) (int64, error) { return 7001, nil }
 
 	// Caller A: no existing row -> inserts (7001, t=1).
-	idA, err := m.ChunkInsertOrGetCozeID(context.Background(), "chunk-race", "doc-r", 50, allocA, 1)
+	idA, err := m.ChunkInsertOrGetCozeID(context.Background(), "chunk-race", "doc-r", 50, 0, allocA, 1)
 	require.NoError(t, err)
 	require.Equal(t, int64(7001), idA)
 
@@ -443,7 +444,7 @@ func TestChunkMapping_InsertOrGetCozeID_ConcurrentRace(t *testing.T) {
 
 	// Now any subsequent caller -- including B's eventual re-resolve --
 	// converges on 7001 (earliest).
-	idC, err := m.ChunkInsertOrGetCozeID(context.Background(), "chunk-race", "doc-r", 50, func(_ context.Context) (int64, error) {
+	idC, err := m.ChunkInsertOrGetCozeID(context.Background(), "chunk-race", "doc-r", 50, 0, func(_ context.Context) (int64, error) {
 		t.Fatal("must not allocate on third call -- mapping already present")
 		return 0, nil
 	}, 3)
