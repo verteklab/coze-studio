@@ -47,7 +47,12 @@ type contextKey string
 const chatHistoryKey contextKey = "chatHistory"
 
 type RetrieveConfig struct {
-	KnowledgeIDs       []int64
+	KnowledgeIDs []int64
+	// DocumentIDs is an optional filter applied at the top-level RetrieveRequest
+	// (NOT on RetrievalStrategy). When empty, rag returns chunks across the
+	// entire KB; when set, results are limited to the listed documents. Sourced
+	// from the `documentIDs` datasetParam emitted by the workflow UI (R2-I).
+	DocumentIDs        []int64
 	RetrievalStrategy  *knowledge.RetrievalStrategy
 	ChatHistorySetting *vo.ChatHistorySetting
 }
@@ -136,6 +141,27 @@ func (r *RetrieveConfig) Adapt(_ context.Context, n *vo.Node, _ ...nodes.AdaptOp
 		retrievalStrategy.MinScore = &minScore
 	}
 
+	if content, ok := getDesignatedParamContent("documentIDs"); ok {
+		raw, ok := content.([]any)
+		if !ok {
+			return nil, errors.New("documentIDs param must be a list")
+		}
+		docIDs := make([]int64, 0, len(raw))
+		for _, id := range raw {
+			v, err := cast.ToInt64E(id)
+			if err != nil {
+				return nil, err
+			}
+			docIDs = append(docIDs, v)
+		}
+		// Leave nil when the UI sent an explicitly empty list -- that means
+		// "no filter", same as the param being absent. Forwarding [] to rag
+		// would otherwise zero-out the result set.
+		if len(docIDs) > 0 {
+			r.DocumentIDs = docIDs
+		}
+	}
+
 	if content, ok := getDesignatedParamContent("strategy"); ok {
 		strategy, err := cast.ToInt64E(content)
 		if err != nil {
@@ -172,6 +198,7 @@ func (r *RetrieveConfig) Build(_ context.Context, _ *schema.NodeSchema, _ ...sch
 
 	return &Retrieve{
 		knowledgeIDs:       r.KnowledgeIDs,
+		documentIDs:        r.DocumentIDs,
 		retrievalStrategy:  r.RetrievalStrategy,
 		ChatHistorySetting: r.ChatHistorySetting,
 	}, nil
@@ -189,7 +216,11 @@ func (c *RetrieveConfig) ChatHistoryRounds() int64 {
 }
 
 type Retrieve struct {
-	knowledgeIDs       []int64
+	knowledgeIDs []int64
+	// documentIDs is the optional list of rag document IDs the user picked in the
+	// node config. Forwarded as RetrieveRequest.DocumentIDs (top-level, not
+	// RetrievalStrategy) per crossdomain/knowledge/model.RetrieveRequest.
+	documentIDs        []int64
 	retrievalStrategy  *knowledge.RetrievalStrategy
 	ChatHistorySetting *vo.ChatHistorySetting
 }
@@ -203,6 +234,7 @@ func (kr *Retrieve) Invoke(ctx context.Context, input map[string]any) (map[strin
 	req := &knowledge.RetrieveRequest{
 		Query:        query,
 		KnowledgeIDs: kr.knowledgeIDs,
+		DocumentIDs:  kr.documentIDs,
 		ChatHistory:  kr.GetChatHistoryOrNil(ctx, kr.ChatHistorySetting),
 		Strategy:     kr.retrievalStrategy,
 	}

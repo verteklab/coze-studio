@@ -85,6 +85,10 @@ export function transformOnInit(value) {
       .value.content as boolean,
     is_personal_only: datasetParam.find(item => item.name === 'isPersonalOnly')
       ?.input.value.content as boolean,
+    // R2-I: optional list filter. Falls back to undefined (== "all docs")
+    // rather than [] so consumers don't misread an empty array.
+    document_ids: datasetParam.find(item => item.name === 'documentIDs')?.input
+      .value.content as number[] | undefined,
   };
 
   return formData;
@@ -163,6 +167,21 @@ export function transformOnSubmit(value) {
         },
       },
     });
+  }
+
+  // R2-I: documentIDs filter. Backend reads this as RetrieveRequest.DocumentIDs
+  // (top-level, NOT on RetrievalStrategy) and forwards to rag /retrieval. An
+  // empty / missing list means "no filter": forward nothing so rag returns
+  // chunks across the entire KB.
+  if (
+    Array.isArray(datasetSetting?.document_ids) &&
+    datasetSetting.document_ids.length > 0
+  ) {
+    actualData.inputs.datasetParam.push(
+      BlockInput.createArray('documentIDs', datasetSetting.document_ids, {
+        type: 'integer',
+      }),
+    );
   }
 
   // Added search policy configuration, there may be no strategy data not in grey release

@@ -27,7 +27,12 @@ import { IconWarningInfo } from '@coze-arch/bot-icons';
 
 import { CheckboxWithLabel } from '../checkbox-with-label';
 import { Strategy, type DataSetInfo } from './type';
-import { TitleArea, SliderArea, SearchStrategy } from './components';
+import {
+  TitleArea,
+  SliderArea,
+  SearchStrategy,
+  DocumentIDsSelect,
+} from './components';
 
 import s from './index.module.less';
 
@@ -65,6 +70,7 @@ export const DataSetSetting: FC<DataSetSettingProps> = ({
     use_rerank: useRerank,
     use_rewrite: useRewrite,
     is_personal_only: isPersonalOnly,
+    document_ids: documentIDs,
   } = dataSetInfo || {};
 
   const isDatasetWriteActive = true;
@@ -345,6 +351,41 @@ export const DataSetSetting: FC<DataSetSettingProps> = ({
       ) : (
         <></>
       )}
+
+      <div className={s['setting-item']}>
+        <TitleArea
+          title={I18n.t(
+            'workflow_detail_knowledge_document_filter_title',
+            {},
+            'Filter by document',
+          )}
+          tip={I18n.t(
+            'workflow_detail_knowledge_document_filter_tooltip',
+            {},
+            'Restrict retrieval to specific documents in the selected KBs. Leave empty to search all documents.',
+          )}
+        />
+        <DocumentIDsSelect
+          datasetIDs={(dataSets ?? [])
+            .map(d => d?.dataset_id)
+            .filter((id): id is string => !!id)}
+          value={documentIDs}
+          readonly={readonly}
+          disabled={disabled}
+          onChange={next => {
+            if (!next || next.length === 0) {
+              onDataSetInfoChange(
+                omit(dataSetInfo, ['document_ids']) as DataSetInfo,
+              );
+            } else {
+              onDataSetInfoChange({
+                ...dataSetInfo,
+                document_ids: next,
+              });
+            }
+          }}
+        />
+      </div>
       {isDatasetWriteActive && isContainSqlDataSet ? (
         <div className={s['setting-item']}>
           <CheckboxWithLabel
