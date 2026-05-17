@@ -357,12 +357,12 @@ export const DataSetSetting: FC<DataSetSettingProps> = ({
           title={I18n.t(
             'workflow_detail_knowledge_document_filter_title',
             {},
-            'Filter by document',
+            '按文档过滤',
           )}
           tip={I18n.t(
             'workflow_detail_knowledge_document_filter_tooltip',
             {},
-            'Restrict retrieval to specific documents in the selected KBs. Leave empty to search all documents.',
+            '将检索范围限制在所选知识库的指定文档内。留空则检索所有文档。',
           )}
         />
         <DocumentIDsSelect
