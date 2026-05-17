@@ -22,8 +22,8 @@ import { useNodeTestId } from '@coze-workflow/base';
 import { RewriteTips, RerankTips } from '@coze-common/biz-tooltip-ui';
 import { type Dataset, FormatType } from '@coze-arch/idl/knowledge';
 import { I18n } from '@coze-arch/i18n';
-import { IconWarningInfo } from '@coze-arch/bot-icons';
 import { Popover } from '@coze-arch/coze-design';
+import { IconWarningInfo } from '@coze-arch/bot-icons';
 
 import { CheckboxWithLabel } from '../checkbox-with-label';
 import { Strategy, type DataSetInfo } from './type';
@@ -165,22 +165,24 @@ export const DataSetSetting: FC<DataSetSettingProps> = ({
     }
   }, [dataSets, isReady, setDatasetEmpty]);
 
-  const [minScoreVisible, setMinScoreVisible] = useState(true);
-
+  // MinScore is available whenever a dataset is selected and the strategy supports
+  // a score axis (i.e. not full-text BM25). The previous gating to `useRerank`
+  // hid the slider on the rag backend where rerank is optional but min_score
+  // still applies. See R2-J spec.
   useEffect(() => {
-    setMinScoreVisible(!!useRerank);
-    let nextDataSetInfo: DataSetInfo;
-    if (!useRerank) {
-      nextDataSetInfo = omit(dataSetInfo, ['min_score']);
-      onDataSetInfoChange?.(nextDataSetInfo);
-    } else if (useRerank && isNil(minScore)) {
-      nextDataSetInfo = {
+    if (strategy === Strategy.FullText) {
+      if (!isNil(minScore)) {
+        onDataSetInfoChange?.(omit(dataSetInfo, ['min_score']) as DataSetInfo);
+      }
+      return;
+    }
+    if (isNil(minScore)) {
+      onDataSetInfoChange?.({
         ...dataSetInfo,
         min_score: DEFAULT_MIN_SCORE,
-      };
-      onDataSetInfoChange?.(nextDataSetInfo);
+      });
     }
-  }, [useRerank, setMinScoreVisible]);
+  }, [strategy]);
 
   const [topKSuggestVisible, setTopKSuggestVisible] = useState(false);
 
@@ -301,7 +303,7 @@ export const DataSetSetting: FC<DataSetSettingProps> = ({
         </Popover>
       </div>
 
-      {minScoreVisible && strategy !== Strategy.FullText ? (
+      {strategy !== Strategy.FullText ? (
         <div className={s['setting-item']}>
           <TitleArea
             title={I18n.t('dataset_min_degree')}
