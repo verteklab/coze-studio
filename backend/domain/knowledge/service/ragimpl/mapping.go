@@ -64,6 +64,7 @@ type ChunkMapping struct {
 	RagChunkID  string
 	RagDocID    string
 	CozeDocID   int64
+	CreatorID   int64
 }
 
 type MappingRepo struct {
@@ -363,10 +364,11 @@ func (m *MappingRepo) ChunkByCozeID(ctx context.Context, cozeSliceID int64) (*Ch
 		RagChunkID  string `gorm:"column:rag_chunk_id"`
 		RagDocID    string `gorm:"column:rag_doc_id"`
 		CozeDocID   int64  `gorm:"column:coze_doc_id"`
+		CreatorID   int64  `gorm:"column:creator_id"`
 	}
 	err := m.db.WithContext(ctx).
 		Table("rag_chunk_mapping").
-		Select("coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id").
+		Select("coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id, creator_id").
 		Where("coze_slice_id = ? AND (deleted_at IS NULL)", cozeSliceID).
 		Take(&row).Error
 	if err != nil {
@@ -378,6 +380,7 @@ func (m *MappingRepo) ChunkByCozeID(ctx context.Context, cozeSliceID int64) (*Ch
 	return &ChunkMapping{
 		CozeSliceID: row.CozeSliceID, RagChunkID: row.RagChunkID,
 		RagDocID: row.RagDocID, CozeDocID: row.CozeDocID,
+		CreatorID: row.CreatorID,
 	}, nil
 }
 
@@ -391,10 +394,11 @@ func (m *MappingRepo) ChunkByRagID(ctx context.Context, ragChunkID string) (*Chu
 		RagChunkID  string `gorm:"column:rag_chunk_id"`
 		RagDocID    string `gorm:"column:rag_doc_id"`
 		CozeDocID   int64  `gorm:"column:coze_doc_id"`
+		CreatorID   int64  `gorm:"column:creator_id"`
 	}
 	err := m.db.WithContext(ctx).
 		Table("rag_chunk_mapping").
-		Select("coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id").
+		Select("coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id, creator_id").
 		Where("rag_chunk_id = ? AND (deleted_at IS NULL)", ragChunkID).
 		Order("created_at ASC, coze_slice_id ASC").
 		Take(&row).Error
@@ -407,6 +411,7 @@ func (m *MappingRepo) ChunkByRagID(ctx context.Context, ragChunkID string) (*Chu
 	return &ChunkMapping{
 		CozeSliceID: row.CozeSliceID, RagChunkID: row.RagChunkID,
 		RagDocID: row.RagDocID, CozeDocID: row.CozeDocID,
+		CreatorID: row.CreatorID,
 	}, nil
 }
 
@@ -419,10 +424,11 @@ func (m *MappingRepo) ChunksByCozeIDs(ctx context.Context, ids []int64) ([]*Chun
 		RagChunkID  string `gorm:"column:rag_chunk_id"`
 		RagDocID    string `gorm:"column:rag_doc_id"`
 		CozeDocID   int64  `gorm:"column:coze_doc_id"`
+		CreatorID   int64  `gorm:"column:creator_id"`
 	}
 	err := m.db.WithContext(ctx).
 		Table("rag_chunk_mapping").
-		Select("coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id").
+		Select("coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id, creator_id").
 		Where("coze_slice_id IN ? AND (deleted_at IS NULL)", ids).
 		Scan(&rows).Error
 	if err != nil {
@@ -433,6 +439,7 @@ func (m *MappingRepo) ChunksByCozeIDs(ctx context.Context, ids []int64) ([]*Chun
 		out = append(out, &ChunkMapping{
 			CozeSliceID: r.CozeSliceID, RagChunkID: r.RagChunkID,
 			RagDocID: r.RagDocID, CozeDocID: r.CozeDocID,
+			CreatorID: r.CreatorID,
 		})
 	}
 	return out, nil
@@ -448,10 +455,11 @@ func (m *MappingRepo) ChunksByCozeDocID(ctx context.Context, cozeDocID int64) ([
 		RagChunkID  string `gorm:"column:rag_chunk_id"`
 		RagDocID    string `gorm:"column:rag_doc_id"`
 		CozeDocID   int64  `gorm:"column:coze_doc_id"`
+		CreatorID   int64  `gorm:"column:creator_id"`
 	}
 	err := m.db.WithContext(ctx).
 		Table("rag_chunk_mapping").
-		Select("coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id").
+		Select("coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id, creator_id").
 		Where("coze_doc_id = ? AND (deleted_at IS NULL)", cozeDocID).
 		Order("created_at ASC, coze_slice_id ASC").
 		Scan(&rows).Error
@@ -463,6 +471,7 @@ func (m *MappingRepo) ChunksByCozeDocID(ctx context.Context, cozeDocID int64) ([
 		out = append(out, &ChunkMapping{
 			CozeSliceID: r.CozeSliceID, RagChunkID: r.RagChunkID,
 			RagDocID: r.RagDocID, CozeDocID: r.CozeDocID,
+			CreatorID: r.CreatorID,
 		})
 	}
 	return out, nil
@@ -471,9 +480,9 @@ func (m *MappingRepo) ChunksByCozeDocID(ctx context.Context, cozeDocID int64) ([
 func (m *MappingRepo) ChunkInsert(ctx context.Context, mp *ChunkMapping, nowMs int64) error {
 	return m.db.WithContext(ctx).Exec(
 		`INSERT INTO rag_chunk_mapping
-		 (coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id, created_at)
-		 VALUES (?, ?, ?, ?, ?)`,
-		mp.CozeSliceID, mp.RagChunkID, mp.RagDocID, mp.CozeDocID, nowMs,
+		 (coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id, creator_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		mp.CozeSliceID, mp.RagChunkID, mp.RagDocID, mp.CozeDocID, mp.CreatorID, nowMs,
 	).Error
 }
 
@@ -500,7 +509,7 @@ func (m *MappingRepo) ChunkSoftDelete(ctx context.Context, cozeSliceID int64) er
 func (m *MappingRepo) ChunkInsertOrGetCozeID(
 	ctx context.Context,
 	ragChunkID, ragDocID string,
-	cozeDocID int64,
+	cozeDocID, creatorID int64,
 	allocID func(context.Context) (int64, error),
 	nowMs int64,
 ) (int64, error) {
@@ -516,6 +525,7 @@ func (m *MappingRepo) ChunkInsertOrGetCozeID(
 	if err := m.ChunkInsert(ctx, &ChunkMapping{
 		CozeSliceID: cozeSliceID, RagChunkID: ragChunkID,
 		RagDocID: ragDocID, CozeDocID: cozeDocID,
+		CreatorID: creatorID,
 	}, nowMs); err != nil {
 		return 0, err
 	}

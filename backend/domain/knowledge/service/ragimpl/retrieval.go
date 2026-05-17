@@ -124,13 +124,18 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 			// post-process the returned slices.
 			ragReq.MaxTokens = &mt
 		}
+		// Rag's accepted search_type values are dense / bm25 / hybrid /
+		// image_vector (see rag/app/core/constants.py SUPPORTED_SEARCH_TYPES).
+		// Earlier "semantic" / "fulltext" labels were rag-side legacy and were
+		// dropped; "semantic" now hits 40004 "unsupported search_type". Map to
+		// the current vocabulary explicitly.
 		switch req.Strategy.SearchType {
 		case knowledgeModel.SearchTypeFullText:
-			ragReq.SearchType = "fulltext"
+			ragReq.SearchType = "bm25"
 		case knowledgeModel.SearchTypeHybrid:
 			ragReq.SearchType = "hybrid"
 		default:
-			ragReq.SearchType = "semantic"
+			ragReq.SearchType = "dense"
 		}
 		if req.Strategy.EnableQueryRewrite {
 			if i.defaultLLMModelID != "" {
@@ -190,10 +195,10 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 			logs.CtxWarnf(ctx, "ragimpl.Retrieve: docByRagID(%s) failed, skipping hit: %v", h.DocID, err)
 			continue
 		}
-		cozeSliceID := i.resolveCozeSliceID(ctx, h.ChunkID, h.DocID, m.CozeID)
+		cozeSliceID := i.resolveCozeSliceID(ctx, h.ChunkID, h.DocID, m.CozeID, m.CreatorID)
 		text := h.Content
 		s := &knowledgeModel.Slice{
-			Info:        knowledgeModel.Info{ID: cozeSliceID},
+			Info:        knowledgeModel.Info{ID: cozeSliceID, CreatorID: m.CreatorID},
 			KnowledgeID: m.KBID,
 			DocumentID:  m.CozeID,
 			RawContent:  []*knowledgeModel.SliceContent{{Type: knowledgeModel.SliceContentTypeText, Text: &text}},

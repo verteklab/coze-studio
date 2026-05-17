@@ -101,8 +101,8 @@ func rawContentToChunkPayload(rc []*knowledgeModel.SliceContent) (string, string
 // surface degradation matches the pre-R2-G behaviour for callers that didn't
 // rely on a non-zero id; callers that do rely on it (UI re-edit, retrieval
 // citation linking) will see a graceful "no id yet" state on the next call.
-func (i *Impl) resolveCozeSliceID(ctx context.Context, ragChunkID, ragDocID string, cozeDocID int64) int64 {
-	id, err := i.mapping.ChunkInsertOrGetCozeID(ctx, ragChunkID, ragDocID, cozeDocID, i.idgen.GenID, time.Now().UnixMilli())
+func (i *Impl) resolveCozeSliceID(ctx context.Context, ragChunkID, ragDocID string, cozeDocID, creatorID int64) int64 {
+	id, err := i.mapping.ChunkInsertOrGetCozeID(ctx, ragChunkID, ragDocID, cozeDocID, creatorID, i.idgen.GenID, time.Now().UnixMilli())
 	if err != nil {
 		logs.CtxWarnf(ctx, "ragimpl: ChunkInsertOrGetCozeID(rag_chunk_id=%s) failed; slice id will be 0: %v", ragChunkID, err)
 		return 0
@@ -114,11 +114,12 @@ func (i *Impl) resolveCozeSliceID(ctx context.Context, ragChunkID, ragDocID stri
 // already-resolved coze doc id. The caller is responsible for resolving the
 // chunk's int64 id (via resolveCozeSliceID) so that test paths and concrete
 // callers share the same backfill semantics.
-func buildSliceFromChunk(c *contract.Chunk, cozeSliceID, cozeDocID, cozeKBID int64) *entity.Slice {
+func buildSliceFromChunk(c *contract.Chunk, cozeSliceID, cozeDocID, cozeKBID, creatorID int64) *entity.Slice {
 	s := &entity.Slice{
 		Info: knowledgeModel.Info{
-			ID:   cozeSliceID,
-			Name: c.DocName,
+			ID:        cozeSliceID,
+			Name:      c.DocName,
+			CreatorID: creatorID,
 		},
 		KnowledgeID:  cozeKBID,
 		DocumentID:   cozeDocID,
@@ -207,16 +208,19 @@ func (i *Impl) CreateSlice(ctx context.Context, req *service.CreateSliceRequest)
 		Content:   content,
 		Image:     image,
 	}
-	if req.Position > 0 {
-		// Slice.Position is an int64 sequence index (1-based in coze); rag's
-		// sequence_index is the absolute insertion point (0-based or higher).
-		// Forward as-is; rag's pydantic validator enforces ge=0.
-		seq := int(req.Position)
-		ragReq.Position = &contract.ChunkPosition{SequenceIndex: &seq}
+	// Frontend sends 0-based sequence_index where 0 means "insert at the top
+	// (shift existing chunks down)". The earlier `> 0` guard treated 0 as
+	// "unset" and dropped it, which broke the "insert above first chunk" path
+	// -- the new chunk silently appended to the end instead. Forward
+	// unconditionally; rag's pydantic validator (ge=0) covers negative values.
+	seq := int(req.Position)
+	if seq < 0 {
+		seq = 0
 	}
-	if req.CreatorID != 0 {
-		ragReq.Metadata = map[string]any{"creator_id": req.CreatorID, "source": "manual"}
-	}
+	ragReq.Position = &contract.ChunkPosition{SequenceIndex: &seq}
+	// Creator tracking lives in coze-side rag_chunk_mapping.creator_id (Bug 1
+	// fix). Rag's `source` is a reserved metadata key, and rag has its own
+	// notion of authorship; sending either would 40001. Leave Metadata nil.
 
 	ragChunk, err := i.rag.CreateChunk(ctx, tenant, kbMapping.RagKBID, docMapping.RagDocID, ragReq)
 	if err != nil {
@@ -232,6 +236,7 @@ func (i *Impl) CreateSlice(ctx context.Context, req *service.CreateSliceRequest)
 		RagChunkID:  ragChunk.ChunkID,
 		RagDocID:    docMapping.RagDocID,
 		CozeDocID:   req.DocumentID,
+		CreatorID:   req.CreatorID,
 	}, time.Now().UnixMilli()); err != nil {
 		logs.CtxWarnf(ctx, "ragimpl.CreateSlice: ChunkInsert(rag_chunk_id=%s) failed after rag accepted chunk; lazy backfill on next read will recover: %v", ragChunk.ChunkID, err)
 		return nil, err
@@ -336,7 +341,7 @@ func (i *Impl) GetSlice(ctx context.Context, req *service.GetSliceRequest) (*ser
 	if err != nil {
 		return nil, err
 	}
-	s := buildSliceFromChunk(ragChunk, cm.CozeSliceID, cm.CozeDocID, docMapping.KBID)
+	s := buildSliceFromChunk(ragChunk, cm.CozeSliceID, cm.CozeDocID, docMapping.KBID, cm.CreatorID)
 	return &service.GetSliceResponse{Slice: s}, nil
 }
 
@@ -435,7 +440,7 @@ func (i *Impl) MGetSlice(ctx context.Context, req *service.MGetSliceRequest) (*s
 				// rag returned a chunk we did not ask for; defensive.
 				continue
 			}
-			out = append(out, buildSliceFromChunk(&item.Chunk, cm.CozeSliceID, dm.CozeID, cozeKBID))
+			out = append(out, buildSliceFromChunk(&item.Chunk, cm.CozeSliceID, dm.CozeID, cozeKBID, cm.CreatorID))
 		}
 	}
 	return &service.MGetSliceResponse{Slices: out}, nil
@@ -489,8 +494,8 @@ func (i *Impl) ListSlice(ctx context.Context, req *service.ListSliceRequest) (*s
 	out := make([]*entity.Slice, 0, len(resp.Items))
 	for idx := range resp.Items {
 		c := &resp.Items[idx]
-		cozeSliceID := i.resolveCozeSliceID(ctx, c.ChunkID, docMapping.RagDocID, *req.DocumentID)
-		out = append(out, buildSliceFromChunk(c, cozeSliceID, *req.DocumentID, docMapping.KBID))
+		cozeSliceID := i.resolveCozeSliceID(ctx, c.ChunkID, docMapping.RagDocID, *req.DocumentID, docMapping.CreatorID)
+		out = append(out, buildSliceFromChunk(c, cozeSliceID, *req.DocumentID, docMapping.KBID, docMapping.CreatorID))
 	}
 	hasMore := resp.Total > q.Page*q.PageSize
 	return &service.ListSliceResponse{
@@ -570,8 +575,8 @@ func (i *Impl) ListPhotoSlice(ctx context.Context, req *service.ListPhotoSliceRe
 				continue
 			}
 		}
-		cozeSliceID := i.resolveCozeSliceID(ctx, c.ChunkID, c.DocID, dm.CozeID)
-		out = append(out, buildSliceFromChunk(c, cozeSliceID, dm.CozeID, dm.KBID))
+		cozeSliceID := i.resolveCozeSliceID(ctx, c.ChunkID, c.DocID, dm.CozeID, dm.CreatorID)
+		out = append(out, buildSliceFromChunk(c, cozeSliceID, dm.CozeID, dm.KBID, dm.CreatorID))
 	}
 	return &service.ListPhotoSliceResponse{
 		Slices: out,

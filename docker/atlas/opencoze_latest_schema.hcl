@@ -1961,6 +1961,13 @@ table "rag_chunk_mapping" {
     unsigned = true
     comment  = "owning coze document (FK to rag_doc_mapping.coze_doc_id)"
   }
+  column "creator_id" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+    comment  = "coze uid that created or owns this chunk; 0 for chunks materialised by lazy backfill where the doc-level creator is unknown"
+  }
   column "created_at" {
     null     = false
     type     = bigint

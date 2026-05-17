@@ -232,6 +232,20 @@ func (i *Impl) DeleteDocument(ctx context.Context, req *service.DeleteDocumentRe
 // Phase 1: page/page-size come from req.Limit/Offset if present; otherwise we
 // ask rag for a generous first page. Cursor-based pagination is not wired.
 func (i *Impl) ListDocument(ctx context.Context, req *service.ListDocumentRequest) (*service.ListDocumentResponse, error) {
+	// Per-doc lookup mode: callers that only pass DocumentIDs (no KnowledgeID)
+	// expect a "fetch these documents by id" semantics, not a paginated KB list.
+	// Delegate to MGetDocument so per-doc mapping resolution happens (the
+	// KB-scoped path below would fail at KBByCozeID(0)).
+	if req.KnowledgeID == 0 && len(req.DocumentIDs) > 0 {
+		mResp, err := i.MGetDocument(ctx, &service.MGetDocumentRequest{DocumentIDs: req.DocumentIDs})
+		if err != nil {
+			return nil, err
+		}
+		return &service.ListDocumentResponse{
+			Documents: mResp.Documents,
+			Total:     int64(len(mResp.Documents)),
+		}, nil
+	}
 	kbMapping, err := i.mapping.KBByCozeID(ctx, req.KnowledgeID)
 	if err != nil {
 		return nil, err
