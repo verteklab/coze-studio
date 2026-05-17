@@ -148,13 +148,9 @@ export const DocumentIDsSelect: FC<DocumentIDsSelectProps> = ({
       placeholder={I18n.t(
         'workflow_detail_knowledge_document_filter_placeholder',
         {},
-        'Filter by document (leave empty for all)',
+        '选择要过滤的文档（留空则检索全部）',
       )}
-      emptyContent={I18n.t(
-        'workflow_detail_node_nodata',
-        {},
-        'No documents available',
-      )}
+      emptyContent={I18n.t('workflow_detail_node_nodata', {}, '暂无可选文档')}
       onChange={next => {
         const arr = (next as string[] | undefined) ?? [];
         onChange(arr.length === 0 ? undefined : arr);
