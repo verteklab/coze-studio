@@ -17,9 +17,24 @@
 package rag
 
 import (
+	"errors"
 	"strings"
 	"testing"
+
+	"github.com/coze-dev/coze-studio/backend/pkg/errorx"
+	"github.com/coze-dev/coze-studio/backend/types/errno"
 )
+
+// codeOf extracts the coze status code from a MapRagError-returned error so
+// tests can assert the precise mapping (not just message preservation).
+func codeOf(t *testing.T, err error) int32 {
+	t.Helper()
+	var se errorx.StatusError
+	if !errors.As(err, &se) {
+		t.Fatalf("expected errorx.StatusError, got %T: %v", err, err)
+	}
+	return se.Code()
+}
 
 func TestMapRagError_InvalidParam(t *testing.T) {
 	err := MapRagError(400, 40001, "missing field")
@@ -56,5 +71,40 @@ func TestMapRagError_Fallback(t *testing.T) {
 	err := MapRagError(500, 50001, "internal")
 	if !strings.Contains(err.Error(), "rag=50001") {
 		t.Fatalf("got %v", err)
+	}
+}
+
+// TestMapRagError_DocumentStatusConflict locks the 40902 mapping. Before this
+// fix, "document status doesn't allow this operation" surfaced as the coze
+// code 105000010 "knowledge name duplicate", which was nonsense for the
+// caller. The fix routes 40902 to ErrKnowledgeDocNotReadyCode.
+func TestMapRagError_DocumentStatusConflict(t *testing.T) {
+	err := MapRagError(409, 40902, "doc not ready")
+	if got, want := codeOf(t, err), int32(errno.ErrKnowledgeDocNotReadyCode); got != want {
+		t.Fatalf("40902 mapping: got code %d, want %d", got, want)
+	}
+	if !strings.Contains(err.Error(), "rag 40902") {
+		t.Fatalf("err must preserve rag code in message: %v", err)
+	}
+}
+
+// TestMapRagError_KBNameConflict_StaysDuplicate ensures the 40901 case still
+// uses ErrKnowledgeDuplicateCode (it was previously the only 409 we mapped,
+// and the explicit switch must preserve that behavior).
+func TestMapRagError_KBNameConflict_StaysDuplicate(t *testing.T) {
+	err := MapRagError(409, 40901, "name taken")
+	if got, want := codeOf(t, err), int32(errno.ErrKnowledgeDuplicateCode); got != want {
+		t.Fatalf("40901 mapping: got code %d, want %d", got, want)
+	}
+}
+
+// TestMapRagError_ContentTypeKBConflict checks 40904 is a param error, not a
+// duplicate. Rag's CONTENT_TYPE_KB_CONFLICT means the request asked for a
+// chunk_type / source_modality the KB wasn't configured for -- a capability
+// mismatch.
+func TestMapRagError_ContentTypeKBConflict(t *testing.T) {
+	err := MapRagError(409, 40904, "image_chunk not enabled")
+	if got, want := codeOf(t, err), int32(errno.ErrKnowledgeInvalidParamCode); got != want {
+		t.Fatalf("40904 mapping: got code %d, want %d", got, want)
 	}
 }
