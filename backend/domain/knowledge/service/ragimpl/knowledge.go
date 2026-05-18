@@ -18,6 +18,7 @@ package ragimpl
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	knowledgeModel "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
@@ -275,6 +276,46 @@ func (i *Impl) ListKnowledge(ctx context.Context, req *service.ListKnowledgeRequ
 	if err != nil {
 		return nil, err
 	}
+
+	// By-id path. Application-layer callers (CreateDocument's owner check,
+	// DatasetDetail, etc.) pass a specific ID set and then index [0] of the
+	// response, so the result must be the exact KB(s) requested. rag's
+	// /knowledgebases endpoint has no by-id filter, so we resolve each coze
+	// id to its rag UUID via the mapping table and fetch one at a time.
+	//
+	// Without this path the function fell through to ListKBs and silently
+	// returned tenant-wide pages, causing every ownership check to see the
+	// first KB in the tenant — wrong the moment a tenant contained more
+	// than one KB.
+	if len(req.IDs) > 0 {
+		out := make([]*knowledgeModel.Knowledge, 0, len(req.IDs))
+		for _, cozeID := range req.IDs {
+			m, err := i.mapping.KBByCozeID(ctx, cozeID)
+			if err != nil {
+				if errors.Is(err, ErrMappingNotFound) {
+					// Mirror the list-all branch: unknown mapping is "not
+					// owned by this deployment", not a hard error.
+					continue
+				}
+				return nil, err
+			}
+			kb, err := i.rag.GetKB(ctx, tenant, m.RagKBID)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, hydrateKnowledge(kb, m))
+		}
+		return &service.ListKnowledgeResponse{
+			KnowledgeList: out,
+			Total:         int64(len(out)),
+		}, nil
+	}
+
+	// NOTE: other req fields (SpaceID, AppID, Name, Status, UserID, Query,
+	// Order*, FormatType) are not yet honoured by ragimpl — they were
+	// unimplemented before this patch too. Filed as known gap; current
+	// callers either rely on IDs or accept the unfiltered tenant page.
+
 	page, pageSize := 1, 20
 	if req.Page != nil && *req.Page > 0 {
 		page = *req.Page

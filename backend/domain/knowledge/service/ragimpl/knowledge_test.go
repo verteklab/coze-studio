@@ -529,6 +529,62 @@ func TestRagimpl_GetCapabilities_MissingMapping(t *testing.T) {
 	require.False(t, called, "rag client should NOT be called when mapping is missing")
 }
 
+// TestListKnowledge_ByIDs_OwnerCheckIntegrity is the regression test for the
+// rag-mode permission-denied bug: when CreateDocument / DatasetDetail call
+// ListKnowledge with a specific IDs filter, the response must contain exactly
+// those KBs with their correct CreatorID, not the first KB in the tenant.
+// Before the fix, ListKnowledge ignored req.IDs and paged the whole tenant,
+// causing every owner check to use whichever KB rag returned first.
+func TestListKnowledge_ByIDs_OwnerCheckIntegrity(t *testing.T) {
+	getKBCalls := 0
+	listKBsCalled := false
+	fc := &fakeClient{
+		getKBFunc: func(_, kbID string) (*contract.KB, error) {
+			getKBCalls++
+			return &contract.KB{KBID: kbID, Name: "kb-" + kbID, Status: "active", CreatedAt: contract.RagTime(time.Unix(0, 0)), UpdatedAt: contract.RagTime(time.Unix(0, 0))}, nil
+		},
+		listKBsFunc: func(_ *contract.ListKBsRequest) (*contract.ListKBsResponse, error) {
+			listKBsCalled = true
+			return &contract.ListKBsResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+
+	// Seed two mappings owned by different users. The pre-fix code would have
+	// surfaced one of them at [0] regardless of which ID was requested.
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 1001, "rag-uuid-a", "icon-a", 0, 11, 0))
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 1002, "rag-uuid-b", "icon-b", 0, 22, 0))
+
+	resp, err := i.ListKnowledge(context.Background(), &service.ListKnowledgeRequest{IDs: []int64{1001}})
+	require.NoError(t, err)
+	require.Len(t, resp.KnowledgeList, 1, "by-id query must return exactly the requested KB")
+	require.Equal(t, int64(1001), resp.KnowledgeList[0].Info.ID)
+	require.Equal(t, int64(11), resp.KnowledgeList[0].Info.CreatorID, "must hydrate from the requested mapping, not the first KB in the tenant")
+	require.Equal(t, "kb-rag-uuid-a", resp.KnowledgeList[0].Info.Name, "must fetch the rag UUID derived from the requested coze id")
+	require.Equal(t, 1, getKBCalls, "should issue exactly one rag.GetKB per requested id")
+	require.False(t, listKBsCalled, "by-id path must not fall through to ListKBs (which has no id filter)")
+}
+
+// TestListKnowledge_ByIDs_UnknownIDsSkipped mirrors the list-all branch's
+// behaviour: a coze id with no mapping row is "not owned by this deployment"
+// and should be skipped silently rather than aborting the whole call. This
+// protects callers that pass a mixed batch (e.g. open-api consumers) and
+// avoids leaking a hard error for what is really an authorisation no-op.
+func TestListKnowledge_ByIDs_UnknownIDsSkipped(t *testing.T) {
+	fc := &fakeClient{
+		getKBFunc: func(_, kbID string) (*contract.KB, error) {
+			return &contract.KB{KBID: kbID, Status: "active", CreatedAt: contract.RagTime(time.Unix(0, 0)), UpdatedAt: contract.RagTime(time.Unix(0, 0))}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 2001, "rag-uuid-x", "icon", 0, 7, 0))
+
+	resp, err := i.ListKnowledge(context.Background(), &service.ListKnowledgeRequest{IDs: []int64{2001, 9999}})
+	require.NoError(t, err)
+	require.Len(t, resp.KnowledgeList, 1, "unknown id should be skipped, not error")
+	require.Equal(t, int64(2001), resp.KnowledgeList[0].Info.ID)
+}
+
 // TestRagimpl_ListDocumentParameterSchemas verifies the pass-through
 // behavior: tenant resolver runs, no mapping lookup happens (rag's
 // endpoint is system-wide), and the rag client's return value
