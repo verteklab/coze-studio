@@ -61,7 +61,7 @@ export const createApiNodeInfo = (
           BlockInput.create('apiName', name),
           BlockInput.create('pluginID', plugin_id),
           BlockInput.create('pluginName', plugin_name),
-          BlockInput.create('pluginVersion', version_ts || ''),
+          BlockInput.create('pluginVersion', version_ts || '0'),
           BlockInput.create('tips', ''),
           BlockInput.create('outDocLink', ''),
         ],
