@@ -246,6 +246,14 @@ func TestCreateDocument_Multipart(t *testing.T) {
 		if fields["extra_metadata"] != `{"creator_id":42}` {
 			t.Errorf("extra_metadata = %q, want %q", fields["extra_metadata"], `{"creator_id":42}`)
 		}
+		// Fields that the request does not set must NOT appear on the wire so
+		// rag falls back to its per-schema defaults. pydantic with
+		// extra="forbid" would 422 on an empty string for these.
+		for _, k := range []string{"enable_ocr", "enable_image_embedding", "document_options"} {
+			if _, present := fields[k]; present {
+				t.Errorf("%s present (= %q) when request didn't set it; expected omitted", k, fields[k])
+			}
+		}
 
 		// Respond with a rag-shaped envelope.
 		_ = json.NewEncoder(w).Encode(map[string]any{
@@ -280,6 +288,72 @@ func TestCreateDocument_Multipart(t *testing.T) {
 	}
 	if resp.DocID != "d1" || resp.TaskID != "t1" || resp.Status != "pending" {
 		t.Errorf("decoded response = %+v, want {DocID:d1 TaskID:t1 Status:pending}", resp)
+	}
+}
+
+// TestCreateDocument_Multipart_ParsingFields locks the multipart wire shape
+// for the parsing-strategy fields added in Phase 1 of the RAG passthrough
+// work: enable_ocr / enable_image_embedding (form bools) and document_options
+// (JSON-string opaque blob). The handler asserts that each field reaches rag
+// exactly as the caller set it; the rendered "true"/"false" form matches what
+// FastAPI's bool coercion expects.
+func TestCreateDocument_Multipart_ParsingFields(t *testing.T) {
+	enableOCR := true
+	enableImg := false
+	docOpts := `{"extract_tables":true}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil {
+			t.Fatalf("Content-Type parse: %v", err)
+		}
+		mr := multipart.NewReader(r.Body, params["boundary"])
+		fields := map[string]string{}
+		for {
+			part, err := mr.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Fatalf("NextPart: %v", err)
+			}
+			body, err := io.ReadAll(part)
+			if err != nil {
+				t.Fatalf("read part %q: %v", part.FormName(), err)
+			}
+			if part.FormName() != "file" {
+				fields[part.FormName()] = string(body)
+			}
+		}
+		if fields["enable_ocr"] != "true" {
+			t.Errorf("enable_ocr = %q, want \"true\"", fields["enable_ocr"])
+		}
+		if fields["enable_image_embedding"] != "false" {
+			t.Errorf("enable_image_embedding = %q, want \"false\"", fields["enable_image_embedding"])
+		}
+		if fields["document_options"] != docOpts {
+			t.Errorf("document_options = %q, want %q", fields["document_options"], docOpts)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    0,
+			"message": "ok",
+			"data":    map[string]any{"doc_id": "d1", "task_id": "t1", "status": "pending"},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second, UploadTimeoutMs: 5000})
+	_, err := c.CreateDocument(context.Background(), "t1", "kb-1", &contract.CreateDocumentRequest{
+		FileBytes:            []byte("x"),
+		Filename:             "x.pdf",
+		FileType:             "pdf",
+		SourceModality:       "text_source",
+		EnableOCR:            &enableOCR,
+		EnableImageEmbedding: &enableImg,
+		DocumentOptions:      docOpts,
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument: %v", err)
 	}
 }
 

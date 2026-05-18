@@ -370,6 +370,21 @@ func (c *Client) CreateDocument(ctx context.Context, tenantID, kbID string, req 
 			return nil, fmt.Errorf("multipart write extra_metadata: %w", err)
 		}
 	}
+	if req.EnableOCR != nil {
+		if err := w.WriteField("enable_ocr", strconv.FormatBool(*req.EnableOCR)); err != nil {
+			return nil, fmt.Errorf("multipart write enable_ocr: %w", err)
+		}
+	}
+	if req.EnableImageEmbedding != nil {
+		if err := w.WriteField("enable_image_embedding", strconv.FormatBool(*req.EnableImageEmbedding)); err != nil {
+			return nil, fmt.Errorf("multipart write enable_image_embedding: %w", err)
+		}
+	}
+	if req.DocumentOptions != "" {
+		if err := w.WriteField("document_options", req.DocumentOptions); err != nil {
+			return nil, fmt.Errorf("multipart write document_options: %w", err)
+		}
+	}
 
 	if err := w.Close(); err != nil {
 		return nil, fmt.Errorf("multipart close: %w", err)

@@ -166,6 +166,18 @@ type CreateDocumentRequest struct {
 	// Optional: rag's extra_metadata form field. JSON-stringified by the
 	// caller; empty string means "omit the field".
 	ExtraMetadata string
+	// Optional: rag's enable_ocr form field. nil means "rag's per-schema
+	// default" (off for image/text, on for scanned_document).
+	EnableOCR *bool
+	// Optional: rag's enable_image_embedding form field. Only honored by
+	// image-source schemas; text-source parsers silently ignore it.
+	EnableImageEmbedding *bool
+	// Optional: rag's document_options form field. A JSON-stringified blob
+	// whose contents are validated per-schema by rag (so "extract_tables"
+	// only makes sense for pdf/docx schemas). Empty string means omit.
+	// See GET /api/v1/document-parameter-schemas for the per-schema fields
+	// each parser accepts.
+	DocumentOptions string
 }
 
 type CreateDocumentResponse struct {
