@@ -16,20 +16,32 @@
 
 /**
  * Rag-mode wizard steps for text local upload. Mirrors
- * {@link TextLocalAddUpdateStep} but drops SEGMENT_CLEANER + SEGMENT_PREVIEW
- * since rag has no document-review workflow and chunking is locked at
- * KB-creation time.
+ * {@link TextLocalAddUpdateStep} but drops SEGMENT_PREVIEW because rag has
+ * no document-review workflow.
+ *
+ * Phase 3 amendment: SEGMENT_CLEANER is back. The original RAG wizard
+ * stripped it on the assumption that "chunking is locked at KB-creation
+ * time," but rag's `POST /documents` actually accepts per-document
+ * chunk_size / chunk_overlap / document_options (verified against
+ * rag's openapi schemas). Without this step the user could not set OCR,
+ * table extraction, or chunk size per document.
  *
  * Numeric values are intentional and load-bearing:
  *   - The wizard engine (`UploadConfig<T extends number, R>` in
  *     knowledge-resource-processor-core) compares `currentStep === step.step`
  *     so the step type must be a `number`.
  *   - We reuse the legacy `<TextUpload />` step, which hardcodes
- *     `setCurrentStep(TextLocalAddUpdateStep.SEGMENT_CLEANER)` = 1 when the
- *     user clicks Next. Aligning `PROGRESS = 1` here means that handoff lands
- *     on the rag progress step without needing to fork the upload component.
+ *     `setCurrentStep(TextLocalAddUpdateStep.SEGMENT_CLEANER)` = 1 on Next;
+ *     aligning `SEGMENT_CLEANER = 1` here lands that handoff on our
+ *     segment step without forking <TextUpload />.
+ *   - We also reuse the legacy `<TextSegment />` step, whose Next button
+ *     hardcodes `setCurrentStep(TextLocalAddUpdateStep.SEGMENT_PREVIEW)` = 2;
+ *     aligning `PROGRESS = 2` here means that handoff lands directly on
+ *     PROGRESS (skipping the missing review step) without forking
+ *     <TextSegment />. This is the Phase-4-decision "skip review" wiring.
  */
 export enum TextLocalAddRagStep {
   UPLOAD = 0,
-  PROGRESS = 1,
+  SEGMENT_CLEANER = 1,
+  PROGRESS = 2,
 }

@@ -48,6 +48,13 @@ vi.mock('../steps', () => ({
   TextProgress: () => null,
 }));
 
+// The legacy `<TextSegment />` is reused as the SEGMENT_CLEANER step from
+// Phase 3 onward. Same stub strategy as the other step components above.
+vi.mock('../../add/steps/segment', () => ({
+  // eslint-disable-next-line @typescript-eslint/naming-convention -- mirror upstream PascalCase exports
+  TextSegment: () => null,
+}));
+
 // The store factory is referenced as `createStore` on the config but not
 // invoked here; stub to a no-op to avoid pulling in the full slice graph.
 vi.mock('../../add/store', () => ({
@@ -58,12 +65,15 @@ import { TextLocalAddRagStep } from '../constants';
 import { TextLocalAddRagConfig } from '../config';
 
 describe('TextLocalAddRagConfig', () => {
-  it('exposes exactly two steps in upload-then-progress order', () => {
-    expect(TextLocalAddRagConfig.steps).toHaveLength(2);
+  it('exposes three steps in upload→segment→progress order', () => {
+    expect(TextLocalAddRagConfig.steps).toHaveLength(3);
     expect(TextLocalAddRagConfig.steps[0].step).toBe(
       TextLocalAddRagStep.UPLOAD,
     );
     expect(TextLocalAddRagConfig.steps[1].step).toBe(
+      TextLocalAddRagStep.SEGMENT_CLEANER,
+    );
+    expect(TextLocalAddRagConfig.steps[2].step).toBe(
       TextLocalAddRagStep.PROGRESS,
     );
   });
@@ -74,12 +84,16 @@ describe('TextLocalAddRagConfig', () => {
     }
   });
 
-  it('aligns PROGRESS with the value legacy TextUpload pushes (1)', () => {
-    // Legacy `TextUpload` step calls
-    // `setCurrentStep(TextLocalAddUpdateStep.SEGMENT_CLEANER)` which is
-    // numeric 1. Rag wizard reuses that component as-is, so PROGRESS must
-    // equal 1 for the handoff to land on the right step.
-    expect(TextLocalAddRagStep.PROGRESS).toBe(1);
+  it('aligns step numeric values with the legacy components reused inside', () => {
+    // Legacy `<TextUpload />` step calls
+    // `setCurrentStep(TextLocalAddUpdateStep.SEGMENT_CLEANER)` = 1 on Next;
+    // legacy `<TextSegment />` calls
+    // `setCurrentStep(TextLocalAddUpdateStep.SEGMENT_PREVIEW)` = 2 on Next.
+    // Both components are reused as-is here, so the rag enum values must
+    // align: SEGMENT_CLEANER=1 catches the upload handoff and PROGRESS=2
+    // catches the segment handoff (skipping the absent review step).
     expect(TextLocalAddRagStep.UPLOAD).toBe(0);
+    expect(TextLocalAddRagStep.SEGMENT_CLEANER).toBe(1);
+    expect(TextLocalAddRagStep.PROGRESS).toBe(2);
   });
 });
