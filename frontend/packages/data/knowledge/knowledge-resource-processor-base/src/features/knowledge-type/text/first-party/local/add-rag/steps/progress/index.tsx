@@ -94,6 +94,7 @@ export const TextProgress: FC<
           parsingStrategy,
           filterStrategy,
           levelChunkStrategy,
+          documentOptions,
         } = useStore.getState();
         const reqParams = getCreateDocumentParams({
           unitList,
@@ -110,6 +111,11 @@ export const TextProgress: FC<
           dataset_id: params.datasetID,
           ...reqParams,
           parsing_strategy: parsingStrategy,
+          // Phase 3b: dynamic upload form's serialised options blob. Empty
+          // string means "use rag defaults"; the backend treats empty as
+          // "fall through to Phase 1 typed-field mapping" so legacy callers
+          // continue to work unchanged.
+          document_options: documentOptions || undefined,
         });
         const ids =
           res.document_infos

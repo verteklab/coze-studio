@@ -1,5 +1,5 @@
 /*
- * Copyright 2025 coze-dev Authors
+ * Copyright 2026 coze-dev Authors
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,10 +14,14 @@
  * limitations under the License.
  */
 
-// Rag wizard reuses the legacy upload step as-is — no rag-specific behaviour
-// is needed during file selection; segment configuration uses a rag-specific
-// schema-driven form (Phase 3b), and the post-upload flow is handled by
-// `<TextProgress />`.
-export { TextUpload } from '../../add/steps';
-export { TextRagSegment } from './segment';
-export { TextProgress } from './progress';
+export { DynamicParsingPanel } from './dynamic-parsing-panel';
+export {
+  useRagDocumentParameterSchemas,
+  matchSchemasForFile,
+} from './use-schemas';
+export type {
+  DocumentParameter,
+  DocumentParameterSchema,
+  DocumentOptionsValue,
+  ListRagDocumentParameterSchemasResponse,
+} from './types';

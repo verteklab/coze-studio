@@ -27,8 +27,7 @@ import {
   createTextLocalAddUpdateStore,
   type UploadTextLocalAddUpdateStore,
 } from '../add/store';
-import { TextSegment } from '../add/steps/segment';
-import { TextUpload, TextProgress } from './steps';
+import { TextUpload, TextRagSegment, TextProgress } from './steps';
 import { TextLocalAddRagStep } from './constants';
 
 /**
@@ -39,18 +38,15 @@ import { TextLocalAddRagStep } from './constants';
  * SEGMENT_PREVIEW step — rag has no document-review workflow, so on Next
  * we go straight from the segment-config step to the progress poll.
  *
- * Phase 3 brought SEGMENT_CLEANER back: the original RAG wizard dropped
- * it on the (incorrect) assumption that rag locks chunking at KB-creation
- * time, but rag's `POST /documents` actually takes per-document chunk_size,
- * chunk_overlap, enable_ocr, enable_image_embedding, and a schema-scoped
- * `document_options` JSON. Without this step the user couldn't influence
- * any of those — the upload silently defaulted everything.
- *
- * The segment step itself is the legacy `<TextSegment />` reused verbatim:
- * it writes parsingStrategy / segmentMode / segmentRule into the shared
- * store, and the rag progress step (`./steps/progress`) already reads those
- * fields and forwards them to `KnowledgeApi.CreateDocument`. Backend
- * Phase 1 (commit a5f32092) maps the parsing fields to rag's form params.
+ * Phase 3a brought SEGMENT_CLEANER back as the legacy `<TextSegment />`.
+ * Phase 3b swaps that for `<TextRagSegment />`, a schema-driven dynamic
+ * form: it pulls the per-file-type parameter catalog from
+ * `GET /api/knowledge/rag/document_parameter_schemas` and renders rag's
+ * actual knobs (chunk_size, OCR/image bools, parser-specific options) per
+ * `ui_component` hint. The form's output is serialised to JSON and stored
+ * on `documentOptions`; the progress step forwards it as
+ * `CreateDocumentRequest.document_options` so backend Phase 3b-1
+ * (commit 6cdf670f) can pass it verbatim to rag's POST /documents.
  *
  * Selection between this config and the legacy one is handled in
  * `scenes/base/config.ts` (see Task 10) by gating on `kb.backend === 'rag'`.
@@ -75,7 +71,7 @@ export const TextLocalAddRagConfig: UploadConfig<
     },
     {
       content: props => (
-        <TextSegment
+        <TextRagSegment
           useStore={props.useStore}
           footer={(controls: FooterControlsProps) => (
             <UploadFooter controls={controls} />

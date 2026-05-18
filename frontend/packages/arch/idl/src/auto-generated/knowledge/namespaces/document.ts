@@ -125,6 +125,15 @@ export interface CreateDocumentRequest {
   parsing_strategy?: common.ParsingStrategy;
   index_strategy?: common.IndexStrategy;
   storage_strategy?: common.StorageStrategy;
+  /**
+   * MANUAL EDIT — Phase 3b dynamic upload form. JSON-stringified opaque
+   * options forwarded verbatim to rag's POST /documents document_options
+   * field. A reserved top-level `_source_modality` key (if present) is
+   * consumed by the backend to override rag's source_modality routing
+   * (e.g. "scanned_document_source" for a PDF the user explicitly marked
+   * as a scan). Codegen toolchain is not wired (see commit e2dcc807).
+   */
+  document_options?: string;
   Base?: base.Base;
 }
 

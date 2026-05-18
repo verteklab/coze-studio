@@ -38,21 +38,17 @@ vi.mock('@/components', () => ({
   UploadProgressPoll: () => null,
 }));
 
-// The legacy upload step and the new progress step are wrapped in step
-// `content` factories that vitest never actually executes during these
-// assertions; we stub them to keep the module graph small.
+// Step components are wrapped in `content` factories that vitest never
+// actually executes during these assertions; we stub them to keep the
+// module graph small. Phase 3b replaces the legacy <TextSegment /> with a
+// rag-specific <TextRagSegment /> that has a schema-driven dynamic form.
 vi.mock('../steps', () => ({
   // eslint-disable-next-line @typescript-eslint/naming-convention -- mirror upstream PascalCase exports
   TextUpload: () => null,
   // eslint-disable-next-line @typescript-eslint/naming-convention -- mirror upstream PascalCase exports
-  TextProgress: () => null,
-}));
-
-// The legacy `<TextSegment />` is reused as the SEGMENT_CLEANER step from
-// Phase 3 onward. Same stub strategy as the other step components above.
-vi.mock('../../add/steps/segment', () => ({
+  TextRagSegment: () => null,
   // eslint-disable-next-line @typescript-eslint/naming-convention -- mirror upstream PascalCase exports
-  TextSegment: () => null,
+  TextProgress: () => null,
 }));
 
 // The store factory is referenced as `createStore` on the config but not
