@@ -127,6 +127,107 @@ func (k *KnowledgeApplicationService) ListRagModelProviders(ctx context.Context)
 	return out, nil
 }
 
+// ragDocumentParameter is the application-layer view of one tunable knob in
+// a rag parameter schema. Mirrors ragcontract.DocumentParameter on the wire
+// but pinned at the application boundary so rag-internal renames don't leak
+// into the frontend contract.
+type ragDocumentParameter struct {
+	Name          string   `json:"name"`
+	Type          string   `json:"type"` // boolean | integer | string | array[string] | ...
+	Group         string   `json:"group"`
+	Required      bool     `json:"required"`
+	Default       any      `json:"default,omitempty"`
+	AllowedValues []any    `json:"allowed_values,omitempty"`
+	MinValue      *float64 `json:"min_value,omitempty"`
+	MaxValue      *float64 `json:"max_value,omitempty"`
+	Description   string   `json:"description"`
+	UILabel       string   `json:"ui_label"`
+	UIComponent   string   `json:"ui_component"`
+	Advanced      bool     `json:"advanced"`
+}
+
+// ragDocumentParameterSchema is one entry in the per-file-type catalog the
+// upload wizard's dynamic form consumes. Selection on the frontend is by
+// file_types / source_modalities — the wizard picks the schema whose
+// file_types contains the uploaded file's extension.
+type ragDocumentParameterSchema struct {
+	SchemaID         string                 `json:"schema_id"`
+	Description      string                 `json:"description"`
+	FileTypes        []string               `json:"file_types"`
+	SourceModalities []string               `json:"source_modalities"`
+	Parameters       []ragDocumentParameter `json:"parameters"`
+}
+
+// ListRagDocumentParameterSchemasResponse is the wire shape the upload UI
+// receives. A single-field wrapper leaves room to add per-tenant or
+// per-capability filtering later (e.g. only schemas the tenant's enabled
+// parsers support) without renaming the top-level shape.
+type ListRagDocumentParameterSchemasResponse struct {
+	Schemas []ragDocumentParameterSchema `json:"schemas"`
+}
+
+// ListRagDocumentParameterSchemas fetches rag's system-wide catalog of
+// per-file-type parameter forms so the upload UI can render a dynamic
+// "advanced" panel matched to the file being uploaded.
+//
+// Internal-flagged parameters (rag's "advanced operator knob" set, e.g.
+// ocr_render_dpi) are filtered out at this layer — they belong in admin
+// tooling, not the user-facing form. The Advanced bool is preserved so the
+// UI can still hide its own "advanced toggle" parameters behind a disclosure.
+//
+// Returns ErrRagFeaturePendingCode when the active backend is legacy — the
+// frontend uses that signal to fall back to the static parsing-strategy UI.
+func (k *KnowledgeApplicationService) ListRagDocumentParameterSchemas(ctx context.Context) (*ListRagDocumentParameterSchemasResponse, error) {
+	if k.rag == nil {
+		return nil, errorx.New(errno.ErrRagFeaturePendingCode, errorx.KV("msg", "document parameter schemas proxy requires KNOWLEDGE_BACKEND=rag"))
+	}
+	tenant := ""
+	if k.ragTenantResolver != nil {
+		// The schemas endpoint is tenant-agnostic on the server but we still
+		// forward the header for trace correlation, matching ListRagModelProviders.
+		if v, err := k.ragTenantResolver.Resolve(ctx); err == nil {
+			tenant = v
+		}
+	}
+	raw, err := k.rag.ListDocumentParameterSchemas(ctx, tenant)
+	if err != nil {
+		return nil, err
+	}
+	out := &ListRagDocumentParameterSchemasResponse{
+		Schemas: make([]ragDocumentParameterSchema, 0, len(raw)),
+	}
+	for _, sch := range raw {
+		params := make([]ragDocumentParameter, 0, len(sch.Parameters))
+		for _, p := range sch.Parameters {
+			if p.Internal {
+				continue
+			}
+			params = append(params, ragDocumentParameter{
+				Name:          p.Name,
+				Type:          p.Type,
+				Group:         p.Group,
+				Required:      p.Required,
+				Default:       p.Default,
+				AllowedValues: p.AllowedValues,
+				MinValue:      p.MinValue,
+				MaxValue:      p.MaxValue,
+				Description:   p.Description,
+				UILabel:       p.UILabel,
+				UIComponent:   p.UIComponent,
+				Advanced:      p.Advanced,
+			})
+		}
+		out.Schemas = append(out.Schemas, ragDocumentParameterSchema{
+			SchemaID:         sch.SchemaID,
+			Description:      sch.Description,
+			FileTypes:        sch.FileTypes,
+			SourceModalities: sch.SourceModalities,
+			Parameters:       params,
+		})
+	}
+	return out, nil
+}
+
 func (k *KnowledgeApplicationService) deleteKnowledgeInternal(ctx context.Context, knowledgeID int64) error {
 	err := k.DomainSVC.DeleteKnowledge(ctx, &service.DeleteKnowledgeRequest{
 		KnowledgeID: knowledgeID,
