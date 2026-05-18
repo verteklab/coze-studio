@@ -1,414 +1,424 @@
-# coze-studio + rag 联调部署指南（开发环境）
+# Coze Studio 部署指南（Docker，含并行实例）
 
-**适用范围：** 本地开发环境，`KNOWLEDGE_BACKEND=rag` 模式，含 RAG 服务联调。
-**适用分支：** `feat/replace-knowledge-base`（HEAD `0b5250b1` 或更新）
+**适用范围：** 通过 Docker Compose 部署 coze-studio（`KNOWLEDGE_BACKEND=rag`），覆盖两种场景：
+1. **全新单实例**：服务器上还没有 coze
+2. **并行部署**：服务器上已经有一套 coze 在跑，需要再起一套互不干扰
 
-> 仅作为 dev/smoke 用途。生产部署遵循的是 `docker-compose.prod.yml`，不在本文档范围。
+**分支：** `feat/replace-knowledge-base`
 
----
-
-## 1. 前置条件
-
-- macOS / Linux 主机（其他平台未验证）
-- Docker Desktop / Docker Engine 24+（含 Compose v2.24+ 支持 `!override` tag）
-- Go **1.24**（不能用 1.26+，详见 §6.1）
-- Node 22 + Rush.js（已随仓库 `common/scripts/`）
-- Atlas CLI（schema 工具；首次跑 `make sync_db` 时 docker 会拉镜像自动装）
-- 本机可用端口：
-  - `8888`（coze server）
-  - `3306` / `6379` / `9000` / `9001` / `9200` / `27017`（coze middleware）
-  - `8000`（rag web）
-  - `27018` / `9100` / `9101` / `9201` / `6380`（rag middleware 的 host-side 端口，由 `docker-compose.local.yml` 重映射开避免与 coze 端口冲突）
-
-仓库布局假设：
-```
-~/workspace/coze-studio/  ← 本仓库
-~/workspace/rag/          ← 独立 rag 服务仓库（同级）
-```
+> 不依赖 `make server` 原生构建路径；那条流程见 §附录 A。
 
 ---
 
-## 2. 一次性配置
+## 1. 部署形态总览
 
-### 2.1 rag 端配置
-
-> 这两个文件在 rag 仓库里是 **gitignored**（per-session），首次部署必须创建。
-
-#### `rag/config/model_providers.json`
-
-模型注册表，加载到 rag mongo。从示例复制：
-
-```bash
-cd ~/workspace/rag
-cp config/model_providers.example.json config/model_providers.json
-# 编辑 config/model_providers.json，至少要有：
-# - 一个 type=text_embedding 的条目（如 OpenAI text-embedding-3-small）
-# - 一个 type=llm 的条目（如 OpenAI gpt-4o-mini，用于 query rewrite）
-# - 一个 type=image_embedding 的条目（即便不用，KB 创建要求两个 embedding 都注册）
-# 填上真实 api_key
+```
+┌─ coze-studio-v2 (project: coze-studio-v2) ─────────┐
+│  coze-server-v2  :<API_PORT>    (容器内 :8888)     │
+│  coze-web-v2     :<WEB_PORT>    (nginx 反代)       │
+│  coze-mysql-v2   :<DB_PORT>     (Atlas auto-init)  │
+│  coze-{redis,es,minio,milvus,etcd,nsq*}-v2          │
+│  数据卷: <DATA_DIR>/{mysql,minio,milvus,bitnami/*}  │
+│  network: coze-studio-v2_coze-network               │
+│                              + rag_default (外部加入) ─┐
+└─────────────────────────────────────────────────────┘  │
+                                                         ▼
+                                      ┌─ 已有 RAG ────────┐
+                                      │ rag-web :8000     │
+                                      │ Mongo / ES / MinIO│
+                                      └───────────────────┘
 ```
 
-最小可用配置示例（编辑后保存）：
-```json
-{
-  "providers": [
-    {
-      "model_id": "model-openai-text-embed-3-small",
-      "name": "openai-embed-3-small",
-      "model_name": "text-embedding-3-small",
-      "type": "text_embedding",
-      "provider": "http",
-      "base_url": "https://api.openai.com",
-      "endpoint_path": "/v1/embeddings",
-      "api_key": "sk-proj-...",
-      "dimensions": 1536,
-      "capabilities": ["text_embedding"],
-      "modalities": ["text"]
-    },
-    {
-      "model_id": "model-openai-gpt-4o-mini",
-      "name": "openai-gpt-4o-mini",
-      "model_name": "gpt-4o-mini",
-      "type": "llm",
-      "provider": "http",
-      "base_url": "https://api.openai.com",
-      "endpoint_path": "/v1/chat/completions",
-      "api_key": "sk-proj-...",
-      "capabilities": ["llm"]
-    },
-    {
-      "model_id": "model-placeholder-image-embed",
-      "name": "placeholder-image-embed",
-      "model_name": "unused-placeholder",
-      "type": "image_embedding",
-      "provider": "http",
-      "base_url": "http://image-embed-unused.invalid",
-      "endpoint_path": "/v1/image/embeddings",
-      "api_key": "",
-      "dimensions": 512,
-      "capabilities": ["image_embedding"],
-      "modalities": ["image"]
-    }
-  ]
-}
-```
+并行部署的关键隔离手段（缺一不可）：
 
-#### `rag/.env`
+| 维度 | 隔离方式 |
+|---|---|
+| Compose project | `-p coze-studio-v2` |
+| 容器名 | `coze-*-v2`（在 v2.yml 里逐个 `container_name:` 覆盖） |
+| 镜像 tag | `coze-studio-{server,web}-v2:latest`（独立 build） |
+| 宿主端口 | `<WEB_PORT> / <API_PORT> / <DB_PORT>`（用 `!override` 替换） |
+| 数据目录 | `<DATA_DIR>`（不是默认的 `./data`） |
+| RAG tenant | `RAG_TENANT_ID` 不能跟旧实例同名 |
+
+---
+
+## 2. 前置条件
+
+- Linux 主机 + Docker Engine 24+ / Compose v2.24+（必须支持 `!override` tag）
+- 一个可用的 **RAG 服务**——可以是：
+  - 同台机器上已经有 `rag-web` 容器（推荐复用，本指南默认场景）
+  - 在另一台机器上的 rag，能从本机 docker 网络内访问
+  - 全新自起一套 rag 栈（参考 `docker/docker-compose.rag.yml`）
+- 数据盘：MySQL + ES + Milvus + MinIO 空载约 5–10 GB；上传文档后会增长，建议预留 ≥ 50GB
+- 内核 `fs.aio-max-nr` 充足（默认 64K，多实例可能不够，见 §8.1）
+
+---
+
+## 3. 从 RAG 侧拿到必填信息
 
 ```bash
-cd ~/workspace/rag
+docker exec <rag-web 容器名> cat /etc/rag/model_providers.json | python3 -m json.tool
+```
+
+从输出里挑三个 `model_id`：
+
+| coze 环境变量 | 必须 | 来源 |
+|---|---|---|
+| `RAG_DEFAULT_TEXT_EMBEDDING_MODEL_ID` | ✅ | `type=text_embedding` 那条 |
+| `RAG_DEFAULT_IMAGE_EMBEDDING_MODEL_ID` | ⭕ | `type=image_embedding` 那条；仅多模态用 |
+| `RAG_DEFAULT_LLM_MODEL_ID` | ⭕ | `type=llm` + `capabilities` 含 `query_rewrite` 那条；不填则查询改写关闭 |
+
+> RAG 没有 service-to-service 鉴权，靠 docker 网络隔离。所以无 token / api-key 字段需要配置。
+
+---
+
+## 4. 配置文件
+
+### 4.1 `docker/.env`（基础）
+
+```bash
+cd <repo>/docker
 cp .env.example .env
-# 确保 MODEL_PROVIDERS_CONFIG_PATH 指向 config/model_providers.json：
-sed -i '' 's|^MODEL_PROVIDERS_CONFIG_PATH=.*|MODEL_PROVIDERS_CONFIG_PATH=config/model_providers.json|' .env
 ```
 
-#### `rag/docker-compose.local.yml`（端口重映射）
+至少填好：
+- `MODEL_PROTOCOL_0` / `MODEL_API_KEY_0` / `MODEL_ID_0` 等：默认聊天模型
+- `BUILTIN_CM_*`：内置模型（NL2SQL、message2query 等）的 API key
+- `ARK_EMBEDDING_*` 或对应 embedding 提供商：legacy 路径仍会读取，可空字符串占位
 
-把 rag middleware 的 host 端口重映射到非默认值，让 coze middleware 可以继续用标准端口：
+`.env` 是两套实例**共享**的基础变量。差异化的部分放到 `.env.v2`。
 
-```bash
-cat > ~/workspace/rag/docker-compose.local.yml <<'EOF'
-services:
-  mongo:
-    ports: !override
-      - "27018:27017"
-  elasticsearch:
-    ports: !override
-      - "9201:9200"
-  redis:
-    ports: !override
-      - "6380:6379"
-  minio:
-    ports: !override
-      - "9100:9000"
-      - "9101:9001"
-EOF
-```
-
-⚠️ **`!override` tag 是关键**——普通 `ports:` 列表在 Compose v2 会跟基础文件**累加**，导致冲突仍在。必须用 `!override` 才完全替换。
-
-### 2.2 coze 端配置
-
-#### `docker/.env.debug`
-
-> 该文件 gitignored。从 `.env.example` 复制后编辑。
-
-需要的环境变量（追加到现有内容末尾，或确保已有）：
+### 4.2 `docker/.env.v2`（并行实例覆盖）
 
 ```bash
-# rag backend 开关
+# 对外地址（OAuth 回调 / 邮件链接生成用得到，指向前端 nginx）
+export SERVER_HOST="http://<服务器 IP>:<WEB_PORT>"
+export WEB_LISTEN_ADDR="0.0.0.0:<WEB_PORT>"
+
+# 切到 RAG 后端
 export KNOWLEDGE_BACKEND="rag"
-export RAG_BASE_URL="http://localhost:8000"
-
-# 租户模式 + 默认租户 ID（必须和 rag config/model_providers.json 的 tenant_id 一致）
+export RAG_CONFIG_PATH="resources/conf/rag/rag.yaml"   # ← 不能省，见 §8.3
+export RAG_BASE_URL="http://rag-web:8000"
 export RAG_TENANT_MODE="env"
-export RAG_TENANT_ID="coze"
+export RAG_TENANT_ID="<unique-tenant-id>"              # ← 例: coze-v2，不能跟旧实例重名
 
-# rag 模型 ID 默认值（必须存在于 model_providers.json）
-export RAG_DEFAULT_TEXT_EMBEDDING_MODEL_ID="model-openai-text-embed-3-small"
-export RAG_DEFAULT_IMAGE_EMBEDDING_MODEL_ID="model-placeholder-image-embed"
-export RAG_DEFAULT_LLM_MODEL_ID="model-openai-gpt-4o-mini"   # R2-F 新增：query rewrite 必需
+# 模型 ID（从 §3 拿到）
+export RAG_DEFAULT_TEXT_EMBEDDING_MODEL_ID="..."
+export RAG_DEFAULT_IMAGE_EMBEDDING_MODEL_ID=""
+export RAG_DEFAULT_LLM_MODEL_ID=""
+```
 
-# rag config 路径（make server 构建后的 cwd 是 bin/，路径相对那个）
+### 4.3 `docker/docker-compose.v2.yml`（并行实例 override）
+
+```yaml
+name: coze-studio-v2
+
+x-env-file: &env_file
+  - .env
+  - .env.v2
+
+services:
+  mysql:
+    container_name: coze-mysql-v2
+    env_file: *env_file
+    ports: !override
+      - '<DB_PORT>:3306'
+    volumes:
+      - <DATA_DIR>/mysql:/var/lib/mysql
+      - ./volumes/mysql/schema.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./atlas/opencoze_latest_schema.hcl:/opencoze_latest_schema.hcl:ro
+      - ./volumes/mysql/my.v2.cnf:/etc/mysql/conf.d/zz-coze-v2.cnf:ro   # 见 §8.1
+
+  redis:
+    container_name: coze-redis-v2
+    env_file: *env_file
+    volumes:
+      - <DATA_DIR>/bitnami/redis:/bitnami/redis/data:rw,Z
+
+  elasticsearch:
+    container_name: coze-elasticsearch-v2
+    env_file: *env_file
+    volumes:
+      - <DATA_DIR>/bitnami/elasticsearch:/bitnami/elasticsearch/data
+      - ./volumes/elasticsearch/elasticsearch.yml:/opt/bitnami/elasticsearch/config/my_elasticsearch.yml
+      - ./volumes/elasticsearch/analysis-smartcn.zip:/opt/bitnami/elasticsearch/analysis-smartcn.zip:rw,Z
+
+  minio:
+    container_name: coze-minio-v2
+    env_file: *env_file
+    volumes:
+      - <DATA_DIR>/minio:/data
+
+  etcd:
+    container_name: coze-etcd-v2
+    env_file: *env_file
+    volumes:
+      - <DATA_DIR>/bitnami/etcd:/bitnami/etcd:rw,Z
+      - ./volumes/etcd/etcd.conf.yml:/opt/bitnami/etcd/conf/etcd.conf.yml:ro,Z
+
+  milvus:
+    container_name: coze-milvus-v2
+    env_file: *env_file
+    volumes:
+      - <DATA_DIR>/milvus:/var/lib/milvus:rw,Z
+
+  nsqlookupd:
+    container_name: coze-nsqlookupd-v2
+    env_file: *env_file
+  nsqd:
+    container_name: coze-nsqd-v2
+    env_file: *env_file
+  nsqadmin:
+    container_name: coze-nsqadmin-v2
+    env_file: *env_file
+
+  coze-server:
+    container_name: coze-server-v2
+    image: coze-studio-server-v2:latest
+    env_file: *env_file
+    ports: !override
+      - '<API_PORT>:8888'
+    networks:
+      - coze-network
+      - rag-net
+
+  coze-web:
+    container_name: coze-web-v2
+    image: coze-studio-web-v2:latest
+    build:
+      args:                                # ← 见 §8.2，若 daocloud 镜像源 401
+        NODE_IMAGE: node:22-alpine
+        NGINX_IMAGE: nginx:1.25-alpine
+    env_file: *env_file
+    ports: !override
+      - '<WEB_PORT>:80'
+
+networks:
+  rag-net:
+    external: true
+    name: <已有 rag 服务的网络名>          # ← 通常是 rag_default
+```
+
+要点：
+- `!override` 让 `ports:` 替换基础文件的列表（默认是合并，会导致 `8888` 和 `<API_PORT>` 都暴露 → 跟旧实例冲突）
+- `image: coze-studio-{server,web}-v2:latest` 让 v2 用独立镜像 tag，build 时不会污染旧 coze 的 `*-local:latest`
+- `networks.rag-net.external + name` 把 v2 的 coze-server 接入已有 rag 服务的网络，DNS 直接解析 `rag-web`
+
+### 4.4 `docker/volumes/mysql/my.v2.cnf`（解决 AIO 限制，见 §8.1）
+
+```ini
+[mysqld]
+innodb_use_native_aio = 0
+```
+
+---
+
+## 5. 启动
+
+### 5.1 单实例（全新部署）
+
+```bash
+cd <repo>/docker
+cp .env.example .env       # 编辑填好 model API key 等
+docker compose -f docker-compose.yml -f docker-compose.override.yml \
+  -p coze-studio up -d --build
+```
+
+### 5.2 并行实例（v2）
+
+```bash
+cd <repo>/docker
+
+# 1) 准备数据目录
+mkdir -p <DATA_DIR>/{mysql,minio,milvus} \
+         <DATA_DIR>/bitnami/{redis,elasticsearch,etcd}
+
+# 2) build 独立镜像（约 5–10 分钟）
+docker compose \
+  -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.v2.yml \
+  -p coze-studio-v2 build coze-server coze-web
+
+# 3) 启动
+docker compose \
+  -f docker-compose.yml -f docker-compose.override.yml -f docker-compose.v2.yml \
+  -p coze-studio-v2 up -d
+
+# 4) 等 mysql 初始化 + Atlas migration（30s ~ 1min30s）
+sleep 30 && docker compose -p coze-studio-v2 ps
+```
+
+第一次 mysql 启动的具体流程：mysqld 初始化 `<DATA_DIR>/mysql` → 跑 `schema.sql` bootstrap → 等 `workflow_version` 表出现 → 容器内 `curl atlasgo.sh` 装 Atlas CLI → `atlas schema apply` 把库推到 `opencoze_latest_schema.hcl` 描述的目标状态。
+
+---
+
+## 6. 验证
+
+```bash
+# 1) 11 个容器都健康
+docker compose -p coze-studio-v2 ps
+
+# 2) coze-server-v2 同时挂在两张网络
+docker inspect coze-server-v2 \
+  --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}'
+# 期望含: coze-studio-v2_coze-network  和  rag_default
+
+# 3) 容器内能 DNS + HTTP 访问 rag-web
+docker exec coze-server-v2 sh -c 'wget -qO- http://rag-web:8000/ready'
+# 期望: {"checks": {...}}
+
+# 4) HTTP 端口对外可达
+curl -s -o /dev/null -w 'web=%{http_code}\n' http://<服务器 IP>:<WEB_PORT>
+curl -s -o /dev/null -w 'api=%{http_code}\n' http://<服务器 IP>:<API_PORT>
+
+# 5) rag-web 日志能看到 v2 发起的请求
+docker logs <rag-web 容器名> 2>&1 | grep -iE "tenant=<unique-tenant-id>" | tail -5
+```
+
+浏览器走一遍冒烟：注册账号 → 新建文本知识库（模型下拉框能看到 text embedding 选项）→ 上传文档（几秒内变"完成"）→ 新建 Agent 挂这个 KB → 提问看是否引用文档。
+
+成功的检索链应该在 rag-web 日志里看到：
+
+```
+POST /v1/chat/completions      ← query rewrite (LLM)
+POST /v1/embeddings             ← 向量化 (text embedding)
+POST .../rag_<tenant>_<kb>/_search  ← ES 检索
+POST /api/v1/retrieval 200 ~300ms
+```
+
+---
+
+## 7. 日常运维
+
+```bash
+# 别名（建议加到 ~/.bashrc 简化）
+alias dcv2='docker compose \
+  -f /home/<user>/coze-studio/docker/docker-compose.yml \
+  -f /home/<user>/coze-studio/docker/docker-compose.override.yml \
+  -f /home/<user>/coze-studio/docker/docker-compose.v2.yml \
+  -p coze-studio-v2'
+
+dcv2 ps
+dcv2 logs -f coze-server
+dcv2 restart coze-server          # .env.v2 改完后
+dcv2 stop                          # 软停，保留数据
+dcv2 up -d                         # 启动
+dcv2 up -d --build coze-server     # 改了 backend 代码后
+dcv2 down                          # 停 + 删容器，保留数据卷
+dcv2 down -v                       # 停 + 删容器 + 删卷
+```
+
+**备份**（停服后整体打包数据目录）：
+
+```bash
+dcv2 stop
+sudo tar -czf /backup/coze-v2-$(date +%F).tar.gz -C $(dirname <DATA_DIR>) $(basename <DATA_DIR>)
+dcv2 start
+```
+
+**彻底卸载**：
+
+```bash
+dcv2 down -v
+sudo rm -rf <DATA_DIR>
+docker rmi coze-studio-server-v2:latest coze-studio-web-v2:latest 2>/dev/null
+```
+
+---
+
+## 8. 常见问题
+
+### 8.1 MySQL 启动报 `io_setup() failed with EAGAIN` / `Cannot initialize AIO sub-system`
+
+内核全局 AIO 配额耗尽（多实例 MySQL + 其他容器同时争抢）。两种修法：
+
+**A. 调高内核限制（治本，需 sudo）**
+
+```bash
+sudo sysctl -w fs.aio-max-nr=1048576
+echo "fs.aio-max-nr = 1048576" | sudo tee /etc/sysctl.d/99-coze.conf
+```
+
+**B. 让 v2 的 MySQL 关掉 native AIO（治标，不需要 sudo）**
+
+挂 §4.4 的 `my.v2.cnf` 进去，关掉 `innodb_use_native_aio`。
+
+修完之后必须**清掉半成品的数据目录**（InnoDB 中断初始化会留下坏的 ibdata1）：
+
+```bash
+dcv2 down
+sudo rm -rf <DATA_DIR>/mysql && mkdir -p <DATA_DIR>/mysql
+dcv2 up -d
+```
+
+### 8.2 build 报 `docker.m.daocloud.io/library/...: 401 Unauthorized`
+
+`docker-compose.override.yml` 默认用了 daocloud 镜像源，可能不稳定。在 v2.yml 的 `coze-web.build.args` 里覆盖回原始 docker.io 名（已写在 §4.3 模板里）。验证 docker.io 是否可达：
+
+```bash
+docker pull nginx:1.25-alpine
+```
+
+如果连 docker.io 也不通，要把 build args 改成你的内网 mirror 或者预先 `docker pull` 把基础镜像拉到本地。
+
+### 8.3 coze-server panic：`open conf/rag/rag.yaml: no such file or directory`
+
+`backend/application/knowledge/init.go` 默认相对路径找 `conf/rag/rag.yaml`，但 docker 镜像里 WORKDIR 是 `/app`，配置 mount 在 `/app/resources/conf/`。**必须**在 `.env`（或 `.env.v2`）里设：
+
+```bash
 export RAG_CONFIG_PATH="resources/conf/rag/rag.yaml"
 ```
 
-⚠️ **`RAG_DEFAULT_LLM_MODEL_ID` 必须设置**，否则工作流知识检索节点的 query rewrite 会被静默 drop（带 WARN 日志）。基本检索不受影响。
+### 8.4 端口 publishing 既出现 `8888` 又出现 `<API_PORT>`（或 8890 + `<WEB_PORT>`）
+
+`ports:` 在 compose 里默认**合并**，导致跟旧实例撞端口。在 v2.yml 的对应服务里把 `ports:` 改成 `ports: !override`（已写在 §4.3 模板里）。验证：
+
+```bash
+docker compose -p coze-studio-v2 -f ... config | grep -E "container_name:|published:"
+```
+
+每个服务下应该**只看到一个** published 端口。
+
+### 8.5 v2 build 之后旧 coze 的镜像被改写
+
+没给 v2 设独立 image tag，导致 `coze-studio-{server,web}-local:latest` 被新 build 覆盖。旧的正在运行的容器引用的是旧镜像 sha256，**不会立刻受影响**；但旧 coze 一旦 `up --force-recreate` 就会跳到新代码。
+
+修法：v2.yml 里加 `image: coze-studio-{server,web}-v2:latest`（§4.3 模板里已有）。
+
+### 8.6 coze-server 日志 `RAG_DEFAULT_TEXT_EMBEDDING_MODEL_ID is empty`
+
+`.env.v2` 没填这个变量，或填的 id 在 rag 端不存在。回到 §3 重新拿一遍 id。
+
+### 8.7 工作流检索节点报 `rag 40004: query_strategy.llm_model_id is required`
+
+`RAG_DEFAULT_LLM_MODEL_ID` 未设置。要么填一个 `type=llm` 且 `capabilities` 含 `query_rewrite` 的 model id，要么在节点配置里关掉"查询改写"。
+
+### 8.8 切片管理 / 文档元数据更新 / KB 复制 等 UI 报 `105100001 feature pending rag support`
+
+预期行为。rag 不暴露 chunk-level API，coze 这些 UI 入口在 rag 后端下没意义。后续 PR 会屏蔽入口，当前忽略。
 
 ---
 
-## 3. 启动顺序
+## 附录 A：原生 `make server` 开发模式（旧流程）
 
-### 3.1 启动 rag stack
+仅供本地开发调试，不推荐生产部署。要点：
 
-```bash
-cd ~/workspace/rag
-docker compose -f docker-compose.yml -f docker-compose.local.yml up -d
-# 等待 rag 健康
-until curl -fs http://localhost:8000/ready >/dev/null 2>&1; do sleep 2; done
-echo "rag ready: $(curl -s http://localhost:8000/ready)"
-```
-
-期待 `{"checks":{"mongodb":"ok","elasticsearch":"ok","minio":"ok","redis":"ok"}}`。
-
-#### 3.1.1 创建 rag MinIO bucket（首次）
-
-⚠️ **rag 的 `docker-compose.yml` 不会自动建 bucket**。MinIO volume 首次启动后必须手动建一次：
-
-```bash
-docker run --rm --network rag_default --entrypoint sh minio/mc:latest -c \
-  "mc alias set rag http://minio:9000 minioadmin minioadmin && mc mb rag/rag-files"
-```
-
-否则第一次上传文档会 500（`S3Error: NoSuchBucket`）。
-
-### 3.2 启动 coze middleware
-
-```bash
-cd ~/workspace/coze-studio
-make middleware
-```
-
-等到所有 `coze-*` 容器 `Healthy`（约 30-60 秒）。验证：
-
-```bash
-docker ps --filter "name=coze-" --format "table {{.Names}}\t{{.Status}}"
-```
-
-### 3.3 启动 coze server（原生 Go）
-
-```bash
-cd ~/workspace/coze-studio
-GOTOOLCHAIN=go1.24.0 make server
-```
-
-或者后台启动 + 等就绪：
-
-```bash
-GOTOOLCHAIN=go1.24.0 make server > /tmp/coze-server.log 2>&1 &
-until lsof -iTCP:8888 -sTCP:LISTEN >/dev/null 2>&1 || grep -qE "panic:|FATAL" /tmp/coze-server.log; do sleep 3; done
-echo "coze server: $(lsof -iTCP:8888 -sTCP:LISTEN >/dev/null 2>&1 && echo OK || echo FAIL)"
-```
-
-`make server` 构建 + 启动 `./opencoze -start`（cwd = `bin/`）。**注意**：`make server` **不会**自动重建前端。如果前端代码有变更，需要先 `make fe`。
-
-#### 3.3.1 前端代码变更时必须 `make fe`
-
-```bash
-cd ~/workspace/coze-studio
-make fe       # 重建前端到 bin/resources/static/（约 60-90s）
-pkill -f opencoze  # ← 注意：是 opencoze，不是 bin/opencoze
-GOTOOLCHAIN=go1.24.0 make server > /tmp/coze-server.log 2>&1 &
-```
-
-`make server` 只 copy 既有 `bin/resources/static`；不重建。R2-D-fe-Retry 之后的任何前端改动都必须先 `make fe`。
-
-### 3.4 访问
-
-打开 `http://localhost:8888`，登录现有 mysql 账号（如本地有种子账号 `lxy907360`）或新建账号。
-
----
-
-## 4. 验证清单
-
-### 4.1 基本 KB + 上传流
-
-1. 进 "数据集" → 新建 → 选 "rag" backend（如果 UI 提供选项）/ 或直接走默认（由 `KNOWLEDGE_BACKEND=rag` 控制）
-2. 选 embedding 模型（`<ModelSelector />` 会读 `/api/knowledge_v2/model_providers` 列表）
-3. 创建成功后，KB 详情页 → 上传一个小 `.txt` 或 `.pdf`
-4. 期待：
-   - `POST /api/knowledge/document/create` 返回 200，body 含 `{doc_id, task_id, status: "pending"}`
-   - 进度条 10% → 50% → 100%（R2-B 的 progressForStatus）
-   - 文档列表显示真实文件名、类型、大小
-
-### 4.2 工作流知识检索（含 query rewrite）
-
-1. 工作流编辑器 → 新建工作流 → 加 "知识库检索" 节点
-2. 节点配置：选刚创建的 KB → **勾选 "query rewrite / 查询改写"**
-3. 测试运行
-4. 期待：节点执行成功（之前 R2-F 之前会报 `rag 40004: query_strategy.llm_model_id is required`）
-5. 验证 rag 真实收到带 `llm_model_id` 的请求：
-   ```bash
-   docker logs rag-web-1 --since=2m | grep -i "POST /api/v1/retrieval"
-   # 期待：单次请求耗时 >3s（包含 LLM 调用做 rewrite），HTTP 200
-   ```
-
-### 4.3 失败重试（可选）
-
-> 这个验证有点麻烦——rag 的 model config 多层缓存难失效。推荐的注入失败方式是直接 mongo 改 task 状态。
-
-```bash
-# 找最新 task
-docker exec rag-mongo-1 mongosh ragdb --quiet --eval \
-  'db.tasks.findOne({}, {_id:1, status:1}, {sort:{created_at:-1}})'
-
-# 改 status 为 failed
-docker exec rag-mongo-1 mongosh ragdb --quiet --eval \
-  'db.tasks.updateOne({_id:"<task-uuid>"}, {$set:{status:"failed", error_msg:"synthetic for retry smoke"}})'
-```
-
-然后回浏览器 upload 进度页面 → 看到"重试"按钮 → 点 → 验证 `POST /api/knowledge/document/retry` 200，`mapping.last_task_id` 在 mysql 里更新到了新 task ID。
-
-### 4.4 完整性自检
-
-```bash
-# coze server 健康
-curl -fs http://localhost:8888/api/health 2>&1 || echo "可能需要 session"
-
-# rag 健康
-curl -fs http://localhost:8000/ready
-
-# 容器全部 Healthy
-docker ps --format "table {{.Names}}\t{{.Status}}" | head -20
-
-# MinIO bucket 存在
-docker exec rag-minio-1 mc ls local/rag-files 2>/dev/null || \
+- Go **1.24**（≥ 1.26 与 `bytedance/sonic v1.14` 不兼容）：`GOTOOLCHAIN=go1.24.0 make server`
+- 前端改动后必须 `make fe`，然后 `pkill -f opencoze && make server`
+- rag 服务一般起在同机 docker 里，coze-server 通过 `RAG_BASE_URL=http://localhost:8000` 访问
+- rag MinIO bucket 首次要手动创建：
+  ```bash
   docker run --rm --network rag_default --entrypoint sh minio/mc:latest -c \
-    "mc alias set rag http://minio:9000 minioadmin minioadmin && mc ls rag/rag-files"
-```
+    "mc alias set rag http://minio:9000 minioadmin minioadmin && mc mb rag/rag-files"
+  ```
+- pnpm store 报错（仓库目录搬动后）：`cd frontend && rush update --purge`
+
+详细见 git 历史 `4949711e docs(rag): add Chinese progress summary and deployment guide` 中本文件的旧版本。
 
 ---
 
-## 5. 关停 / 清理
+## 附录 B：相关文档
 
-### 完全关停
-
-```bash
-# coze server
-pkill -f opencoze
-
-# coze middleware（保留数据）
-cd ~/workspace/coze-studio && make down
-
-# rag stack（保留数据）
-cd ~/workspace/rag && docker compose -f docker-compose.yml -f docker-compose.local.yml down
-```
-
-### 清理（删除所有数据，需重新建 bucket / KB）
-
-```bash
-cd ~/workspace/coze-studio && make clean    # 销毁 coze 数据卷
-cd ~/workspace/rag && docker compose -f docker-compose.yml -f docker-compose.local.yml down -v
-```
-
----
-
-## 6. 常见问题
-
-### 6.1 启动报 sonic 编译错误
-
-```
-undefined: GoMapIterator (or similar)
-```
-
-**原因**：本地 Go ≥ 1.26 与 `bytedance/sonic v1.14` 不兼容。
-**解决**：所有 Go 命令前缀 `GOTOOLCHAIN=go1.24.0`：
-
-```bash
-GOTOOLCHAIN=go1.24.0 make server
-GOTOOLCHAIN=go1.24.0 go test ./backend/...
-```
-
-### 6.2 启动报 `dial tcp 127.0.0.1:9000: connect: connection refused`
-
-coze 的 MinIO（端口 9000）未起来。`make middleware` 没跑完，或容器异常退出。检查：
-
-```bash
-docker ps --filter "name=coze-minio" --format "{{.Names}} {{.Status}}"
-# 如果不在 Healthy 状态：
-make middleware     # 重新拉起
-```
-
-### 6.3 上传报 500，rag 日志显示 `NoSuchBucket: rag-files`
-
-rag MinIO bucket 未创建。回到 §3.1.1 跑那条 `mc mb` 命令。
-
-### 6.4 上传成功但停留 "pending"，rag worker 无日志
-
-worker 容器没起来，或 `model_providers.json` 配置错误。检查：
-
-```bash
-docker logs rag-worker-1 --since=5m | head -20
-docker exec rag-mongo-1 mongosh ragdb --quiet --eval \
-  'db.model_providers.find({}, {name:1, type:1, model_name:1, is_active:1, _id:0}).toArray()'
-```
-
-确认 `is_active: true` 的 text_embedding 条目存在、`model_name` 是真实 OpenAI 模型名。
-
-### 6.5 工作流检索节点报 `rag 40004: query_strategy.llm_model_id is required`
-
-`RAG_DEFAULT_LLM_MODEL_ID` 未设置或值错。检查：
-
-```bash
-grep RAG_DEFAULT_LLM_MODEL_ID ~/workspace/coze-studio/docker/.env.debug
-# 应有一行：export RAG_DEFAULT_LLM_MODEL_ID="model-openai-gpt-4o-mini"
-# 改了之后必须重启 coze server 让 env 生效
-pkill -f opencoze && GOTOOLCHAIN=go1.24.0 make server > /tmp/coze-server.log 2>&1 &
-```
-
-也要确认 `model-openai-gpt-4o-mini` 真在 `rag/config/model_providers.json` 里且 `type: "llm"`。
-
-### 6.6 端口冲突
-
-coze middleware 和 rag middleware 都想用 6379/9200/9000/9001/27017。rag 必须用 `docker-compose.local.yml` 的 `!override` ports（见 §2.1）。如果还冲突：
-
-```bash
-lsof -iTCP:6379 -sTCP:LISTEN   # 看谁占着
-# 通常是宿主机的 redis-server 服务
-brew services stop redis        # 或 sudo systemctl stop redis
-```
-
-### 6.7 前端改了代码不见效
-
-需要 `make fe`：
-
-```bash
-cd ~/workspace/coze-studio
-make fe                              # 重建前端
-pkill -f opencoze                    # 注意：opencoze 不是 bin/opencoze
-GOTOOLCHAIN=go1.24.0 make server > /tmp/coze-server.log 2>&1 &
-```
-
-如果 `make fe` 报 "Current PNPM store path does not match the last one used"（仓库目录移动后会出现）：
-
-```bash
-cd ~/workspace/coze-studio/frontend && rush update --purge    # 约 80 秒
-```
-
-### 6.8 切片管理 / 文档元数据更新 / KB 复制 等操作报 `105100001 feature pending rag support`
-
-预期行为。rag 不暴露 chunk-level API（架构上 chunk 是内部实现），coze 这些 UI 入口在 rag-backed KB 下没意义。
-
-未来 R2-D-fe-Wizard 或 PR-2 会屏蔽这些入口。当前可忽略（不影响 happy path）。
-
-### 6.9 工作流"知识库检索"节点把 rerank 开了报错
-
-预期行为。`EnableRerank` 在 coze 端还没翻译到 rag 的 `query_strategy.enable_rerank`，且 rag 端也需要 `rerank_model_id`。当前实现的范围只到 query rewrite（R2-F），rerank 留给 R2-F-Rerank。
-
----
-
-## 7. 进度文档 + 设计文档
-
-- 项目整体进度：`docs/rag-replacement-progress-zh.md`
-- 每个切片的设计 spec：`docs/superpowers/specs/2026-05-1{2,3,4}-*.md`
-- 每个切片的实现 plan：`docs/superpowers/plans/2026-05-1{2,3,4}-*.md`
+- 项目整体进度：[`docs/rag-replacement-progress-zh.md`](rag-replacement-progress-zh.md)
+- coze vs rag feature gap：[`docs/rag-feature-gaps-zh.md`](rag-feature-gaps-zh.md)
+- 各切片设计 spec：[`docs/superpowers/specs/`](superpowers/specs/)
+- 各切片实现 plan：[`docs/superpowers/plans/`](superpowers/plans/)
