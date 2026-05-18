@@ -1,0 +1,88 @@
+name: coze-studio-v2
+
+x-env-file: &env_file
+  - .env
+  - .env.v2
+
+services:
+  mysql:
+    container_name: coze-mysql-v2
+    env_file: *env_file
+    ports: !override
+      - '33061:3306'
+    volumes:
+      - /data_big/coze/mysql:/var/lib/mysql
+      - ./volumes/mysql/schema.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./atlas/opencoze_latest_schema.hcl:/opencoze_latest_schema.hcl:ro
+      - ./volumes/mysql/my.v2.cnf:/etc/mysql/conf.d/zz-coze-v2.cnf:ro
+
+  redis:
+    container_name: coze-redis-v2
+    env_file: *env_file
+    volumes:
+      - /data_big/coze/bitnami/redis:/bitnami/redis/data:rw,Z
+
+  elasticsearch:
+    container_name: coze-elasticsearch-v2
+    env_file: *env_file
+    volumes:
+      - /data_big/coze/bitnami/elasticsearch:/bitnami/elasticsearch/data
+      - ./volumes/elasticsearch/elasticsearch.yml:/opt/bitnami/elasticsearch/config/my_elasticsearch.yml
+      - ./volumes/elasticsearch/analysis-smartcn.zip:/opt/bitnami/elasticsearch/analysis-smartcn.zip:rw,Z
+
+  minio:
+    container_name: coze-minio-v2
+    env_file: *env_file
+    volumes:
+      - /data_big/coze/minio:/data
+
+  etcd:
+    container_name: coze-etcd-v2
+    env_file: *env_file
+    volumes:
+      - /data_big/coze/bitnami/etcd:/bitnami/etcd:rw,Z
+      - ./volumes/etcd/etcd.conf.yml:/opt/bitnami/etcd/conf/etcd.conf.yml:ro,Z
+
+  milvus:
+    container_name: coze-milvus-v2
+    env_file: *env_file
+    volumes:
+      - /data_big/coze/milvus:/var/lib/milvus:rw,Z
+
+  nsqlookupd:
+    container_name: coze-nsqlookupd-v2
+    env_file: *env_file
+
+  nsqd:
+    container_name: coze-nsqd-v2
+    env_file: *env_file
+
+  nsqadmin:
+    container_name: coze-nsqadmin-v2
+    env_file: *env_file
+
+  coze-server:
+    container_name: coze-server-v2
+    image: coze-studio-server-v2:latest
+    env_file: *env_file
+    ports: !override
+      - '8892:8888'
+    networks:
+      - coze-network
+      - rag-net
+
+  coze-web:
+    container_name: coze-web-v2
+    image: coze-studio-web-v2:latest
+    build:
+      args:
+        NODE_IMAGE: node:22-alpine
+        NGINX_IMAGE: nginx:1.25-alpine
+    env_file: *env_file
+    ports: !override
+      - '8891:80'
+
+networks:
+  rag-net:
+    external: true
+    name: rag_default
