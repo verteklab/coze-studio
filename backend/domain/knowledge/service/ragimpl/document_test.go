@@ -79,16 +79,17 @@ func TestCreateDocument_InsertsMapping(t *testing.T) {
 }
 
 // TestCreateDocument_StrategyPassthrough verifies the Phase 1 mapping from
-// coze's ParsingStrategy to rag's per-document fields:
-//
-//   - ImageOCR=true     -> EnableOCR pointer to true
-//   - ExtractImage=true -> EnableImageEmbedding pointer to true
-//   - ExtractTable=true on a pdf -> DocumentOptions JSON {"extract_tables":true}
-//
-// Non-PDF/Docx file types must NOT emit document_options.extract_tables (rag's
-// text_document schema rejects unknown options under pydantic extra=forbid).
+// coze's ParsingStrategy to rag's per-document fields. Subcases pin the
+// schema-routing rules: enable_ocr / enable_image_embedding only travel on
+// modalities that declare them, and PDF + OCR-intent gets routed to the
+// scanned schema so those fields land somewhere valid.
 func TestCreateDocument_StrategyPassthrough(t *testing.T) {
-	t.Run("pdf with all three knobs set", func(t *testing.T) {
+	t.Run("pdf with OCR+ExtractImage routes to scanned and emits both bools", func(t *testing.T) {
+		// Rag's text-side schemas (text/markdown/pdf_text/docx) have NO
+		// enable_ocr or enable_image_embedding fields, so when the user asks
+		// for OCR or image extraction on a PDF the only valid landing is
+		// scanned_document_source. extract_tables does NOT travel — the
+		// scanned schema has no table-extraction toggle.
 		fc := &fakeClient{
 			createDocFunc: func(_, _ string, _ *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
 				return &contract.CreateDocumentResponse{DocID: "rag-doc-pdf", TaskID: "task-pdf", Status: "pending"}, nil
@@ -112,17 +113,21 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 			}},
 		})
 		require.NoError(t, err)
+		require.Equal(t, "scanned_document_source", fc.createDocReq.SourceModality)
 		require.NotNil(t, fc.createDocReq.EnableOCR)
 		require.True(t, *fc.createDocReq.EnableOCR)
 		require.NotNil(t, fc.createDocReq.EnableImageEmbedding)
 		require.True(t, *fc.createDocReq.EnableImageEmbedding)
-		require.JSONEq(t, `{"extract_tables":true}`, fc.createDocReq.DocumentOptions)
+		require.Empty(t, fc.createDocReq.DocumentOptions,
+			"scanned_document schema has no extract_tables knob — document_options must stay empty")
 	})
 
-	t.Run("txt with ExtractTable=true must not emit extract_tables", func(t *testing.T) {
+	t.Run("pdf with ExtractTable only stays on text_source and emits extract_tables", func(t *testing.T) {
+		// No OCR / image intent -> modality stays text_source, which is the
+		// only schema that actually has extract_tables.
 		fc := &fakeClient{
 			createDocFunc: func(_, _ string, _ *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
-				return &contract.CreateDocumentResponse{DocID: "rag-doc-txt", TaskID: "task-txt", Status: "pending"}, nil
+				return &contract.CreateDocumentResponse{DocID: "rag-doc-pdf-tbl", TaskID: "task-pdf-tbl", Status: "pending"}, nil
 			},
 		}
 		i := newTestImpl(t, fc, 8002)
@@ -130,8 +135,100 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 
 		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
 			Documents: []*entity.Document{{
-				Info:          knowledgeModel.Info{Name: "notes.txt", CreatorID: 5},
+				Info:          knowledgeModel.Info{Name: "tbl.pdf", CreatorID: 5},
 				KnowledgeID:   201,
+				Type:          knowledgeModel.DocumentTypeText,
+				FileExtension: "pdf",
+				URI:           "s3://x/y",
+				ParsingStrategy: &entity.ParsingStrategy{
+					ExtractTable: true,
+				},
+			}},
+		})
+		require.NoError(t, err)
+		require.Equal(t, "text_source", fc.createDocReq.SourceModality)
+		require.Nil(t, fc.createDocReq.EnableOCR)
+		require.Nil(t, fc.createDocReq.EnableImageEmbedding)
+		require.JSONEq(t, `{"extract_tables":true}`, fc.createDocReq.DocumentOptions)
+	})
+
+	t.Run("docx with OCR drops the flag (no scanned-docx schema)", func(t *testing.T) {
+		// docx_document has no enable_ocr / enable_image_embedding, and there's
+		// no scanned_docx schema to escape to. We drop the flags silently
+		// rather than 40001 on rag.
+		fc := &fakeClient{
+			createDocFunc: func(_, _ string, _ *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
+				return &contract.CreateDocumentResponse{DocID: "rag-doc-docx", TaskID: "task-docx", Status: "pending"}, nil
+			},
+		}
+		i := newTestImpl(t, fc, 8003)
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 202, "rag-kb-202", "icon", 0, 5, 0))
+
+		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
+			Documents: []*entity.Document{{
+				Info:          knowledgeModel.Info{Name: "spec.docx", CreatorID: 5},
+				KnowledgeID:   202,
+				Type:          knowledgeModel.DocumentTypeText,
+				FileExtension: "docx",
+				URI:           "s3://x/y",
+				ParsingStrategy: &entity.ParsingStrategy{
+					ImageOCR:     true,
+					ExtractImage: true,
+					ExtractTable: true,
+				},
+			}},
+		})
+		require.NoError(t, err)
+		require.Equal(t, "text_source", fc.createDocReq.SourceModality)
+		require.Nil(t, fc.createDocReq.EnableOCR)
+		require.Nil(t, fc.createDocReq.EnableImageEmbedding)
+		require.JSONEq(t, `{"extract_tables":true}`, fc.createDocReq.DocumentOptions)
+	})
+
+	t.Run("image-typed doc with OCR keeps image_source and emits both bools", func(t *testing.T) {
+		fc := &fakeClient{
+			createDocFunc: func(_, _ string, _ *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
+				return &contract.CreateDocumentResponse{DocID: "rag-doc-img", TaskID: "task-img", Status: "pending"}, nil
+			},
+		}
+		i := newTestImpl(t, fc, 8004)
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 203, "rag-kb-203", "icon", 0, 5, 0))
+
+		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
+			Documents: []*entity.Document{{
+				Info:          knowledgeModel.Info{Name: "diagram.png", CreatorID: 5},
+				KnowledgeID:   203,
+				Type:          knowledgeModel.DocumentTypeImage,
+				FileExtension: "png",
+				URI:           "s3://x/y",
+				ParsingStrategy: &entity.ParsingStrategy{
+					ImageOCR:     true,
+					ExtractImage: true,
+				},
+			}},
+		})
+		require.NoError(t, err)
+		require.Equal(t, "image_source", fc.createDocReq.SourceModality)
+		require.NotNil(t, fc.createDocReq.EnableOCR)
+		require.True(t, *fc.createDocReq.EnableOCR)
+		require.NotNil(t, fc.createDocReq.EnableImageEmbedding)
+		require.True(t, *fc.createDocReq.EnableImageEmbedding)
+	})
+
+	t.Run("txt with ExtractTable=true must not emit extract_tables", func(t *testing.T) {
+		// Sanity check: txt's text_document schema has no extract_tables.
+		fc := &fakeClient{
+			createDocFunc: func(_, _ string, _ *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
+				return &contract.CreateDocumentResponse{DocID: "rag-doc-txt", TaskID: "task-txt", Status: "pending"}, nil
+			},
+		}
+		i := newTestImpl(t, fc, 8005)
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 204, "rag-kb-204", "icon", 0, 5, 0))
+
+		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
+			Documents: []*entity.Document{{
+				Info:          knowledgeModel.Info{Name: "notes.txt", CreatorID: 5},
+				KnowledgeID:   204,
 				Type:          knowledgeModel.DocumentTypeText,
 				FileExtension: "txt",
 				URI:           "s3://x/y",
@@ -141,6 +238,7 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 			}},
 		})
 		require.NoError(t, err)
+		require.Equal(t, "text_source", fc.createDocReq.SourceModality)
 		require.Empty(t, fc.createDocReq.DocumentOptions,
 			"txt schema has no extract_tables knob — document_options must stay empty")
 	})
@@ -151,13 +249,13 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 				return &contract.CreateDocumentResponse{DocID: "rag-doc-zero", TaskID: "task-zero", Status: "pending"}, nil
 			},
 		}
-		i := newTestImpl(t, fc, 8003)
-		require.NoError(t, i.mapping.InsertKB(context.Background(), 202, "rag-kb-202", "icon", 0, 5, 0))
+		i := newTestImpl(t, fc, 8006)
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 205, "rag-kb-205", "icon", 0, 5, 0))
 
 		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
 			Documents: []*entity.Document{{
 				Info:            knowledgeModel.Info{Name: "blank.pdf", CreatorID: 5},
-				KnowledgeID:     202,
+				KnowledgeID:     205,
 				Type:            knowledgeModel.DocumentTypeText,
 				FileExtension:   "pdf",
 				URI:             "s3://x/y",
@@ -165,6 +263,7 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 			}},
 		})
 		require.NoError(t, err)
+		require.Equal(t, "text_source", fc.createDocReq.SourceModality)
 		require.Nil(t, fc.createDocReq.EnableOCR)
 		require.Nil(t, fc.createDocReq.EnableImageEmbedding)
 		require.Empty(t, fc.createDocReq.DocumentOptions)

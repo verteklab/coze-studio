@@ -31,10 +31,12 @@ import (
 	"github.com/coze-dev/coze-studio/backend/types/errno"
 )
 
-// sourceModalityFor selects the rag source_modality string from a coze Document.
-// Phase 1: text + table docs are "text_source"; image docs are "image_source".
-// "scanned_document_source" is not yet emitted (pending Task 18/OCR work).
-func sourceModalityFor(d *entity.Document) string {
+// baseSourceModality picks the rag source_modality from the document type
+// alone, before the parsing-strategy overrides considered in
+// strategyToRagFields. Image-typed docs always use "image_source"; everything
+// else starts as "text_source" and may be promoted to "scanned_document_source"
+// when the user toggles OCR / image extraction.
+func baseSourceModality(d *entity.Document) string {
 	if d != nil && d.Type == knowledgeModel.DocumentTypeImage {
 		return "image_source"
 	}
@@ -42,50 +44,73 @@ func sourceModalityFor(d *entity.Document) string {
 }
 
 // strategyToRagFields maps coze's per-document ParsingStrategy onto rag's
-// form-level knobs. Phase 1 mapping (limited to fields the current upload UI
-// already collects):
+// form-level knobs and decides the final rag source_modality. Phase 1 mapping
+// (limited to fields the current upload UI already collects):
 //
-//   - ImageOCR     -> enable_ocr (form bool). Rag's image/scanned schemas
-//     honor it; text schemas silently ignore.
-//   - ExtractImage -> enable_image_embedding (form bool). Same caveat —
-//     only image-source schemas read it.
+//   - ImageOCR=true on a PDF -> route to "scanned_document_source" so rag's
+//     scanned-document parser kicks in; emit enable_ocr=true. (PDFs uploaded
+//     without OCR stay as "text_source" so the cheaper text parser is used.)
+//   - ImageOCR / ExtractImage on an already-image doc -> emit enable_ocr /
+//     enable_image_embedding on the existing "image_source" modality.
+//   - ImageOCR / ExtractImage on a non-PDF text doc (txt, md, docx) -> drop
+//     them silently. Rag's text/markdown/docx schemas have NO enable_ocr or
+//     enable_image_embedding fields, so emitting these would 40001 under
+//     pydantic extra=forbid (incident: 2026-05-19 upload smoke test).
 //   - ExtractTable -> document_options JSON {"extract_tables": <bool>}, but
-//     only for file types whose rag schema actually has that field (pdf,
-//     docx). For other types we leave document_options empty so rag's
-//     pydantic validation does not reject an unknown key on, say, the
-//     text_document schema.
+//     only when the final modality is text_source on pdf/docx (the only
+//     schemas with that field). Routing to scanned skips extract_tables —
+//     the scanned schema doesn't have it.
 //
-// Returns nil pointers / "" for fields the strategy did not configure, so
-// the client layer can omit them and rag falls back to per-schema defaults.
+// Returns nil pointers / "" for fields the user did not configure, so the
+// client layer can omit them and rag falls back to per-schema defaults.
 // Other ParsingStrategy fields (ParsingType, FilterPages, sheet/image
 // sub-blocks) are intentionally untouched here — they require richer
-// schema-aware mapping that lands with Phase 2/3's document-options
-// passthrough.
-func strategyToRagFields(d *entity.Document) (enableOCR, enableImageEmbedding *bool, documentOptions string) {
+// schema-aware mapping that lands with Phase 3b's dynamic-form passthrough.
+func strategyToRagFields(d *entity.Document) (
+	sourceModality string,
+	enableOCR, enableImageEmbedding *bool,
+	documentOptions string,
+) {
+	sourceModality = baseSourceModality(d)
 	if d == nil || d.ParsingStrategy == nil {
-		return nil, nil, ""
+		return sourceModality, nil, nil, ""
 	}
 	ps := d.ParsingStrategy
-	if ps.ImageOCR {
-		v := true
-		enableOCR = &v
+
+	// PDF + user wants OCR or image extraction -> promote to scanned, which
+	// is the only text-side schema that accepts those toggles. Other text
+	// extensions (txt, md, docx) have no scanned equivalent — we leave them
+	// on text_source and drop the toggles below.
+	if sourceModality == "text_source" && d.FileExtension == parser.FileExtensionPDF &&
+		(ps.ImageOCR || ps.ExtractImage) {
+		sourceModality = "scanned_document_source"
 	}
-	if ps.ExtractImage {
-		v := true
-		enableImageEmbedding = &v
+
+	// enable_ocr / enable_image_embedding are only present on image/scanned
+	// schemas. Emitting them on text_source -> rag 40001.
+	if sourceModality == "image_source" || sourceModality == "scanned_document_source" {
+		if ps.ImageOCR {
+			v := true
+			enableOCR = &v
+		}
+		if ps.ExtractImage {
+			v := true
+			enableImageEmbedding = &v
+		}
 	}
-	// Only emit extract_tables for file types whose rag schema declares it.
-	// Schema source: GET /api/v1/document-parameter-schemas (pdf_text_document,
-	// docx_document). markdown_document has protect_tables instead and
-	// text_document has no table concept.
-	if ps.ExtractTable {
+
+	// extract_tables lives on pdf_text_document / docx_document only — and
+	// only when we kept the text-source modality (the scanned schema has no
+	// table-extraction toggle). Markdown's protect_tables is a separate field
+	// not yet wired.
+	if ps.ExtractTable && sourceModality == "text_source" {
 		switch d.FileExtension {
 		case parser.FileExtensionPDF, parser.FileExtensionDocx:
 			b, _ := json.Marshal(map[string]any{"extract_tables": true})
 			documentOptions = string(b)
 		}
 	}
-	return enableOCR, enableImageEmbedding, documentOptions
+	return sourceModality, enableOCR, enableImageEmbedding, documentOptions
 }
 
 // buildDocMetadata injects the coze-side identifiers we want rag to round-trip
@@ -200,13 +225,13 @@ func (i *Impl) CreateDocument(ctx context.Context, req *service.CreateDocumentRe
 			extraMetadata = ""
 		}
 
-		enableOCR, enableImageEmbedding, documentOptions := strategyToRagFields(d)
+		sourceModality, enableOCR, enableImageEmbedding, documentOptions := strategyToRagFields(d)
 
 		ragReq := &contract.CreateDocumentRequest{
 			FileBytes:            fileBytes,
 			Filename:             d.Name,
 			FileType:             string(d.FileExtension),
-			SourceModality:       sourceModalityFor(d),
+			SourceModality:       sourceModality,
 			ChunkSize:            chunkSize,
 			ChunkOverlap:         chunkOverlap,
 			ExtraMetadata:        extraMetadata,
