@@ -675,7 +675,8 @@ func (k *KnowledgeApplicationService) CreateDocument(ctx context.Context, req *d
 	}
 	resp := dataset.NewCreateDocumentResponse()
 	createResp, err := k.DomainSVC.CreateDocument(ctx, &service.CreateDocumentRequest{
-		Documents: documents,
+		Documents:       documents,
+		DocumentOptions: req.GetDocumentOptions(),
 	})
 	if err != nil {
 		logs.CtxErrorf(ctx, "create document failed, err: %v", err)

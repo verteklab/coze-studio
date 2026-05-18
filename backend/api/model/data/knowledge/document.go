@@ -6761,7 +6761,14 @@ type CreateDocumentRequest struct {
 	IsAppend *bool `thrift:"is_append,31,optional" form:"is_append" json:"is_append,omitempty" query:"is_append"`
 	// parsing strategy
 	ParsingStrategy *ParsingStrategy `thrift:"parsing_strategy,32,optional" form:"parsing_strategy" json:"parsing_strategy,omitempty" query:"parsing_strategy"`
-	Base            *base.Base       `thrift:"Base,255,optional" form:"Base" json:"Base,omitempty" query:"Base"`
+	// MANUAL EDIT — Phase 3b dynamic upload form. JSON-stringified opaque
+	// options forwarded verbatim to rag's POST /documents document_options
+	// form field. A reserved `_source_modality` key, if present, is consumed
+	// by the backend to override rag's source_modality routing. Absent on
+	// legacy/openapi callers — those keep working without setting this.
+	// Codegen toolchain is not wired (see commit e2dcc807).
+	DocumentOptions *string    `thrift:"document_options,33,optional" form:"document_options" json:"document_options,omitempty" query:"document_options"`
+	Base            *base.Base `thrift:"Base,255,optional" form:"Base" json:"Base,omitempty" query:"Base"`
 }
 
 func NewCreateDocumentRequest() *CreateDocumentRequest {
@@ -6810,6 +6817,16 @@ func (p *CreateDocumentRequest) GetParsingStrategy() (v *ParsingStrategy) {
 	return p.ParsingStrategy
 }
 
+var CreateDocumentRequest_DocumentOptions_DEFAULT string
+
+// MANUAL EDIT — Phase 3b: getter for the dynamic-form document_options blob.
+func (p *CreateDocumentRequest) GetDocumentOptions() (v string) {
+	if !p.IsSetDocumentOptions() {
+		return CreateDocumentRequest_DocumentOptions_DEFAULT
+	}
+	return *p.DocumentOptions
+}
+
 var CreateDocumentRequest_Base_DEFAULT *base.Base
 
 func (p *CreateDocumentRequest) GetBase() (v *base.Base) {
@@ -6826,6 +6843,7 @@ var fieldIDToName_CreateDocumentRequest = map[int16]string{
 	17:  "chunk_strategy",
 	31:  "is_append",
 	32:  "parsing_strategy",
+	33:  "document_options",
 	255: "Base",
 }
 
@@ -6839,6 +6857,11 @@ func (p *CreateDocumentRequest) IsSetIsAppend() bool {
 
 func (p *CreateDocumentRequest) IsSetParsingStrategy() bool {
 	return p.ParsingStrategy != nil
+}
+
+// MANUAL EDIT — Phase 3b.
+func (p *CreateDocumentRequest) IsSetDocumentOptions() bool {
+	return p.DocumentOptions != nil
 }
 
 func (p *CreateDocumentRequest) IsSetBase() bool {
@@ -6906,6 +6929,15 @@ func (p *CreateDocumentRequest) Read(iprot thrift.TProtocol) (err error) {
 		case 32:
 			if fieldTypeId == thrift.STRUCT {
 				if err = p.ReadField32(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		// MANUAL EDIT — Phase 3b: document_options string.
+		case 33:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField33(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -7020,6 +7052,18 @@ func (p *CreateDocumentRequest) ReadField32(iprot thrift.TProtocol) error {
 	p.ParsingStrategy = _field
 	return nil
 }
+
+// MANUAL EDIT — Phase 3b: reads the optional document_options string.
+func (p *CreateDocumentRequest) ReadField33(iprot thrift.TProtocol) error {
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.DocumentOptions = _field
+	return nil
+}
 func (p *CreateDocumentRequest) ReadField255(iprot thrift.TProtocol) error {
 	_field := base.NewBase()
 	if err := _field.Read(iprot); err != nil {
@@ -7057,6 +7101,11 @@ func (p *CreateDocumentRequest) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField32(oprot); err != nil {
 			fieldId = 32
+			goto WriteFieldError
+		}
+		// MANUAL EDIT — Phase 3b: document_options.
+		if err = p.writeField33(oprot); err != nil {
+			fieldId = 33
 			goto WriteFieldError
 		}
 		if err = p.writeField255(oprot); err != nil {
@@ -7190,6 +7239,26 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 32 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 32 end error: ", p), err)
+}
+
+// MANUAL EDIT — Phase 3b: writes the optional document_options string.
+func (p *CreateDocumentRequest) writeField33(oprot thrift.TProtocol) (err error) {
+	if p.IsSetDocumentOptions() {
+		if err = oprot.WriteFieldBegin("document_options", thrift.STRING, 33); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.DocumentOptions); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 33 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 33 end error: ", p), err)
 }
 func (p *CreateDocumentRequest) writeField255(oprot thrift.TProtocol) (err error) {
 	if p.IsSetBase() {

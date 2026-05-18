@@ -91,6 +91,14 @@ type UpdateKnowledgeRequest struct {
 
 type CreateDocumentRequest struct {
 	Documents []*entity.Document
+	// DocumentOptions is a JSON-stringified opaque blob forwarded verbatim to
+	// rag's POST /documents document_options form field (Phase 3b dynamic
+	// upload form). Applied to every document in this batch — same scoping
+	// as ChunkStrategy / ParsingStrategy. A reserved top-level
+	// `_source_modality` key (if present) is consumed by ragimpl to override
+	// rag's source_modality routing. Empty string means "rag falls back to
+	// per-schema defaults" (and ragimpl's Phase 1 inference still runs).
+	DocumentOptions string
 }
 
 type UpdateDocumentRequest struct {

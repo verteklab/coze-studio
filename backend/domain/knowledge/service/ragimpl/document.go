@@ -19,6 +19,7 @@ package ragimpl
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	knowledgeModel "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
@@ -30,6 +31,49 @@ import (
 	"github.com/coze-dev/coze-studio/backend/pkg/logs"
 	"github.com/coze-dev/coze-studio/backend/types/errno"
 )
+
+// documentOptionsModalityKey is the reserved top-level key inside the
+// frontend-supplied document_options JSON that the dynamic upload form uses
+// to override rag's source_modality routing (e.g. the schema selector lets a
+// user mark a PDF as a scanned document). The backend extracts and strips
+// this key before forwarding the JSON to rag — rag's per-schema pydantic
+// validation rejects unknown top-level keys under extra=forbid, so leaving
+// it in would 422 every upload.
+const documentOptionsModalityKey = "_source_modality"
+
+// applyDocumentOptionsOverrides extracts the dynamic upload form's reserved
+// keys from a document_options JSON blob and returns:
+//
+//   - modalityOverride: value of the `_source_modality` key if set, else "".
+//   - cleaned: the input JSON with the reserved keys stripped, ready to forward
+//     to rag's document_options form field. Empty if the input was empty or
+//     became {} after stripping.
+//
+// Caller is responsible for treating malformed JSON as a 400-class error
+// surface to the user — this helper just returns it.
+func applyDocumentOptionsOverrides(rawJSON string) (modalityOverride, cleaned string, err error) {
+	if rawJSON == "" {
+		return "", "", nil
+	}
+	var obj map[string]json.RawMessage
+	if err = json.Unmarshal([]byte(rawJSON), &obj); err != nil {
+		return "", "", fmt.Errorf("decode JSON: %w", err)
+	}
+	if raw, ok := obj[documentOptionsModalityKey]; ok {
+		if err = json.Unmarshal(raw, &modalityOverride); err != nil {
+			return "", "", fmt.Errorf("_source_modality must be a string: %w", err)
+		}
+		delete(obj, documentOptionsModalityKey)
+	}
+	if len(obj) == 0 {
+		return modalityOverride, "", nil
+	}
+	b, err := json.Marshal(obj)
+	if err != nil {
+		return "", "", fmt.Errorf("re-encode JSON: %w", err)
+	}
+	return modalityOverride, string(b), nil
+}
 
 // baseSourceModality picks the rag source_modality from the document type
 // alone, before the parsing-strategy overrides considered in
@@ -226,6 +270,32 @@ func (i *Impl) CreateDocument(ctx context.Context, req *service.CreateDocumentRe
 		}
 
 		sourceModality, enableOCR, enableImageEmbedding, documentOptions := strategyToRagFields(d)
+
+		// Phase 3b: the dynamic upload form sends per-request `document_options`
+		// alongside the typed ParsingStrategy / ChunkStrategy fields. The two
+		// paths are layered, not exclusive: typed fields still drive the
+		// existing Phase 1 mapping above (chunk_size, enable_ocr, etc.), and
+		// document_options carries everything the typed fields can't express
+		// (per-schema knobs like merge_blank_line_paragraphs, plus the
+		// reserved `_source_modality` key the schema selector uses to override
+		// our auto-routing).
+		if req.DocumentOptions != "" {
+			modalityOverride, cleaned, err := applyDocumentOptionsOverrides(req.DocumentOptions)
+			if err != nil {
+				return nil, errorx.New(errno.ErrKnowledgeInvalidParamCode,
+					errorx.KV("msg", fmt.Sprintf("document_options: %v", err)))
+			}
+			if modalityOverride != "" {
+				sourceModality = modalityOverride
+			}
+			if cleaned != "" {
+				// When the dynamic form supplied options, prefer them over
+				// the typed-field-derived blob. The typed-derived blob today
+				// only carries {"extract_tables":true}; if the user wants
+				// that they can include it in the dynamic form's JSON.
+				documentOptions = cleaned
+			}
+		}
 
 		ragReq := &contract.CreateDocumentRequest{
 			FileBytes:            fileBytes,

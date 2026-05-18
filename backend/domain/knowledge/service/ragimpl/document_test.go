@@ -18,6 +18,7 @@ package ragimpl
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"testing"
 
@@ -241,6 +242,93 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 		require.Equal(t, "text_source", fc.createDocReq.SourceModality)
 		require.Empty(t, fc.createDocReq.DocumentOptions,
 			"txt schema has no extract_tables knob — document_options must stay empty")
+	})
+
+	t.Run("DocumentOptions override modality and forward cleaned blob", func(t *testing.T) {
+		// Phase 3b: dynamic form sends `_source_modality` reserved key to
+		// override the auto-routing, plus per-schema knobs in the rest of
+		// the JSON. Backend must strip `_source_modality` before forwarding
+		// (rag's pydantic extra=forbid would 422 on an unknown top-level
+		// key inside document_options).
+		fc := &fakeClient{
+			createDocFunc: func(_, _ string, _ *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
+				return &contract.CreateDocumentResponse{DocID: "rag-doc-dyn", TaskID: "task-dyn", Status: "pending"}, nil
+			},
+		}
+		i := newTestImpl(t, fc, 8100)
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 250, "rag-kb-250", "icon", 0, 5, 0))
+
+		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
+			Documents: []*entity.Document{{
+				Info:          knowledgeModel.Info{Name: "report.pdf", CreatorID: 5},
+				KnowledgeID:   250,
+				Type:          knowledgeModel.DocumentTypeText,
+				FileExtension: "pdf",
+				URI:           "s3://x/y",
+				// No typed strategy: dynamic form is the only source of truth.
+			}},
+			DocumentOptions: `{"_source_modality":"scanned_document_source","ocr_languages":["zh","en"],"split_by_page":true}`,
+		})
+		require.NoError(t, err)
+		require.Equal(t, "scanned_document_source", fc.createDocReq.SourceModality,
+			"_source_modality must override the auto-routed modality")
+		var forwarded map[string]any
+		require.NoError(t, json.Unmarshal([]byte(fc.createDocReq.DocumentOptions), &forwarded))
+		require.NotContains(t, forwarded, "_source_modality",
+			"reserved key must be stripped before forwarding to rag")
+		require.Equal(t, []any{"zh", "en"}, forwarded["ocr_languages"])
+		require.Equal(t, true, forwarded["split_by_page"])
+	})
+
+	t.Run("DocumentOptions only with reserved key emits empty options", func(t *testing.T) {
+		// If the dynamic form only set the modality override and nothing else,
+		// document_options after stripping is {} which we MUST send as "" so
+		// rag falls back to per-schema defaults instead of seeing an empty
+		// object literal.
+		fc := &fakeClient{
+			createDocFunc: func(_, _ string, _ *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
+				return &contract.CreateDocumentResponse{DocID: "rag-doc-mod", TaskID: "task-mod", Status: "pending"}, nil
+			},
+		}
+		i := newTestImpl(t, fc, 8101)
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 251, "rag-kb-251", "icon", 0, 5, 0))
+
+		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
+			Documents: []*entity.Document{{
+				Info:          knowledgeModel.Info{Name: "scan.pdf", CreatorID: 5},
+				KnowledgeID:   251,
+				Type:          knowledgeModel.DocumentTypeText,
+				FileExtension: "pdf",
+				URI:           "s3://x/y",
+			}},
+			DocumentOptions: `{"_source_modality":"scanned_document_source"}`,
+		})
+		require.NoError(t, err)
+		require.Equal(t, "scanned_document_source", fc.createDocReq.SourceModality)
+		require.Empty(t, fc.createDocReq.DocumentOptions)
+	})
+
+	t.Run("DocumentOptions malformed JSON returns invalid-param error", func(t *testing.T) {
+		fc := &fakeClient{
+			createDocFunc: func(_, _ string, _ *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
+				t.Fatal("rag.CreateDocument must not be called on malformed input")
+				return nil, nil
+			},
+		}
+		i := newTestImpl(t, fc, 8102)
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 252, "rag-kb-252", "icon", 0, 5, 0))
+
+		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
+			Documents: []*entity.Document{{
+				Info:          knowledgeModel.Info{Name: "x.pdf", CreatorID: 5},
+				KnowledgeID:   252,
+				Type:          knowledgeModel.DocumentTypeText,
+				FileExtension: "pdf",
+				URI:           "s3://x/y",
+			}},
+			DocumentOptions: `{bad json`,
+		})
+		require.Error(t, err)
 	})
 
 	t.Run("ParsingStrategy with all zero values emits nothing", func(t *testing.T) {
