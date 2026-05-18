@@ -15,7 +15,9 @@
  */
 
 // Rag wizard reuses the legacy upload step as-is — no rag-specific behaviour
-// is needed during file selection; the only divergence is the post-upload
-// flow, handled by the new `<ImageProgress />`.
+// is needed during file selection; segment configuration uses a rag-specific
+// schema-driven form (Phase 3b), and the post-upload flow is handled by
+// `<ImageProgress />`.
 export { ImageUpload } from '../../steps/upload';
+export { ImageRagSegment } from './segment';
 export { ImageProgress } from './progress';

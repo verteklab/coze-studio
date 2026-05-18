@@ -30,6 +30,14 @@ export type ImageFileAddStore = UploadBaseState<ImageFileAddStep> &
   UploadBaseAction<ImageFileAddStep> & {
     annotationType: ImageAnnotationType;
     setAnnotationType: (annotationType: ImageAnnotationType) => void;
+    /**
+     * Phase 3b dynamic upload form. Set by the rag-mode segment step
+     * (image/file/add-rag/steps/segment) and read by the rag-mode progress
+     * step when calling `KnowledgeApi.CreateDocument`. Empty means
+     * "rag defaults" — the field is unused by the legacy wizard.
+     */
+    documentOptions: string;
+    setDocumentOptions: (value: string) => void;
   };
 
 const storeStaticValues: Pick<
@@ -39,12 +47,14 @@ const storeStaticValues: Pick<
   | 'annotationType'
   | 'createStatus'
   | 'progressList'
+  | 'documentOptions'
 > = {
   currentStep: ImageFileAddStep.Upload,
   unitList: [],
   annotationType: ImageAnnotationType.Auto,
   createStatus: CreateUnitStatus.UPLOAD_UNIT,
   progressList: [],
+  documentOptions: '',
 };
 
 export const createImageFileAddStore = () =>
@@ -65,6 +75,9 @@ export const createImageFileAddStore = () =>
       },
       setProgressList: (progressList: ProgressItem[]) => {
         set({ progressList });
+      },
+      setDocumentOptions: (documentOptions: string) => {
+        set({ documentOptions });
       },
       reset: () => {
         set(storeStaticValues);

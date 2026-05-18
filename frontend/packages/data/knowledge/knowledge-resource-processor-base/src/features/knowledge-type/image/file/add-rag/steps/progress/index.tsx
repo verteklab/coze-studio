@@ -90,7 +90,8 @@ export const ImageProgress: FC<ContentProps<ImageFileAddStore>> = props => {
 
     const run = async () => {
       try {
-        const { unitList, annotationType } = useStore.getState();
+        const { unitList, annotationType, documentOptions } =
+          useStore.getState();
         const res = await KnowledgeApi.CreateDocument({
           dataset_id: params.datasetID,
           format_type: FormatType.Image,
@@ -107,6 +108,10 @@ export const ImageProgress: FC<ContentProps<ImageFileAddStore>> = props => {
               document_source: DocumentSource.Document,
             },
           })),
+          // Phase 3b: dynamic upload form's serialised options blob.
+          // Empty string means "use rag defaults"; the backend falls
+          // through to its Phase 1 typed-field mapping when absent.
+          document_options: documentOptions || undefined,
         });
         const ids =
           res.document_infos

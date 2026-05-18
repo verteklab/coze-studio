@@ -38,12 +38,15 @@ vi.mock('@/components', () => ({
   UploadProgressPoll: () => null,
 }));
 
-// The legacy upload step and the new progress step are wrapped in step
-// `content` factories that vitest never actually executes during these
-// assertions; we stub them to keep the module graph small.
+// Step components are wrapped in step `content` factories that vitest
+// never actually executes during these assertions; we stub them to keep
+// the module graph small. Phase 3b adds <ImageRagSegment /> as the new
+// SEGMENT_CLEANER step between <ImageUpload /> and <ImageProgress />.
 vi.mock('../steps', () => ({
   // eslint-disable-next-line @typescript-eslint/naming-convention -- mirror upstream PascalCase exports
   ImageUpload: () => null,
+  // eslint-disable-next-line @typescript-eslint/naming-convention -- mirror upstream PascalCase exports
+  ImageRagSegment: () => null,
   // eslint-disable-next-line @typescript-eslint/naming-convention -- mirror upstream PascalCase exports
   ImageProgress: () => null,
 }));
@@ -58,12 +61,15 @@ import { ImageFileAddRagStep } from '../constants';
 import { ImageFileAddRagConfig } from '../config';
 
 describe('ImageFileAddRagConfig', () => {
-  it('exposes exactly two steps in upload-then-progress order', () => {
-    expect(ImageFileAddRagConfig.steps).toHaveLength(2);
+  it('exposes three steps in upload→segment→progress order', () => {
+    expect(ImageFileAddRagConfig.steps).toHaveLength(3);
     expect(ImageFileAddRagConfig.steps[0].step).toBe(
       ImageFileAddRagStep.UPLOAD,
     );
     expect(ImageFileAddRagConfig.steps[1].step).toBe(
+      ImageFileAddRagStep.SEGMENT_CLEANER,
+    );
+    expect(ImageFileAddRagConfig.steps[2].step).toBe(
       ImageFileAddRagStep.PROGRESS,
     );
   });
@@ -74,13 +80,14 @@ describe('ImageFileAddRagConfig', () => {
     }
   });
 
-  it('aligns PROGRESS with the value legacy ImageUpload pushes (1)', () => {
-    // Legacy `ImageUpload` step calls
-    // `setCurrentStep(ImageFileAddStep.Annotation)` which is numeric 1
-    // (see image/file/types.ts: `Upload = 0, Annotation, Process`). Rag
-    // wizard reuses that component as-is, so PROGRESS must equal 1 for
-    // the handoff to land on the right step.
-    expect(ImageFileAddRagStep.PROGRESS).toBe(1);
+  it('aligns step numeric values with the legacy components reused inside', () => {
+    // Legacy `<ImageUpload />` step calls
+    // `setCurrentStep(ImageFileAddStep.Annotation)` = 1 on Next (see
+    // image/file/types.ts: `Upload = 0, Annotation, Process`). We reuse
+    // that component, so SEGMENT_CLEANER must equal 1 for the handoff to
+    // land on the right step. PROGRESS is the next free value (2).
     expect(ImageFileAddRagStep.UPLOAD).toBe(0);
+    expect(ImageFileAddRagStep.SEGMENT_CLEANER).toBe(1);
+    expect(ImageFileAddRagStep.PROGRESS).toBe(2);
   });
 });

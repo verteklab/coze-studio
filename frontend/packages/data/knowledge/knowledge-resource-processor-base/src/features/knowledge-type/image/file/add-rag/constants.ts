@@ -16,21 +16,27 @@
 
 /**
  * Rag-mode wizard steps for image file upload. Mirrors
- * {@link ImageFileAddStep} but drops the ANNOTATION step (which depends on
- * the pending `ExtractPhotoCaption` stub) and collapses what was PROCESS
- * into a single PROGRESS step that owns its own CreateDocument call.
+ * {@link ImageFileAddStep} but drops the legacy ANNOTATION step (which
+ * depended on the pending `ExtractPhotoCaption` stub) in favour of a
+ * schema-driven SEGMENT_CLEANER (Phase 3b) that lets the user pick between
+ * the `image_document` and `scanned_document` rag schemas and configure
+ * their parameters.
  *
  * Numeric values are intentional and load-bearing:
  *   - The wizard engine (`UploadConfig<T extends number, R>` in
  *     knowledge-resource-processor-core) compares `currentStep === step.step`
  *     so the step type must be a `number`.
  *   - We reuse the legacy `<ImageUpload />` step, which hardcodes
- *     `setCurrentStep(ImageFileAddStep.Annotation)` = 1 when the user clicks
- *     Next (see image/file/steps/upload/index.tsx). Aligning `PROGRESS = 1`
- *     here means that handoff lands on the rag progress step without needing
- *     to fork the upload component.
+ *     `setCurrentStep(ImageFileAddStep.Annotation)` = 1 on Next (see
+ *     image/file/steps/upload/index.tsx). Aligning `SEGMENT_CLEANER = 1`
+ *     here lands that handoff on our new segment step without forking
+ *     <ImageUpload />.
+ *   - The new <ImageRagSegment /> step's Next button sets step to PROGRESS
+ *     directly, so PROGRESS just needs to be the next free number after
+ *     SEGMENT_CLEANER.
  */
 export enum ImageFileAddRagStep {
   UPLOAD = 0,
-  PROGRESS = 1,
+  SEGMENT_CLEANER = 1,
+  PROGRESS = 2,
 }
