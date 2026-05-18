@@ -63,6 +63,11 @@ func TestCreateDocument_InsertsMapping(t *testing.T) {
 	require.Equal(t, "rag-kb-100", fc.createDocKBID)
 	require.Equal(t, "test-tenant", fc.createDocTenant)
 	require.Equal(t, "text_source", fc.createDocReq.SourceModality)
+	// A document with no ParsingStrategy must not populate any of the new
+	// Phase 1 passthrough fields, so rag's per-schema defaults apply.
+	require.Nil(t, fc.createDocReq.EnableOCR)
+	require.Nil(t, fc.createDocReq.EnableImageEmbedding)
+	require.Empty(t, fc.createDocReq.DocumentOptions)
 
 	// Mapping row inserted with rag_doc_id and last_task_id.
 	got, err := i.mapping.DocByCozeID(context.Background(), 7777)
@@ -71,6 +76,99 @@ func TestCreateDocument_InsertsMapping(t *testing.T) {
 	require.Equal(t, "task-A", got.LastTaskID)
 	require.Equal(t, int64(100), got.KBID)
 	require.Equal(t, int64(5), got.CreatorID)
+}
+
+// TestCreateDocument_StrategyPassthrough verifies the Phase 1 mapping from
+// coze's ParsingStrategy to rag's per-document fields:
+//
+//   - ImageOCR=true     -> EnableOCR pointer to true
+//   - ExtractImage=true -> EnableImageEmbedding pointer to true
+//   - ExtractTable=true on a pdf -> DocumentOptions JSON {"extract_tables":true}
+//
+// Non-PDF/Docx file types must NOT emit document_options.extract_tables (rag's
+// text_document schema rejects unknown options under pydantic extra=forbid).
+func TestCreateDocument_StrategyPassthrough(t *testing.T) {
+	t.Run("pdf with all three knobs set", func(t *testing.T) {
+		fc := &fakeClient{
+			createDocFunc: func(_, _ string, _ *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
+				return &contract.CreateDocumentResponse{DocID: "rag-doc-pdf", TaskID: "task-pdf", Status: "pending"}, nil
+			},
+		}
+		i := newTestImpl(t, fc, 8001)
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 200, "rag-kb-200", "icon", 0, 5, 0))
+
+		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
+			Documents: []*entity.Document{{
+				Info:          knowledgeModel.Info{Name: "report.pdf", CreatorID: 5},
+				KnowledgeID:   200,
+				Type:          knowledgeModel.DocumentTypeText,
+				FileExtension: "pdf",
+				URI:           "s3://x/y",
+				ParsingStrategy: &entity.ParsingStrategy{
+					ImageOCR:     true,
+					ExtractImage: true,
+					ExtractTable: true,
+				},
+			}},
+		})
+		require.NoError(t, err)
+		require.NotNil(t, fc.createDocReq.EnableOCR)
+		require.True(t, *fc.createDocReq.EnableOCR)
+		require.NotNil(t, fc.createDocReq.EnableImageEmbedding)
+		require.True(t, *fc.createDocReq.EnableImageEmbedding)
+		require.JSONEq(t, `{"extract_tables":true}`, fc.createDocReq.DocumentOptions)
+	})
+
+	t.Run("txt with ExtractTable=true must not emit extract_tables", func(t *testing.T) {
+		fc := &fakeClient{
+			createDocFunc: func(_, _ string, _ *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
+				return &contract.CreateDocumentResponse{DocID: "rag-doc-txt", TaskID: "task-txt", Status: "pending"}, nil
+			},
+		}
+		i := newTestImpl(t, fc, 8002)
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 201, "rag-kb-201", "icon", 0, 5, 0))
+
+		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
+			Documents: []*entity.Document{{
+				Info:          knowledgeModel.Info{Name: "notes.txt", CreatorID: 5},
+				KnowledgeID:   201,
+				Type:          knowledgeModel.DocumentTypeText,
+				FileExtension: "txt",
+				URI:           "s3://x/y",
+				ParsingStrategy: &entity.ParsingStrategy{
+					ExtractTable: true,
+				},
+			}},
+		})
+		require.NoError(t, err)
+		require.Empty(t, fc.createDocReq.DocumentOptions,
+			"txt schema has no extract_tables knob — document_options must stay empty")
+	})
+
+	t.Run("ParsingStrategy with all zero values emits nothing", func(t *testing.T) {
+		fc := &fakeClient{
+			createDocFunc: func(_, _ string, _ *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
+				return &contract.CreateDocumentResponse{DocID: "rag-doc-zero", TaskID: "task-zero", Status: "pending"}, nil
+			},
+		}
+		i := newTestImpl(t, fc, 8003)
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 202, "rag-kb-202", "icon", 0, 5, 0))
+
+		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
+			Documents: []*entity.Document{{
+				Info:            knowledgeModel.Info{Name: "blank.pdf", CreatorID: 5},
+				KnowledgeID:     202,
+				Type:            knowledgeModel.DocumentTypeText,
+				FileExtension:   "pdf",
+				URI:             "s3://x/y",
+				ParsingStrategy: &entity.ParsingStrategy{}, // all false / zero
+			}},
+		})
+		require.NoError(t, err)
+		require.Nil(t, fc.createDocReq.EnableOCR)
+		require.Nil(t, fc.createDocReq.EnableImageEmbedding)
+		require.Empty(t, fc.createDocReq.DocumentOptions)
+	})
 }
 
 // TestMGetDocumentProgress_NoMirror verifies two invariants:

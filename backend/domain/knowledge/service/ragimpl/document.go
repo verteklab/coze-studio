@@ -41,6 +41,53 @@ func sourceModalityFor(d *entity.Document) string {
 	return "text_source"
 }
 
+// strategyToRagFields maps coze's per-document ParsingStrategy onto rag's
+// form-level knobs. Phase 1 mapping (limited to fields the current upload UI
+// already collects):
+//
+//   - ImageOCR     -> enable_ocr (form bool). Rag's image/scanned schemas
+//     honor it; text schemas silently ignore.
+//   - ExtractImage -> enable_image_embedding (form bool). Same caveat —
+//     only image-source schemas read it.
+//   - ExtractTable -> document_options JSON {"extract_tables": <bool>}, but
+//     only for file types whose rag schema actually has that field (pdf,
+//     docx). For other types we leave document_options empty so rag's
+//     pydantic validation does not reject an unknown key on, say, the
+//     text_document schema.
+//
+// Returns nil pointers / "" for fields the strategy did not configure, so
+// the client layer can omit them and rag falls back to per-schema defaults.
+// Other ParsingStrategy fields (ParsingType, FilterPages, sheet/image
+// sub-blocks) are intentionally untouched here — they require richer
+// schema-aware mapping that lands with Phase 2/3's document-options
+// passthrough.
+func strategyToRagFields(d *entity.Document) (enableOCR, enableImageEmbedding *bool, documentOptions string) {
+	if d == nil || d.ParsingStrategy == nil {
+		return nil, nil, ""
+	}
+	ps := d.ParsingStrategy
+	if ps.ImageOCR {
+		v := true
+		enableOCR = &v
+	}
+	if ps.ExtractImage {
+		v := true
+		enableImageEmbedding = &v
+	}
+	// Only emit extract_tables for file types whose rag schema declares it.
+	// Schema source: GET /api/v1/document-parameter-schemas (pdf_text_document,
+	// docx_document). markdown_document has protect_tables instead and
+	// text_document has no table concept.
+	if ps.ExtractTable {
+		switch d.FileExtension {
+		case parser.FileExtensionPDF, parser.FileExtensionDocx:
+			b, _ := json.Marshal(map[string]any{"extract_tables": true})
+			documentOptions = string(b)
+		}
+	}
+	return enableOCR, enableImageEmbedding, documentOptions
+}
+
 // buildDocMetadata injects the coze-side identifiers we want rag to round-trip
 // back to us in retrieval hits (rag stores this as opaque JSON on the doc).
 // Keep keys snake_case to match rag's convention.
@@ -153,14 +200,19 @@ func (i *Impl) CreateDocument(ctx context.Context, req *service.CreateDocumentRe
 			extraMetadata = ""
 		}
 
+		enableOCR, enableImageEmbedding, documentOptions := strategyToRagFields(d)
+
 		ragReq := &contract.CreateDocumentRequest{
-			FileBytes:      fileBytes,
-			Filename:       d.Name,
-			FileType:       string(d.FileExtension),
-			SourceModality: sourceModalityFor(d),
-			ChunkSize:      chunkSize,
-			ChunkOverlap:   chunkOverlap,
-			ExtraMetadata:  extraMetadata,
+			FileBytes:            fileBytes,
+			Filename:             d.Name,
+			FileType:             string(d.FileExtension),
+			SourceModality:       sourceModalityFor(d),
+			ChunkSize:            chunkSize,
+			ChunkOverlap:         chunkOverlap,
+			ExtraMetadata:        extraMetadata,
+			EnableOCR:            enableOCR,
+			EnableImageEmbedding: enableImageEmbedding,
+			DocumentOptions:      documentOptions,
 		}
 		ragResp, err := i.rag.CreateDocument(ctx, tenant, m.RagKBID, ragReq)
 		if err != nil {
