@@ -351,9 +351,38 @@ func TestGetTask(t *testing.T) {
 	}
 }
 
-// TestDeleteDocument_Retries verifies that idempotent methods retry on 5xx.
-// MaxRetries=1 means we expect 2 calls total (initial + 1 retry).
-func TestDeleteDocument_Retries(t *testing.T) {
+// TestDeleteDocument locks rag's POST .../documents/{doc_id}/delete wire shape.
+// Asserts the HTTP method, nested path, and tenant header. Rag's v1 contract
+// is uniformly POST-action style (no REST DELETE), so this endpoint is a POST
+// even though the operation is semantically a delete.
+func TestDeleteDocument(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		wantSuffix := "/api/v1/knowledgebases/uuid-1/documents/doc-1/delete"
+		if !strings.HasSuffix(r.URL.Path, wantSuffix) {
+			t.Errorf("path = %s, want suffix %s", r.URL.Path, wantSuffix)
+		}
+		if got := r.Header.Get("X-Tenant-Id"); got != "42" {
+			t.Errorf("X-Tenant-Id = %q, want %q", got, "42")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "message": "ok"})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second})
+	if err := c.DeleteDocument(context.Background(), "42", "uuid-1", "doc-1"); err != nil {
+		t.Fatalf("DeleteDocument: %v", err)
+	}
+}
+
+// TestDeleteDocument_NoRetryOn5xx pins the behaviour shift from the rag
+// contract migration: deletion is now a POST, and doJSON only retries
+// idempotent methods (GET/DELETE). MaxRetries=1 must therefore produce a
+// single attempt — not two — so this test guards against silently regaining
+// retry semantics if anyone broadens idempotent() to include POST later.
+func TestDeleteDocument_NoRetryOn5xx(t *testing.T) {
 	calls := 0
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
@@ -374,8 +403,8 @@ func TestDeleteDocument_Retries(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error")
 	}
-	if calls != 2 {
-		t.Fatalf("expected 2 calls (1 + 1 retry), got %d", calls)
+	if calls != 1 {
+		t.Fatalf("expected 1 call (POST is not retried), got %d", calls)
 	}
 }
 
@@ -1383,5 +1412,91 @@ func TestListDocumentParameterSchemas_FieldShape(t *testing.T) {
 	}
 	if len(image.Parameters) != 0 {
 		t.Errorf("schemas[1].Parameters should be empty, got %d", len(image.Parameters))
+	}
+}
+
+// TestUpdateKB locks rag's POST .../knowledgebases/{kb_id}/update wire shape.
+// Asserts the HTTP method, nested path, tenant header, and pointer-typed
+// UpdateKBRequest omitempty behaviour (unset fields must not appear on the
+// wire so rag's exclude_unset distinguishes "leave alone" from "explicit
+// empty"). Mirrors TestUpdateDocument.
+func TestUpdateKB(t *testing.T) {
+	var gotBody map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		wantSuffix := "/api/v1/knowledgebases/kb-1/update"
+		if !strings.HasSuffix(r.URL.Path, wantSuffix) {
+			t.Errorf("path = %s, want suffix %s", r.URL.Path, wantSuffix)
+		}
+		if got := r.Header.Get("X-Tenant-Id"); got != "t1" {
+			t.Errorf("X-Tenant-Id = %q, want %q", got, "t1")
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode body: %v", err)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"code":    0,
+			"message": "ok",
+			"data": map[string]any{
+				"kb_id":                    "kb-1",
+				"name":                     "renamed",
+				"description":              "",
+				"text_embedding_model_id":  "m-text",
+				"image_embedding_model_id": "",
+				"status":                   "ready",
+				"created_at":               "2026-05-15T08:00:00.000000",
+				"updated_at":               "2026-05-15T08:00:05.000000",
+			},
+			"request_id": "req-updkb-1",
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second})
+	newName := "renamed"
+	got, err := c.UpdateKB(context.Background(), "t1", "kb-1", &contract.UpdateKBRequest{
+		Name: &newName,
+	})
+	if err != nil {
+		t.Fatalf("UpdateKB: %v", err)
+	}
+	if got.KBID != "kb-1" || got.Name != "renamed" {
+		t.Errorf("decoded = %+v, want {kb-1, renamed, ...}", got)
+	}
+
+	if gotBody["name"] != "renamed" {
+		t.Errorf("body.name = %v, want %q", gotBody["name"], "renamed")
+	}
+	for _, k := range []string{"description", "status"} {
+		if _, present := gotBody[k]; present {
+			t.Errorf("body.%s present (= %v), expected omitted via omitempty", k, gotBody[k])
+		}
+	}
+}
+
+// TestDeleteKB locks rag's POST .../knowledgebases/{kb_id}/delete wire shape.
+// Like DeleteDocument, this is a POST in rag's POST-action contract — not a
+// REST DELETE.
+func TestDeleteKB(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %s, want POST", r.Method)
+		}
+		wantSuffix := "/api/v1/knowledgebases/kb-1/delete"
+		if !strings.HasSuffix(r.URL.Path, wantSuffix) {
+			t.Errorf("path = %s, want suffix %s", r.URL.Path, wantSuffix)
+		}
+		if got := r.Header.Get("X-Tenant-Id"); got != "t1" {
+			t.Errorf("X-Tenant-Id = %q, want %q", got, "t1")
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "message": "ok"})
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second})
+	if err := c.DeleteKB(context.Background(), "t1", "kb-1"); err != nil {
+		t.Fatalf("DeleteKB: %v", err)
 	}
 }

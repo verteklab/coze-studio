@@ -299,16 +299,16 @@ func (c *Client) GetKB(ctx context.Context, tenantID, kbID string) (*contract.KB
 
 func (c *Client) UpdateKB(ctx context.Context, tenantID, kbID string, req *contract.UpdateKBRequest) (*contract.KB, error) {
 	out := &contract.KB{}
-	path := apiPrefix + "/knowledgebases/" + kbID
-	if err := c.doJSON(ctx, http.MethodPatch, path, tenantID, req, out, c.cfg.Timeout); err != nil {
+	path := apiPrefix + "/knowledgebases/" + kbID + "/update"
+	if err := c.doJSON(ctx, http.MethodPost, path, tenantID, req, out, c.cfg.Timeout); err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
 func (c *Client) DeleteKB(ctx context.Context, tenantID, kbID string) error {
-	path := apiPrefix + "/knowledgebases/" + kbID
-	return c.doJSON(ctx, http.MethodDelete, path, tenantID, nil, nil, c.cfg.Timeout)
+	path := apiPrefix + "/knowledgebases/" + kbID + "/delete"
+	return c.doJSON(ctx, http.MethodPost, path, tenantID, nil, nil, c.cfg.Timeout)
 }
 
 func (c *Client) ListKBs(ctx context.Context, req *contract.ListKBsRequest) (*contract.ListKBsResponse, error) {
@@ -403,8 +403,8 @@ func (c *Client) ListDocuments(ctx context.Context, tenantID, kbID string, page,
 }
 
 func (c *Client) DeleteDocument(ctx context.Context, tenantID, kbID, docID string) error {
-	path := apiPrefix + "/knowledgebases/" + kbID + "/documents/" + docID
-	return c.doJSON(ctx, http.MethodDelete, path, tenantID, nil, nil, c.cfg.Timeout)
+	path := apiPrefix + "/knowledgebases/" + kbID + "/documents/" + docID + "/delete"
+	return c.doJSON(ctx, http.MethodPost, path, tenantID, nil, nil, c.cfg.Timeout)
 }
 
 // RetryDocument re-runs ingestion for a failed document task. Rag's response
