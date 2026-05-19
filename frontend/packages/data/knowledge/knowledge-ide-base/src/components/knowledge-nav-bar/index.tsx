@@ -24,7 +24,10 @@ import {
   useKnowledgeParams,
   useKnowledgeStore,
 } from '@coze-data/knowledge-stores';
-import { UnitType } from '@coze-data/knowledge-resource-processor-core';
+import {
+  UnitType,
+  isRagBackend,
+} from '@coze-data/knowledge-resource-processor-core';
 import { useEditKnowledgeModal } from '@coze-data/knowledge-modal-adapter';
 import { KnowledgeE2e } from '@coze-data/e2e';
 import { I18n } from '@coze-arch/i18n';
@@ -102,12 +105,21 @@ export const KnowledgeIDENavBar = ({
 
   const isTableFormat = dataSetDetail?.format_type === FormatType.Table;
   const isImageFormat = dataSetDetail?.format_type === FormatType.Image;
+  // Rag mode: hide the resegment button. The backend's
+  // ResegmentDocument is stubbed to ErrRagFeaturePendingCode under
+  // KNOWLEDGE_BACKEND=rag (ragimpl/unsupported.go:49) — rag itself only
+  // exposes /update for metadata and /retry for replaying the original
+  // config, so there is no path to re-chunk with new strategy without
+  // delete + re-upload. Hiding the entry point is approach #3 from the
+  // brainstorm; #1 (new rag endpoint) and #2 (synthetic delete+upload)
+  // remain on the roadmap.
   const isShowResegmentBtn =
     canOperate &&
     !isTableFormat &&
     !!dataSetDetail?.doc_count &&
     !dataSetDetail?.processing_file_id_list?.length &&
-    !isImageFormat;
+    !isImageFormat &&
+    !isRagBackend(dataSetDetail);
 
   const documentInfo = documentList?.[0];
   const unitType = useMemo(() => {
