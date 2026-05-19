@@ -138,10 +138,27 @@ const GroupedFields: FC<{
 };
 
 /**
- * Maps `parameter.ui_component` to a concrete control. Falls back to a
- * disabled `<Input>` for unknown components so a future rag-side widget
- * doesn't render as a blank gap — operators see something and the param
- * name in dev tools, then file a ticket.
+ * Maps `parameter.ui_component` to a concrete control. Recognised:
+ *
+ *   - "switch"           -> <Switch />
+ *   - "number"           -> <InputNumber />
+ *   - "select"           -> <Select /> populated from `allowed_values`
+ *   - "model-select"     -> editable <Input /> for now; the param value is
+ *     a rag model_id (e.g. ocr_model_id="model-ocr-paddle-infer-text").
+ *     Long-term this should be a dropdown sourced from
+ *     /api/knowledge/rag/model_providers filtered by capability, but the
+ *     current ListRagModelProviders endpoint only returns text/image
+ *     embedding models — OCR/LLM/rerank entries aren't surfaced yet, so
+ *     a free-text fallback unblocks the wizard until that's added.
+ *   - "multi-select"     -> editable <Input /> accepting comma-separated
+ *     values, parsed to string[] on submit. Same long-term note as above
+ *     for a real tag-input control.
+ *   - "text" / anything else -> editable <Input />.
+ *
+ * The unknown-component fallback is intentionally editable (it used to be
+ * disabled): a rag-side ui_component rename or a required param like
+ * ocr_model_id would otherwise leave the user with no way to satisfy
+ * pydantic's required-field check on submit.
  */
 const FieldControl: FC<{
   param: DocumentParameter;
@@ -206,25 +223,44 @@ const FieldControl: FC<{
         </div>
       );
     }
+    case 'multi-select': {
+      // Parameter value is array[string] on the wire; UI is a comma-separated
+      // text input that splits/joins on the fly. Trailing-empty splits are
+      // dropped so a user typing "zh, " mid-edit doesn't emit ["zh", ""].
+      const arr = Array.isArray(value)
+        ? (value as unknown[])
+        : ((param.default as unknown[] | undefined) ?? []);
+      const display = arr.map(v => String(v)).join(', ');
+      return (
+        <div style={{ display: 'flex', flexDirection: 'column' }}>
+          <span style={{ marginBottom: 4 }}>{label}</span>
+          <Input
+            value={display}
+            placeholder="e.g. zh, en"
+            onChange={(next: string) => {
+              const parts = next
+                .split(',')
+                .map(s => s.trim())
+                .filter(Boolean);
+              onChange(param.name, parts);
+            }}
+          />
+        </div>
+      );
+    }
+    case 'model-select':
     case 'text':
     default: {
       const current =
         typeof value === 'string'
           ? value
           : ((param.default as string | undefined) ?? '');
-      const disabled = param.ui_component !== 'text';
       return (
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <span style={{ marginBottom: 4 }}>{label}</span>
           <Input
             value={current}
-            disabled={disabled}
             onChange={(next: string) => onChange(param.name, next)}
-            placeholder={
-              disabled
-                ? `unsupported ui_component: ${param.ui_component}`
-                : undefined
-            }
           />
         </div>
       );
