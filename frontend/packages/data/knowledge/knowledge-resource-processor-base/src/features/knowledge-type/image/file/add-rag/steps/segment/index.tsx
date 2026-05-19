@@ -19,10 +19,11 @@ import { type FC, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { type ContentProps } from '@coze-data/knowledge-resource-processor-core';
 import { I18n } from '@coze-arch/i18n';
-import { Button, Select, Typography } from '@coze-arch/coze-design';
+import { Button, Select, Toast, Typography } from '@coze-arch/coze-design';
 
 import {
   DynamicParsingPanel,
+  findMissingRequired,
   matchSchemasForFile,
   schemaLabel,
   useRagDocumentParameterSchemas,
@@ -91,6 +92,17 @@ export const ImageRagSegment: FC<ContentProps<ImageFileAddStore>> = props => {
   const [formValue, setFormValue] = useState<DocumentOptionsValue>({});
 
   const handleNext = (): void => {
+    if (activeSchema) {
+      const missing = findMissingRequired(activeSchema, formValue);
+      if (missing.length > 0) {
+        Toast.error(
+          I18n.t('datasets_createFileModel_rag_required_missing', {
+            fields: missing.map(p => p.ui_label || p.name).join(', '),
+          }),
+        );
+        return;
+      }
+    }
     const payload: DocumentOptionsValue = { ...formValue };
     if (
       activeSchema &&

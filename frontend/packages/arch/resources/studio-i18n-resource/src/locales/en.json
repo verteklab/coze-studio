@@ -5436,6 +5436,7 @@
   "datasets_createFileModel_rag_advanced_params": "Advanced parameters",
   "datasets_createFileModel_rag_loading_schemas": "Loading parsing options…",
   "datasets_createFileModel_rag_mode_label": "Parsing mode",
+  "datasets_createFileModel_rag_required_missing": "Please fill in the required field(s): {fields}",
   "datasets_createFileModel_rag_scanned_hint": "Will use scanned-document parsing (with OCR)",
   "datasets_createFileModel_rag_schemas_failed": "Failed to load parsing options; upload will use defaults: {message}",
   "datasets_createFileModel_rag_schemas_retry": "Retry",

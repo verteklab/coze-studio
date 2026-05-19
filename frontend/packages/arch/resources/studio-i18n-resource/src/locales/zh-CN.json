@@ -6006,6 +6006,7 @@
   "datasets_createFileModel_rag_advanced_params": "高级参数",
   "datasets_createFileModel_rag_loading_schemas": "加载解析参数中…",
   "datasets_createFileModel_rag_mode_label": "解析模式",
+  "datasets_createFileModel_rag_required_missing": "请填写必填项：{fields}",
   "datasets_createFileModel_rag_scanned_hint": "将使用扫描件解析（含 OCR）",
   "datasets_createFileModel_rag_schemas_failed": "解析参数加载失败，将使用默认配置上传：{message}",
   "datasets_createFileModel_rag_schemas_retry": "重试",

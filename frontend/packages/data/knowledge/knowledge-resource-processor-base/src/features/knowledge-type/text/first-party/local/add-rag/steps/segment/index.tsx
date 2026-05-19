@@ -19,10 +19,11 @@ import { type FC, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { type ContentProps } from '@coze-data/knowledge-resource-processor-core';
 import { I18n } from '@coze-arch/i18n';
-import { Button, Select, Typography } from '@coze-arch/coze-design';
+import { Button, Select, Toast, Typography } from '@coze-arch/coze-design';
 
 import {
   DynamicParsingPanel,
+  findMissingRequired,
   matchSchemasForFile,
   schemaLabel,
   useRagDocumentParameterSchemas,
@@ -99,6 +100,17 @@ export const TextRagSegment: FC<
   const [formValue, setFormValue] = useState<DocumentOptionsValue>({});
 
   const handleNext = (): void => {
+    if (activeSchema) {
+      const missing = findMissingRequired(activeSchema, formValue);
+      if (missing.length > 0) {
+        Toast.error(
+          I18n.t('datasets_createFileModel_rag_required_missing', {
+            fields: missing.map(p => p.ui_label || p.name).join(', '),
+          }),
+        );
+        return;
+      }
+    }
     // Compose the wire shape. `_source_modality` only travels when the user
     // explicitly chose a non-first schema — letting backend auto-routing
     // own the common case keeps existing PDF/image uploads identical.
