@@ -25,6 +25,7 @@ import {
   DynamicParsingPanel,
   findMissingRequired,
   matchSchemasForFile,
+  mergeSchemaDefaults,
   schemaLabel,
   useRagDocumentParameterSchemas,
   type DocumentOptionsValue,
@@ -103,7 +104,12 @@ export const ImageRagSegment: FC<ContentProps<ImageFileAddStore>> = props => {
         return;
       }
     }
-    const payload: DocumentOptionsValue = { ...formValue };
+    // Seed with schema defaults so unchanged toggles travel on the wire
+    // (otherwise formValue only contains user-touched keys and the wire stops
+    // describing what the user actually saw — see mergeSchemaDefaults JSDoc).
+    const payload: DocumentOptionsValue = activeSchema
+      ? mergeSchemaDefaults(activeSchema, formValue)
+      : { ...formValue };
     if (
       activeSchema &&
       candidateSchemas.length > 1 &&

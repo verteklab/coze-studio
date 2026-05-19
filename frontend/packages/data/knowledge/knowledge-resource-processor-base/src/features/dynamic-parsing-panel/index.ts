@@ -20,7 +20,7 @@ export {
   matchSchemasForFile,
   schemaLabel,
 } from './use-schemas';
-export { findMissingRequired } from './validate';
+export { findMissingRequired, mergeSchemaDefaults } from './validate';
 export type {
   DocumentParameter,
   DocumentParameterSchema,

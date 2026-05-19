@@ -16,7 +16,7 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { findMissingRequired } from './validate';
+import { findMissingRequired, mergeSchemaDefaults } from './validate';
 import { type DocumentParameter, type DocumentParameterSchema } from './types';
 
 const param = (over: Partial<DocumentParameter>): DocumentParameter => ({
@@ -89,5 +89,39 @@ describe('findMissingRequired', () => {
   it('ignores non-required params even if empty', () => {
     const s = schema([param({ name: 'note', required: false })]);
     expect(findMissingRequired(s, {})).toEqual([]);
+  });
+});
+
+describe('mergeSchemaDefaults', () => {
+  it('seeds defaults for untouched fields and preserves user values', () => {
+    const s = schema([
+      param({ name: 'enable_ocr', ui_component: 'switch', default: true }),
+      param({ name: 'chunk_size', ui_component: 'number', default: 512 }),
+      param({ name: 'split_by_page', ui_component: 'switch', default: true }),
+    ]);
+    // User toggled chunk_size only.
+    expect(mergeSchemaDefaults(s, { chunk_size: 256 })).toEqual({
+      enable_ocr: true,
+      chunk_size: 256,
+      split_by_page: true,
+    });
+  });
+
+  it('skips params whose default is undefined or null', () => {
+    const s = schema([
+      param({ name: 'ocr_model_id', default: null }),
+      param({ name: 'note' }), // no default key at all
+      param({ name: 'enable_ocr', default: true }),
+    ]);
+    expect(mergeSchemaDefaults(s, {})).toEqual({ enable_ocr: true });
+  });
+
+  it('lets the user explicitly override a default with falsy value', () => {
+    const s = schema([
+      param({ name: 'enable_ocr', ui_component: 'switch', default: true }),
+    ]);
+    expect(mergeSchemaDefaults(s, { enable_ocr: false })).toEqual({
+      enable_ocr: false,
+    });
   });
 });

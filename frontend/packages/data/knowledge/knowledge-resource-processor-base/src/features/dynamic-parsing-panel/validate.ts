@@ -40,6 +40,35 @@ export function findMissingRequired(
   return schema.parameters.filter(p => p.required && isEmpty(value[p.name], p));
 }
 
+/**
+ * Merges schema defaults underneath the user's values so the wire payload
+ * reflects every value the form displayed (including unchanged defaults).
+ * Without this, `formValue` contains only keys the user explicitly touched
+ * and rag silently applies its server-side defaults — the wire payload
+ * stops being self-describing, which we hit during the post-fix audit
+ * after document_options started actually reaching rag (see
+ * auto-generated/knowledge/index.ts:172). Audit: capturing the user's
+ * visible state on the wire makes later debugging / replay possible
+ * without joining against the rag schema version that was live at upload.
+ *
+ * Defaults with value `undefined` or `null` are skipped (e.g.
+ * scanned_document.ocr_model_id default=null) — they carry no information
+ * and rag's pydantic would 422 a literal null on a required string field.
+ * User-supplied `value` always wins on key collision.
+ */
+export function mergeSchemaDefaults(
+  schema: DocumentParameterSchema,
+  value: DocumentOptionsValue,
+): DocumentOptionsValue {
+  const defaults: DocumentOptionsValue = {};
+  for (const p of schema.parameters) {
+    if (p.default !== undefined && p.default !== null) {
+      defaults[p.name] = p.default;
+    }
+  }
+  return { ...defaults, ...value };
+}
+
 function isEmpty(v: unknown, p: DocumentParameter): boolean {
   const candidate = v === undefined ? p.default : v;
   if (candidate === undefined || candidate === null) {

@@ -25,6 +25,7 @@ import {
   DynamicParsingPanel,
   findMissingRequired,
   matchSchemasForFile,
+  mergeSchemaDefaults,
   schemaLabel,
   useRagDocumentParameterSchemas,
   type DocumentOptionsValue,
@@ -111,10 +112,12 @@ export const TextRagSegment: FC<
         return;
       }
     }
-    // Compose the wire shape. `_source_modality` only travels when the user
-    // explicitly chose a non-first schema — letting backend auto-routing
-    // own the common case keeps existing PDF/image uploads identical.
-    const payload: DocumentOptionsValue = { ...formValue };
+    // Wire shape: mergeSchemaDefaults so unchanged toggles travel (see its
+    // JSDoc). `_source_modality` only when the user opted into a non-default
+    // schema — backend auto-routing owns the common case.
+    const payload: DocumentOptionsValue = activeSchema
+      ? mergeSchemaDefaults(activeSchema, formValue)
+      : { ...formValue };
     if (
       activeSchema &&
       candidateSchemas.length > 1 &&

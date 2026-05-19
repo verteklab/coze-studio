@@ -32,6 +32,43 @@ import {
 let cached: DocumentParameterSchema[] | null = null;
 let inflight: Promise<DocumentParameterSchema[]> | null = null;
 
+// Frontend-side defaults synthesised for schema parameters where rag itself
+// declares `default=null` but the deployment ships a sensible value. Keyed by
+// parameter name; only applied when rag's default is null/undefined so a
+// future rag-side default override wins without code changes.
+//
+// `ocr_model_id` is the only entry today: rag declares it required with
+// default=null across image_document and scanned_document, but the docker
+// rag stack always boots with the paddle OCR model registered, so showing
+// `model-ocr-paddle-infer-text` in the input matches what the user gets if
+// they hit submit immediately. Long-term this should come from
+// ListRagModelProviders filtered by capability (see TODO at
+// dynamic-parsing-panel.tsx model-select case).
+const FRONTEND_PARAM_DEFAULTS: Readonly<Record<string, unknown>> = {
+  ocr_model_id: 'model-ocr-paddle-infer-text',
+};
+
+// Mutates `schemas` in place to fill in frontend defaults for parameters
+// rag didn't supply one for. Safe to call on the cached array because the
+// catalog is read-only after first fetch — the synthesised value lives
+// alongside rag's own defaults for the rest of the session.
+function applyFrontendDefaults(
+  schemas: DocumentParameterSchema[],
+): DocumentParameterSchema[] {
+  for (const s of schemas) {
+    for (const p of s.parameters) {
+      if (p.default !== undefined && p.default !== null) {
+        continue;
+      }
+      const synthesised = FRONTEND_PARAM_DEFAULTS[p.name];
+      if (synthesised !== undefined) {
+        p.default = synthesised;
+      }
+    }
+  }
+  return schemas;
+}
+
 async function fetchSchemas(): Promise<DocumentParameterSchema[]> {
   // The rag proxy endpoint returns a raw {schemas: [...]} envelope (no
   // {code, msg, data}) — mirrors the ListRagModelProviders fetch precedent
@@ -48,7 +85,7 @@ async function fetchSchemas(): Promise<DocumentParameterSchema[]> {
     throw new Error(`document_parameter_schemas: HTTP ${res.status}`);
   }
   const body = (await res.json()) as ListRagDocumentParameterSchemasResponse;
-  return body.schemas ?? [];
+  return applyFrontendDefaults(body.schemas ?? []);
 }
 
 /**
