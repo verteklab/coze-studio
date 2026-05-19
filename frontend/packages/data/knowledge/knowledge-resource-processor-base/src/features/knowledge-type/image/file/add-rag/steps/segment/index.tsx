@@ -19,11 +19,12 @@ import { type FC, useMemo, useState } from 'react';
 import { useShallow } from 'zustand/react/shallow';
 import { type ContentProps } from '@coze-data/knowledge-resource-processor-core';
 import { I18n } from '@coze-arch/i18n';
-import { Select, Typography } from '@coze-arch/coze-design';
+import { Button, Select, Typography } from '@coze-arch/coze-design';
 
 import {
   DynamicParsingPanel,
   matchSchemasForFile,
+  schemaLabel,
   useRagDocumentParameterSchemas,
   type DocumentOptionsValue,
   type DocumentParameterSchema,
@@ -67,7 +68,7 @@ export const ImageRagSegment: FC<ContentProps<ImageFileAddStore>> = props => {
     })),
   );
 
-  const { schemas, loading, error } = useRagDocumentParameterSchemas();
+  const { schemas, loading, error, retry } = useRagDocumentParameterSchemas();
 
   const fileType = useMemo(
     () => unitList[0]?.type?.toLowerCase() ?? '',
@@ -114,24 +115,31 @@ export const ImageRagSegment: FC<ContentProps<ImageFileAddStore>> = props => {
     <div style={{ padding: 16 }}>
       {loading ? (
         <Typography.Text type="tertiary">
-          {/* TODO i18n */}加载解析参数中…
+          {I18n.t('datasets_createFileModel_rag_loading_schemas')}
         </Typography.Text>
       ) : null}
       {error ? (
-        <Typography.Text type="warning">
-          {/* TODO i18n */}解析参数加载失败，将使用默认配置上传：{error.message}
-        </Typography.Text>
+        <div style={{ marginBottom: 12 }}>
+          <Typography.Text type="warning">
+            {I18n.t('datasets_createFileModel_rag_schemas_failed', {
+              message: error.message,
+            })}
+          </Typography.Text>{' '}
+          <Button size="small" onClick={retry}>
+            {I18n.t('datasets_createFileModel_rag_schemas_retry')}
+          </Button>
+        </div>
       ) : null}
       {candidateSchemas.length > 1 ? (
         <div style={{ marginBottom: 12 }}>
           <Typography.Title heading={6} style={{ marginBottom: 4 }}>
-            {/* TODO i18n */}解析模式
+            {I18n.t('datasets_createFileModel_rag_mode_label')}
           </Typography.Title>
           <Select
             style={{ minWidth: 240 }}
             value={activeSchema?.schema_id ?? candidateSchemas[0].schema_id}
             optionList={candidateSchemas.map(s => ({
-              label: s.schema_id,
+              label: schemaLabel(s.schema_id),
               value: s.schema_id,
             }))}
             onChange={(v: unknown) => {
@@ -147,7 +155,7 @@ export const ImageRagSegment: FC<ContentProps<ImageFileAddStore>> = props => {
       ) : null}
       {isScannedSchema ? (
         <Typography.Text type="tertiary" size="small">
-          {/* TODO i18n */}将使用扫描件解析（含 OCR）
+          {I18n.t('datasets_createFileModel_rag_scanned_hint')}
         </Typography.Text>
       ) : null}
       {activeSchema ? (

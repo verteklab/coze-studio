@@ -18,6 +18,7 @@ export { DynamicParsingPanel } from './dynamic-parsing-panel';
 export {
   useRagDocumentParameterSchemas,
   matchSchemasForFile,
+  schemaLabel,
 } from './use-schemas';
 export type {
   DocumentParameter,

@@ -16,6 +16,7 @@
 
 import { type FC, useMemo } from 'react';
 
+import { I18n } from '@coze-arch/i18n';
 import {
   InputNumber,
   Input,
@@ -82,7 +83,9 @@ export const DynamicParsingPanel: FC<DynamicParsingPanelProps> = ({
         onChange={handleFieldChange}
       />
       {advanced.length > 0 ? (
-        <CollapsePanel header="高级参数">
+        <CollapsePanel
+          header={I18n.t('datasets_createFileModel_rag_advanced_params')}
+        >
           <GroupedFields
             params={advanced}
             value={value}

@@ -14,7 +14,9 @@
  * limitations under the License.
  */
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+
+import { I18n } from '@coze-arch/i18n';
 
 import {
   type DocumentParameterSchema,
@@ -54,23 +56,33 @@ async function fetchSchemas(): Promise<DocumentParameterSchema[]> {
  * mirrors react-query's `{data, loading, error}` without taking the
  * dependency — the cache lives at module scope, so a hook re-invocation
  * after the first successful fetch resolves synchronously.
+ *
+ * `retry()` clears the cache and re-fires the fetch. Wire it to the segment
+ * step's "retry" button so a transient catalog outage is recoverable
+ * without forcing the user to back out and re-enter the wizard.
  */
 export function useRagDocumentParameterSchemas(): {
   schemas: DocumentParameterSchema[] | null;
   loading: boolean;
   error: Error | null;
+  retry: () => void;
 } {
   const [schemas, setSchemas] = useState<DocumentParameterSchema[] | null>(
     cached,
   );
   const [error, setError] = useState<Error | null>(null);
   const [loading, setLoading] = useState<boolean>(cached === null);
+  // Bumped by retry() to re-trigger the effect; needs to live in state so
+  // the effect's dep array sees it change.
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
     if (cached !== null) {
       return;
     }
     let cancelled = false;
+    setLoading(true);
+    setError(null);
     const promise = inflight ?? (inflight = fetchSchemas());
     promise
       .then(result => {
@@ -86,7 +98,8 @@ export function useRagDocumentParameterSchemas(): {
         if (cancelled) {
           return;
         }
-        // Reset inflight so a retry on remount can refire; cached stays null.
+        // Reset inflight so a retry can refire; cached stays null so the
+        // next mount or retry re-fetches.
         inflight = null;
         setError(err);
         setLoading(false);
@@ -94,9 +107,15 @@ export function useRagDocumentParameterSchemas(): {
     return () => {
       cancelled = true;
     };
+  }, [tick]);
+
+  const retry = useCallback(() => {
+    cached = null;
+    inflight = null;
+    setTick(t => t + 1);
   }, []);
 
-  return { schemas, loading, error };
+  return { schemas, loading, error, retry };
 }
 
 /**
@@ -113,4 +132,28 @@ export function matchSchemasForFile(
   return schemas.filter(s =>
     s.file_types.map(t => t.toLowerCase()).includes(lc),
   );
+}
+
+// i18n keys keyed by rag's schema_id. Stable bidirectional mapping — adding
+// a new schema requires a new key here AND in the locale files. The fallback
+// returns the raw schema_id so a missing locale entry surfaces visibly
+// instead of rendering as a blank dropdown.
+const SCHEMA_LABEL_KEYS: Readonly<Record<string, string>> = {
+  text_document: 'datasets_createFileModel_rag_schema_text_document',
+  markdown_document: 'datasets_createFileModel_rag_schema_markdown_document',
+  pdf_text_document: 'datasets_createFileModel_rag_schema_pdf_text_document',
+  docx_document: 'datasets_createFileModel_rag_schema_docx_document',
+  image_document: 'datasets_createFileModel_rag_schema_image_document',
+  scanned_document: 'datasets_createFileModel_rag_schema_scanned_document',
+};
+
+/**
+ * Resolves a rag schema_id to its localised display label. Unknown ids
+ * fall through to the raw schema_id so an operator can still tell which
+ * schema is in play without a localisation entry; that also makes the
+ * mapping table the single source of truth without a runtime crash.
+ */
+export function schemaLabel(schemaId: string): string {
+  const key = SCHEMA_LABEL_KEYS[schemaId];
+  return key ? I18n.t(key) : schemaId;
 }
