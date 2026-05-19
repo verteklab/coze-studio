@@ -93,12 +93,20 @@ func (r *RetrieveConfig) Adapt(_ context.Context, n *vo.Node, _ ...nodes.AdaptOp
 		return nil, false
 	}
 
-	if content, ok := getDesignatedParamContent("topK"); ok {
+	if content, ok := getDesignatedParamContent("topK"); ok && content != nil {
 		topK, err := cast.ToInt64E(content)
 		if err != nil {
 			return nil, err
 		}
-		retrievalStrategy.TopK = &topK
+		// Drop non-positive values. The UI emits the topK param with no Content
+		// key when the input is left blank; cast.ToInt64E(nil) returns (0, nil),
+		// which previously propagated as `top_k: 0` and 40004'd at rag's
+		// retrieval validator (top_k must be > 0). An explicit 0 from the user
+		// is treated the same way -- "let rag pick a default" is the only sane
+		// fallback when the value rag would reject is what we'd send.
+		if topK > 0 {
+			retrievalStrategy.TopK = &topK
+		}
 	}
 
 	if content, ok := getDesignatedParamContent("useRerank"); ok {

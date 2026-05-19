@@ -103,7 +103,15 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 		ragReq.Query = &q
 	}
 	if req.Strategy != nil {
-		if req.Strategy.TopK != nil {
+		if req.Strategy.TopK != nil && *req.Strategy.TopK > 0 {
+			// Rag's pydantic validator rejects top_k <= 0 (40004
+			// "top_k must be a positive integer"). Defensive filter so a
+			// future caller path that propagates zero/negative (the
+			// workflow-node bug fixed in knowledge_retrieve.go) doesn't
+			// resurface the same wire-level error. Same intent as the
+			// MaxTokens guard below, just non-fatal here -- dropping the
+			// override lets rag use its own default rather than blocking
+			// retrieval on a bad value the caller didn't mean to send.
 			topK := int(*req.Strategy.TopK)
 			ragReq.TopK = &topK
 		}
