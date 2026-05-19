@@ -20,6 +20,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 )
@@ -536,4 +537,182 @@ func (m *MappingRepo) ChunkInsertOrGetCozeID(
 		return 0, err
 	}
 	return resolved.CozeSliceID, nil
+}
+
+// ChunksByRagIDs is the batch variant of ChunkByRagID. It returns at most one
+// mapping per requested rag_chunk_id -- when multiple rows exist for the same
+// id (from a lazy-backfill race) the earliest-created wins, matching
+// ChunkByRagID's single-row semantics. Missing chunks are simply absent from
+// the result; the caller distinguishes "no mapping" by the returned map's
+// keyset, not by an error.
+//
+// Empty input short-circuits with no database hit.
+func (m *MappingRepo) ChunksByRagIDs(ctx context.Context, ragChunkIDs []string) ([]*ChunkMapping, error) {
+	if len(ragChunkIDs) == 0 {
+		return nil, nil
+	}
+	var rows []struct {
+		CozeSliceID int64  `gorm:"column:coze_slice_id"`
+		RagChunkID  string `gorm:"column:rag_chunk_id"`
+		RagDocID    string `gorm:"column:rag_doc_id"`
+		CozeDocID   int64  `gorm:"column:coze_doc_id"`
+		CreatorID   int64  `gorm:"column:creator_id"`
+	}
+	err := m.db.WithContext(ctx).
+		Table("rag_chunk_mapping").
+		Select("coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id, creator_id").
+		Where("rag_chunk_id IN ? AND (deleted_at IS NULL)", ragChunkIDs).
+		Order("rag_chunk_id ASC, created_at ASC, coze_slice_id ASC").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	// Dedup: keep only the first occurrence of each rag_chunk_id (the
+	// earliest-created thanks to the ORDER BY). This mirrors ChunkByRagID's
+	// race-stability contract -- every reader converges on the same row.
+	seen := make(map[string]struct{}, len(rows))
+	out := make([]*ChunkMapping, 0, len(rows))
+	for _, r := range rows {
+		if _, dup := seen[r.RagChunkID]; dup {
+			continue
+		}
+		seen[r.RagChunkID] = struct{}{}
+		out = append(out, &ChunkMapping{
+			CozeSliceID: r.CozeSliceID, RagChunkID: r.RagChunkID,
+			RagDocID: r.RagDocID, CozeDocID: r.CozeDocID,
+			CreatorID: r.CreatorID,
+		})
+	}
+	return out, nil
+}
+
+// ChunksBulkInsert writes a batch of chunk mappings in a single multi-row
+// INSERT. Empty input is a no-op. Mirrors ChunkInsert's column set; the
+// non-UNIQUE rag_chunk_id invariant still applies -- concurrent batches may
+// produce duplicate rows that the read path resolves via earliest-created.
+func (m *MappingRepo) ChunksBulkInsert(ctx context.Context, mps []*ChunkMapping, nowMs int64) error {
+	if len(mps) == 0 {
+		return nil
+	}
+	var (
+		placeholders = make([]string, 0, len(mps))
+		args         = make([]any, 0, len(mps)*6)
+	)
+	for _, mp := range mps {
+		placeholders = append(placeholders, "(?, ?, ?, ?, ?, ?)")
+		args = append(args, mp.CozeSliceID, mp.RagChunkID, mp.RagDocID, mp.CozeDocID, mp.CreatorID, nowMs)
+	}
+	stmt := `INSERT INTO rag_chunk_mapping
+		 (coze_slice_id, rag_chunk_id, rag_doc_id, coze_doc_id, creator_id, created_at)
+		 VALUES ` + strings.Join(placeholders, ", ")
+	return m.db.WithContext(ctx).Exec(stmt, args...).Error
+}
+
+// ChunkInsertOrGetItem is the per-chunk descriptor for ChunksInsertOrGetCozeIDs.
+// It exists because ListPhotoSlice's chunks span multiple docs (each with a
+// different RagDocID / CozeDocID / CreatorID), so a single per-call doc tuple
+// is not enough. ListSlice's call site fills every item with the same trio.
+type ChunkInsertOrGetItem struct {
+	RagChunkID string
+	RagDocID   string
+	CozeDocID  int64
+	CreatorID  int64
+}
+
+// ChunksInsertOrGetCozeIDs is the batch variant of ChunkInsertOrGetCozeID.
+// The flow collapses the per-chunk SELECT + GenID + INSERT + re-SELECT loop
+// into at most four database / idgen round-trips for the entire batch:
+//
+//  1. One SELECT (ChunksByRagIDs) covers all existing mappings.
+//  2. One GenMultiIDs call allocates ids for the missing N.
+//  3. One multi-row INSERT (ChunksBulkInsert) materialises the new mappings.
+//  4. One re-SELECT (ChunksByRagIDs again) covers race convergence -- only
+//     the freshly-inserted rag_chunk_ids are re-resolved so every caller still
+//     ends up on the earliest-created row when two batches race.
+//
+// Duplicate rag_chunk_ids in `items` collapse to a single map entry (no
+// duplicate id allocation). Empty input returns an empty (non-nil) map.
+//
+// The allocMulti callback exists so the repo does not depend on the idgen
+// package directly -- keeps the test stub simple and the unit boundary clean.
+func (m *MappingRepo) ChunksInsertOrGetCozeIDs(
+	ctx context.Context,
+	items []ChunkInsertOrGetItem,
+	allocMulti func(ctx context.Context, n int) ([]int64, error),
+	nowMs int64,
+) (map[string]int64, error) {
+	out := make(map[string]int64, len(items))
+	if len(items) == 0 {
+		return out, nil
+	}
+
+	// Dedup the inputs by rag_chunk_id. Two chunks with the same id share an
+	// allocation; we remember the first descriptor we saw for the insert path.
+	uniq := make(map[string]ChunkInsertOrGetItem, len(items))
+	order := make([]string, 0, len(items))
+	for _, it := range items {
+		if it.RagChunkID == "" {
+			continue
+		}
+		if _, ok := uniq[it.RagChunkID]; ok {
+			continue
+		}
+		uniq[it.RagChunkID] = it
+		order = append(order, it.RagChunkID)
+	}
+	if len(order) == 0 {
+		return out, nil
+	}
+
+	existing, err := m.ChunksByRagIDs(ctx, order)
+	if err != nil {
+		return nil, err
+	}
+	for _, cm := range existing {
+		out[cm.RagChunkID] = cm.CozeSliceID
+	}
+
+	missing := make([]string, 0, len(order)-len(out))
+	for _, id := range order {
+		if _, ok := out[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) == 0 {
+		return out, nil
+	}
+
+	ids, err := allocMulti(ctx, len(missing))
+	if err != nil {
+		return nil, err
+	}
+	if len(ids) != len(missing) {
+		return nil, fmt.Errorf("idgen returned %d ids, expected %d", len(ids), len(missing))
+	}
+
+	newRows := make([]*ChunkMapping, 0, len(missing))
+	for i, id := range missing {
+		it := uniq[id]
+		newRows = append(newRows, &ChunkMapping{
+			CozeSliceID: ids[i],
+			RagChunkID:  it.RagChunkID,
+			RagDocID:    it.RagDocID,
+			CozeDocID:   it.CozeDocID,
+			CreatorID:   it.CreatorID,
+		})
+	}
+	if err := m.ChunksBulkInsert(ctx, newRows, nowMs); err != nil {
+		return nil, err
+	}
+
+	// Re-resolve only the newly inserted ids so racing batches converge on the
+	// earliest-created row (same contract as ChunkInsertOrGetCozeID).
+	reresolved, err := m.ChunksByRagIDs(ctx, missing)
+	if err != nil {
+		return nil, err
+	}
+	for _, cm := range reresolved {
+		out[cm.RagChunkID] = cm.CozeSliceID
+	}
+	return out, nil
 }

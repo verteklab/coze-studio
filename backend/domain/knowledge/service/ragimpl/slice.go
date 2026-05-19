@@ -491,11 +491,11 @@ func (i *Impl) ListSlice(ctx context.Context, req *service.ListSliceRequest) (*s
 	if err != nil {
 		return nil, err
 	}
+	idByRagChunk := i.resolveCozeSliceIDsForDoc(ctx, resp.Items, docMapping.RagDocID, *req.DocumentID, docMapping.CreatorID)
 	out := make([]*entity.Slice, 0, len(resp.Items))
 	for idx := range resp.Items {
 		c := &resp.Items[idx]
-		cozeSliceID := i.resolveCozeSliceID(ctx, c.ChunkID, docMapping.RagDocID, *req.DocumentID, docMapping.CreatorID)
-		out = append(out, buildSliceFromChunk(c, cozeSliceID, *req.DocumentID, docMapping.KBID, docMapping.CreatorID))
+		out = append(out, buildSliceFromChunk(c, idByRagChunk[c.ChunkID], *req.DocumentID, docMapping.KBID, docMapping.CreatorID))
 	}
 	hasMore := resp.Total > q.Page*q.PageSize
 	return &service.ListSliceResponse{
@@ -503,6 +503,33 @@ func (i *Impl) ListSlice(ctx context.Context, req *service.ListSliceRequest) (*s
 		Total:   resp.Total,
 		HasMore: hasMore,
 	}, nil
+}
+
+// resolveCozeSliceIDsForDoc is the ListSlice-shaped wrapper around the batch
+// mapping resolver. All chunks share the same doc tuple (rag_doc_id /
+// coze_doc_id / creator_id), so it builds the per-item descriptors inline
+// before delegating. On failure we degrade to all-zero ids and log -- same
+// contract as resolveCozeSliceID's per-chunk failure mode, but folded into a
+// single WARN instead of N.
+func (i *Impl) resolveCozeSliceIDsForDoc(ctx context.Context, chunks []contract.Chunk, ragDocID string, cozeDocID, creatorID int64) map[string]int64 {
+	if len(chunks) == 0 {
+		return map[string]int64{}
+	}
+	items := make([]ChunkInsertOrGetItem, 0, len(chunks))
+	for idx := range chunks {
+		items = append(items, ChunkInsertOrGetItem{
+			RagChunkID: chunks[idx].ChunkID,
+			RagDocID:   ragDocID,
+			CozeDocID:  cozeDocID,
+			CreatorID:  creatorID,
+		})
+	}
+	ids, err := i.mapping.ChunksInsertOrGetCozeIDs(ctx, items, i.idgen.GenMultiIDs, time.Now().UnixMilli())
+	if err != nil {
+		logs.CtxWarnf(ctx, "ragimpl: ChunksInsertOrGetCozeIDs(%d chunks) failed; slice ids will be 0: %v", len(items), err)
+		return map[string]int64{}
+	}
+	return ids
 }
 
 // ListPhotoSlice covers the image-only chunk listing. Rag does not implement
@@ -555,19 +582,31 @@ func (i *Impl) ListPhotoSlice(ctx context.Context, req *service.ListPhotoSliceRe
 
 	// Build a coze_doc_id cache via reverse lookup on rag_doc_id -- we don't
 	// have the int64 ids directly from rag.
+	// Resolve all distinct rag_doc_ids in one shot before walking chunks --
+	// then collect per-chunk batch items and resolve coze_slice_ids in a single
+	// call. Two passes over resp.Items keep the loop body trivial and ensure
+	// HasCaption-filtered chunks don't waste an id allocation.
 	docByRagID := map[string]*DocMapping{}
-	out := make([]*entity.Slice, 0, len(resp.Items))
+	for idx := range resp.Items {
+		ragDocID := resp.Items[idx].DocID
+		if _, ok := docByRagID[ragDocID]; ok {
+			continue
+		}
+		rev, rerr := i.mapping.docByRagID(ctx, ragDocID)
+		if rerr != nil {
+			logs.CtxWarnf(ctx, "ragimpl.ListPhotoSlice: docByRagID(%s) failed; skipping chunk: %v", ragDocID, rerr)
+			continue
+		}
+		docByRagID[ragDocID] = rev
+	}
+
+	kept := make([]*contract.Chunk, 0, len(resp.Items))
+	items := make([]ChunkInsertOrGetItem, 0, len(resp.Items))
 	for idx := range resp.Items {
 		c := &resp.Items[idx]
 		dm := docByRagID[c.DocID]
 		if dm == nil {
-			rev, rerr := i.mapping.docByRagID(ctx, c.DocID)
-			if rerr != nil {
-				logs.CtxWarnf(ctx, "ragimpl.ListPhotoSlice: docByRagID(%s) failed; skipping chunk: %v", c.DocID, rerr)
-				continue
-			}
-			docByRagID[c.DocID] = rev
-			dm = rev
+			continue // docByRagID failure already logged above
 		}
 		if req.HasCaption != nil {
 			hasCaption := c.Image != nil && strings.TrimSpace(c.Image.Caption) != ""
@@ -575,8 +614,27 @@ func (i *Impl) ListPhotoSlice(ctx context.Context, req *service.ListPhotoSliceRe
 				continue
 			}
 		}
-		cozeSliceID := i.resolveCozeSliceID(ctx, c.ChunkID, c.DocID, dm.CozeID, dm.CreatorID)
-		out = append(out, buildSliceFromChunk(c, cozeSliceID, dm.CozeID, dm.KBID, dm.CreatorID))
+		kept = append(kept, c)
+		items = append(items, ChunkInsertOrGetItem{
+			RagChunkID: c.ChunkID, RagDocID: c.DocID,
+			CozeDocID: dm.CozeID, CreatorID: dm.CreatorID,
+		})
+	}
+
+	idByRagChunk := map[string]int64{}
+	if len(items) > 0 {
+		ids, err := i.mapping.ChunksInsertOrGetCozeIDs(ctx, items, i.idgen.GenMultiIDs, time.Now().UnixMilli())
+		if err != nil {
+			logs.CtxWarnf(ctx, "ragimpl.ListPhotoSlice: ChunksInsertOrGetCozeIDs(%d chunks) failed; slice ids will be 0: %v", len(items), err)
+		} else {
+			idByRagChunk = ids
+		}
+	}
+
+	out := make([]*entity.Slice, 0, len(kept))
+	for _, c := range kept {
+		dm := docByRagID[c.DocID]
+		out = append(out, buildSliceFromChunk(c, idByRagChunk[c.ChunkID], dm.CozeID, dm.KBID, dm.CreatorID))
 	}
 	return &service.ListPhotoSliceResponse{
 		Slices: out,

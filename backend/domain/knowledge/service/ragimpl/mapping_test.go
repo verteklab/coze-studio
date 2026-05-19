@@ -451,3 +451,198 @@ func TestChunkMapping_InsertOrGetCozeID_ConcurrentRace(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(7001), idC, "all callers must converge on earliest mapping id")
 }
+
+// --- batch chunk-mapping helpers ------------------------------------------
+
+func TestChunksByRagIDs_EmptyInput(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+	got, err := m.ChunksByRagIDs(context.Background(), nil)
+	require.NoError(t, err)
+	require.Empty(t, got)
+}
+
+func TestChunksByRagIDs_ReturnsEarliestPerID(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+	ctx := context.Background()
+
+	// chunk-a: single row (5001).
+	require.NoError(t, m.ChunkInsert(ctx, &ChunkMapping{CozeSliceID: 5001, RagChunkID: "chunk-a", RagDocID: "d", CozeDocID: 50}, 10))
+	// chunk-b: two rows from a race -- 5002 (t=20) is earliest, 5003 (t=30) is the racer.
+	require.NoError(t, m.ChunkInsert(ctx, &ChunkMapping{CozeSliceID: 5002, RagChunkID: "chunk-b", RagDocID: "d", CozeDocID: 50}, 20))
+	require.NoError(t, m.ChunkInsert(ctx, &ChunkMapping{CozeSliceID: 5003, RagChunkID: "chunk-b", RagDocID: "d", CozeDocID: 50}, 30))
+
+	got, err := m.ChunksByRagIDs(ctx, []string{"chunk-a", "chunk-b", "chunk-missing"})
+	require.NoError(t, err)
+	require.Len(t, got, 2, "missing chunk is silently absent; race must collapse to one row")
+
+	byID := map[string]int64{}
+	for _, cm := range got {
+		byID[cm.RagChunkID] = cm.CozeSliceID
+	}
+	require.Equal(t, int64(5001), byID["chunk-a"])
+	require.Equal(t, int64(5002), byID["chunk-b"], "earliest-created row must win")
+}
+
+func TestChunksByRagIDs_IgnoresSoftDeleted(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+	ctx := context.Background()
+	require.NoError(t, m.ChunkInsert(ctx, &ChunkMapping{CozeSliceID: 5001, RagChunkID: "chunk-a", RagDocID: "d", CozeDocID: 50}, 1))
+	require.NoError(t, m.ChunkSoftDelete(ctx, 5001))
+
+	got, err := m.ChunksByRagIDs(ctx, []string{"chunk-a"})
+	require.NoError(t, err)
+	require.Empty(t, got, "soft-deleted mappings must not surface")
+}
+
+func TestChunksBulkInsert_MultiRow(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+	ctx := context.Background()
+
+	require.NoError(t, m.ChunksBulkInsert(ctx, []*ChunkMapping{
+		{CozeSliceID: 6001, RagChunkID: "c-1", RagDocID: "d", CozeDocID: 50, CreatorID: 7},
+		{CozeSliceID: 6002, RagChunkID: "c-2", RagDocID: "d", CozeDocID: 50, CreatorID: 7},
+	}, 1700))
+
+	for _, ragID := range []string{"c-1", "c-2"} {
+		cm, err := m.ChunkByRagID(ctx, ragID)
+		require.NoErrorf(t, err, "row for %s missing", ragID)
+		require.Equal(t, "d", cm.RagDocID)
+	}
+}
+
+func TestChunksBulkInsert_EmptyIsNoop(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+	require.NoError(t, m.ChunksBulkInsert(context.Background(), nil, 0))
+}
+
+func TestChunksInsertOrGetCozeIDs_AllNew(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+	ctx := context.Background()
+
+	var allocCalls int
+	alloc := func(_ context.Context, n int) ([]int64, error) {
+		allocCalls++
+		require.Equal(t, 3, n, "all three must be allocated in one call")
+		return []int64{9001, 9002, 9003}, nil
+	}
+
+	got, err := m.ChunksInsertOrGetCozeIDs(ctx,
+		[]ChunkInsertOrGetItem{
+			{RagChunkID: "c-1", RagDocID: "d", CozeDocID: 50},
+			{RagChunkID: "c-2", RagDocID: "d", CozeDocID: 50},
+			{RagChunkID: "c-3", RagDocID: "d", CozeDocID: 50},
+		}, alloc, 1700)
+	require.NoError(t, err)
+	require.Equal(t, 1, allocCalls, "exactly one batch alloc")
+	require.Equal(t, map[string]int64{"c-1": 9001, "c-2": 9002, "c-3": 9003}, got)
+}
+
+func TestChunksInsertOrGetCozeIDs_PartialExisting(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+	ctx := context.Background()
+	require.NoError(t, m.ChunkInsert(ctx, &ChunkMapping{CozeSliceID: 8001, RagChunkID: "c-1", RagDocID: "d", CozeDocID: 50}, 1))
+
+	alloc := func(_ context.Context, n int) ([]int64, error) {
+		require.Equal(t, 2, n, "only the missing two should be allocated")
+		return []int64{8002, 8003}, nil
+	}
+	got, err := m.ChunksInsertOrGetCozeIDs(ctx,
+		[]ChunkInsertOrGetItem{
+			{RagChunkID: "c-1", RagDocID: "d", CozeDocID: 50},
+			{RagChunkID: "c-2", RagDocID: "d", CozeDocID: 50},
+			{RagChunkID: "c-3", RagDocID: "d", CozeDocID: 50},
+		}, alloc, 100)
+	require.NoError(t, err)
+	require.Equal(t, int64(8001), got["c-1"], "existing mapping must be reused")
+	require.Equal(t, int64(8002), got["c-2"])
+	require.Equal(t, int64(8003), got["c-3"])
+}
+
+func TestChunksInsertOrGetCozeIDs_DedupsInput(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+	alloc := func(_ context.Context, n int) ([]int64, error) {
+		require.Equal(t, 1, n, "duplicate input must collapse to a single alloc")
+		return []int64{4242}, nil
+	}
+	got, err := m.ChunksInsertOrGetCozeIDs(context.Background(),
+		[]ChunkInsertOrGetItem{
+			{RagChunkID: "c-dup", RagDocID: "d", CozeDocID: 50},
+			{RagChunkID: "c-dup", RagDocID: "d", CozeDocID: 50},
+		}, alloc, 1)
+	require.NoError(t, err)
+	require.Equal(t, map[string]int64{"c-dup": 4242}, got)
+}
+
+func TestChunksInsertOrGetCozeIDs_AllExisting_NoAlloc(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+	ctx := context.Background()
+	require.NoError(t, m.ChunkInsert(ctx, &ChunkMapping{CozeSliceID: 1001, RagChunkID: "c-1", RagDocID: "d", CozeDocID: 50}, 1))
+	require.NoError(t, m.ChunkInsert(ctx, &ChunkMapping{CozeSliceID: 1002, RagChunkID: "c-2", RagDocID: "d", CozeDocID: 50}, 2))
+
+	got, err := m.ChunksInsertOrGetCozeIDs(ctx,
+		[]ChunkInsertOrGetItem{
+			{RagChunkID: "c-1", RagDocID: "d", CozeDocID: 50},
+			{RagChunkID: "c-2", RagDocID: "d", CozeDocID: 50},
+		},
+		func(_ context.Context, _ int) ([]int64, error) {
+			t.Fatal("alloc must not be called when every mapping already exists")
+			return nil, nil
+		}, 0)
+	require.NoError(t, err)
+	require.Equal(t, map[string]int64{"c-1": 1001, "c-2": 1002}, got)
+}
+
+func TestChunksInsertOrGetCozeIDs_RaceConvergence(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+	ctx := context.Background()
+
+	// Caller A wins the batch alloc with id=5000 at t=10.
+	allocA := func(_ context.Context, n int) ([]int64, error) {
+		require.Equal(t, 1, n)
+		return []int64{5000}, nil
+	}
+	gotA, err := m.ChunksInsertOrGetCozeIDs(ctx,
+		[]ChunkInsertOrGetItem{{RagChunkID: "c-race", RagDocID: "d", CozeDocID: 50}},
+		allocA, 10)
+	require.NoError(t, err)
+	require.Equal(t, int64(5000), gotA["c-race"])
+
+	// Caller B's "existing" check missed (simulated by hand-inserting after A
+	// returned). B inserts a strictly-later row (5001, t=1<<62), then the
+	// re-resolve must converge B back onto 5000.
+	require.NoError(t, m.ChunkInsert(ctx, &ChunkMapping{
+		CozeSliceID: 5001, RagChunkID: "c-race", RagDocID: "d", CozeDocID: 50,
+	}, 1<<62))
+
+	gotC, err := m.ChunksInsertOrGetCozeIDs(ctx,
+		[]ChunkInsertOrGetItem{{RagChunkID: "c-race", RagDocID: "d", CozeDocID: 50}},
+		func(_ context.Context, _ int) ([]int64, error) {
+			t.Fatal("must not allocate -- mapping already present")
+			return nil, nil
+		}, 20)
+	require.NoError(t, err)
+	require.Equal(t, int64(5000), gotC["c-race"], "callers must converge on earliest mapping id")
+}
+
+func TestChunksInsertOrGetCozeIDs_EmptyInput(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+	got, err := m.ChunksInsertOrGetCozeIDs(context.Background(), nil,
+		func(_ context.Context, _ int) ([]int64, error) {
+			t.Fatal("alloc must not be called for empty input")
+			return nil, nil
+		}, 0)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Empty(t, got)
+}
