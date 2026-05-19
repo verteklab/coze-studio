@@ -169,6 +169,7 @@ export default class KnowledgeService<T> {
       parsing_strategy: _req['parsing_strategy'],
       index_strategy: _req['index_strategy'],
       storage_strategy: _req['storage_strategy'],
+      document_options: _req['document_options'],
       Base: _req['Base'],
     };
     return this.request({ url, method, data }, options);
