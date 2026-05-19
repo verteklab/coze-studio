@@ -123,6 +123,41 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 			"scanned_document schema has no extract_tables knob — document_options must stay empty")
 	})
 
+	t.Run("pdf with ExtractImage but no OCR stays on text_source (no scanned promotion)", func(t *testing.T) {
+		// Regression guard for the 2026-05-19 incident: ExtractImage alone
+		// used to promote PDFs to scanned_document_source, but rag's scanned
+		// schema requires `ocr_model_id` whenever it's chosen (enable_ocr
+		// default=True there), so ExtractImage-only uploads 40001'd. Now we
+		// only promote when ImageOCR is explicitly true.
+		fc := &fakeClient{
+			createDocFunc: func(_, _ string, _ *contract.CreateDocumentRequest) (*contract.CreateDocumentResponse, error) {
+				return &contract.CreateDocumentResponse{DocID: "rag-doc-pdf-img", TaskID: "task-pdf-img", Status: "pending"}, nil
+			},
+		}
+		i := newTestImpl(t, fc, 8000)
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 199, "rag-kb-199", "icon", 0, 5, 0))
+
+		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
+			Documents: []*entity.Document{{
+				Info:          knowledgeModel.Info{Name: "img.pdf", CreatorID: 5},
+				KnowledgeID:   199,
+				Type:          knowledgeModel.DocumentTypeText,
+				FileExtension: "pdf",
+				URI:           "s3://x/y",
+				ParsingStrategy: &entity.ParsingStrategy{
+					ImageOCR:     false,
+					ExtractImage: true,
+				},
+			}},
+		})
+		require.NoError(t, err)
+		require.Equal(t, "text_source", fc.createDocReq.SourceModality,
+			"ExtractImage alone must not flip modality — scanned would require ocr_model_id")
+		require.Nil(t, fc.createDocReq.EnableOCR)
+		require.Nil(t, fc.createDocReq.EnableImageEmbedding,
+			"text_source schema has no enable_image_embedding; ExtractImage dropped silently")
+	})
+
 	t.Run("pdf with ExtractTable only stays on text_source and emits extract_tables", func(t *testing.T) {
 		// No OCR / image intent -> modality stays text_source, which is the
 		// only schema that actually has extract_tables.

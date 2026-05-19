@@ -92,14 +92,21 @@ func baseSourceModality(d *entity.Document) string {
 // (limited to fields the current upload UI already collects):
 //
 //   - ImageOCR=true on a PDF -> route to "scanned_document_source" so rag's
-//     scanned-document parser kicks in; emit enable_ocr=true. (PDFs uploaded
-//     without OCR stay as "text_source" so the cheaper text parser is used.)
+//     scanned-document parser kicks in; emit enable_ocr=true. PDFs without
+//     OCR stay on "text_source" even if ExtractImage is set, because the
+//     scanned schema requires `ocr_model_id` whenever it's selected
+//     (enable_ocr defaults to true there), and the user explicitly opting
+//     out of OCR must not silently re-enable it via image-extraction intent.
 //   - ImageOCR / ExtractImage on an already-image doc -> emit enable_ocr /
 //     enable_image_embedding on the existing "image_source" modality.
 //   - ImageOCR / ExtractImage on a non-PDF text doc (txt, md, docx) -> drop
 //     them silently. Rag's text/markdown/docx schemas have NO enable_ocr or
 //     enable_image_embedding fields, so emitting these would 40001 under
 //     pydantic extra=forbid (incident: 2026-05-19 upload smoke test).
+//   - ExtractImage alone on a PDF (without OCR) -> drop silently. PDF's
+//     text_source schema has no enable_image_embedding knob, and we can't
+//     promote to scanned without forcing OCR on. Equivalent to the docx
+//     drop above.
 //   - ExtractTable -> document_options JSON {"extract_tables": <bool>}, but
 //     only when the final modality is text_source on pdf/docx (the only
 //     schemas with that field). Routing to scanned skips extract_tables —
@@ -121,12 +128,14 @@ func strategyToRagFields(d *entity.Document) (
 	}
 	ps := d.ParsingStrategy
 
-	// PDF + user wants OCR or image extraction -> promote to scanned, which
-	// is the only text-side schema that accepts those toggles. Other text
-	// extensions (txt, md, docx) have no scanned equivalent — we leave them
-	// on text_source and drop the toggles below.
-	if sourceModality == "text_source" && d.FileExtension == parser.FileExtensionPDF &&
-		(ps.ImageOCR || ps.ExtractImage) {
+	// PDF + user wants OCR -> promote to scanned. ExtractImage alone is NOT
+	// enough to flip the modality: rag's scanned schema has
+	// enable_ocr default=true and *requires* ocr_model_id whenever it's
+	// chosen, so promoting on ExtractImage-only would turn OCR on behind
+	// the user's back and 40001 every upload that left OCR unchecked
+	// (incident: 2026-05-19, the static "image_extraction=true, image_ocr=false"
+	// PDF case from the legacy wizard).
+	if sourceModality == "text_source" && d.FileExtension == parser.FileExtensionPDF && ps.ImageOCR {
 		sourceModality = "scanned_document_source"
 	}
 
