@@ -109,7 +109,7 @@ func (k *knowledgeSVC) newRetrieveContext(ctx context.Context, req *RetrieveRequ
 		return nil, errorx.New(errno.ErrKnowledgeInvalidParamCode, errorx.KV("msg", "strategy is required"))
 	}
 	knowledgeIDSets := sets.FromSlice(req.KnowledgeIDs)
-	var documentIDs []int64 // legacy path lost doc-id filtering with RetrievalStrategy.DocumentIDs removal
+	var documentIDs []int64 // legacy path lost doc-id filtering with RetrieveRequest.DocumentIDs removal
 	enableDocs, enableKnowledge, err := k.prepareRAGDocuments(ctx, documentIDs, knowledgeIDSets.ToSlice())
 	if err != nil {
 		logs.CtxErrorf(ctx, "prepare rag documents failed: %v", err)
@@ -295,8 +295,11 @@ func (k *knowledgeSVC) retrieveChannels(ctx context.Context, req *RetrieveContex
 
 func (k *knowledgeSVC) nl2SqlRetrieveNode(ctx context.Context, req *RetrieveContext) (retrieveResult []*schema.Document, err error) {
 	// NL2SQL has been retired from the legacy retrieval path along with
-	// RetrievalStrategy.EnableNL2SQL. Returning empty so the eino graph
-	// edges that consume "nl2SqlRetrieveNode" still get a defined value.
+	// RetrievalStrategy.EnableNL2SQL. The lambda stays registered in the
+	// parallelNode (see Workflow() above) and returns an empty result so
+	// the parallel branch has a defined shape; the consumer in reRankNode
+	// has already been removed. Dropping the lambda from the parallel
+	// chain is a follow-up cleanup.
 	return nil, nil
 }
 
