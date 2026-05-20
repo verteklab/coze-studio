@@ -35,7 +35,6 @@ import (
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/internal/convert"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/internal/dal/model"
 	"github.com/coze-dev/coze-studio/backend/infra/document"
-	"github.com/coze-dev/coze-studio/backend/infra/document/messages2query"
 	"github.com/coze-dev/coze-studio/backend/infra/document/nl2sql"
 	"github.com/coze-dev/coze-studio/backend/infra/document/rerank"
 	"github.com/coze-dev/coze-studio/backend/infra/document/searchstore"
@@ -110,8 +109,8 @@ func (k *knowledgeSVC) newRetrieveContext(ctx context.Context, req *RetrieveRequ
 		return nil, errorx.New(errno.ErrKnowledgeInvalidParamCode, errorx.KV("msg", "strategy is required"))
 	}
 	knowledgeIDSets := sets.FromSlice(req.KnowledgeIDs)
-	docIDSets := sets.FromSlice(req.DocumentIDs)
-	enableDocs, enableKnowledge, err := k.prepareRAGDocuments(ctx, docIDSets.ToSlice(), knowledgeIDSets.ToSlice())
+	var documentIDs []int64 // legacy path lost doc-id filtering with RetrievalStrategy.DocumentIDs removal
+	enableDocs, enableKnowledge, err := k.prepareRAGDocuments(ctx, documentIDs, knowledgeIDSets.ToSlice())
 	if err != nil {
 		logs.CtxErrorf(ctx, "prepare rag documents failed: %v", err)
 		return nil, err
@@ -178,25 +177,10 @@ func (k *knowledgeSVC) prepareRAGDocuments(ctx context.Context, documentIDs []in
 }
 
 func (k *knowledgeSVC) queryRewriteNode(ctx context.Context, req *RetrieveContext) (newRetrieveContext *RetrieveContext, err error) {
-	if len(req.ChatHistory) == 1 {
-		// No context, no rewriting.
-		return req, nil
-	}
-	if !req.Strategy.EnableQueryRewrite || k.rewriter == nil {
-		// Rewrite function is not enabled, no context rewrite is required
-		return req, nil
-	}
-	var opts []messages2query.Option
-	if req.ChatModel != nil {
-		opts = append(opts, messages2query.WithChatModel(req.ChatModel))
-	}
-	rewrittenQuery, err := k.rewriter.MessagesToQuery(ctx, req.ChatHistory, opts...)
-	if err != nil {
-		logs.CtxErrorf(ctx, "rewrite query failed: %v", err)
-		return req, nil
-	}
-	// Rewrite completed
-	req.RewrittenQuery = &rewrittenQuery
+	// Legacy query rewriting is no longer driven by RetrievalStrategy.EnableQueryRewrite;
+	// the rag backend handles its own query enhancement, and the legacy KB
+	// backend stops rewriting here. Kept as a pass-through so the eino
+	// composition graph still has the named lambda.
 	return req, nil
 }
 
@@ -249,10 +233,9 @@ func (k *knowledgeSVC) esRetrieveNode(ctx context.Context, req *RetrieveContext)
 }
 
 func (k *knowledgeSVC) retrieveChannels(ctx context.Context, req *RetrieveContext, manager searchstore.Manager) (result []*schema.Document, err error) {
+	// Legacy path no longer reads RetrievalStrategy.EnableQueryRewrite / RewrittenQuery;
+	// query rewriting moved to the rag backend (see queryRewriteNode pass-through).
 	query := req.OriginQuery
-	if req.Strategy.EnableQueryRewrite && req.RewrittenQuery != nil {
-		query = *req.RewrittenQuery
-	}
 	mu := sync.Mutex{}
 	eg, ctx := errgroup.WithContext(ctx)
 	eg.SetLimit(2)
@@ -311,47 +294,10 @@ func (k *knowledgeSVC) retrieveChannels(ctx context.Context, req *RetrieveContex
 }
 
 func (k *knowledgeSVC) nl2SqlRetrieveNode(ctx context.Context, req *RetrieveContext) (retrieveResult []*schema.Document, err error) {
-	hasTable := false
-	var tableDocs []*model.KnowledgeDocument
-	for _, doc := range req.Documents {
-		if doc.DocumentType == int32(knowledgeModel.DocumentTypeTable) {
-			hasTable = true
-			tableDocs = append(tableDocs, doc)
-		}
-	}
-	var opts []nl2sql.Option
-	if req.ChatModel != nil {
-		opts = append(opts, nl2sql.WithChatModel(req.ChatModel))
-	}
-	if hasTable && req.Strategy.EnableNL2SQL {
-		mu := sync.Mutex{}
-		eg, ctx := errgroup.WithContext(ctx)
-		eg.SetLimit(len(tableDocs))
-		res := make([]*schema.Document, 0)
-		for i := range tableDocs {
-			t := i
-			eg.Go(func() error {
-				doc := tableDocs[t]
-				docs, execErr := k.nl2SqlExec(ctx, doc, req, opts)
-				if execErr != nil {
-					logs.CtxErrorf(ctx, "nl2sql exec failed: %v", execErr)
-					return errorx.New(errno.ErrKnowledgeNL2SqlExecFailCode, errorx.KV("msg", execErr.Error()))
-				}
-				mu.Lock()
-				res = append(res, docs...)
-				mu.Unlock()
-				return nil
-			})
-		}
-		err = eg.Wait()
-		if err != nil {
-			logs.CtxErrorf(ctx, "nl2sql exec failed: %v", err)
-			return nil, nil
-		}
-		return res, nil
-	} else {
-		return nil, nil
-	}
+	// NL2SQL has been retired from the legacy retrieval path along with
+	// RetrievalStrategy.EnableNL2SQL. Returning empty so the eino graph
+	// edges that consume "nl2SqlRetrieveNode" still get a defined value.
+	return nil, nil
 }
 
 func (k *knowledgeSVC) nl2SqlExec(ctx context.Context, doc *model.KnowledgeDocument, retrieveCtx *RetrieveContext, opts []nl2sql.Option) (
@@ -507,12 +453,6 @@ func (k *knowledgeSVC) reRankNode(ctx context.Context, resultMap map[string]any)
 		logs.CtxErrorf(ctx, "es retrieve result is not found")
 		esRetrieveResult = []*schema.Document{}
 	}
-	// Get the interface recalled under nl2sql
-	nl2SqlRetrieveResult, ok := resultMap["nl2SqlRetrieveNode"].([]*schema.Document)
-	if !ok {
-		logs.CtxErrorf(ctx, "nl2sql retrieve result is not found")
-		nl2SqlRetrieveResult = []*schema.Document{}
-	}
 
 	docs2RerankData := func(docs []*schema.Document) []*rerank.Data {
 		data := make([]*rerank.Data, 0, len(docs))
@@ -525,10 +465,6 @@ func (k *knowledgeSVC) reRankNode(ctx context.Context, resultMap map[string]any)
 
 	// Obtain recall results from different channels according to the recall strategy
 	var retrieveResultArr [][]*rerank.Data
-	if retrieveCtx.Strategy.EnableNL2SQL {
-		// Nl2sql results
-		retrieveResultArr = append(retrieveResultArr, docs2RerankData(nl2SqlRetrieveResult))
-	}
 	switch retrieveCtx.Strategy.SearchType {
 	case knowledgeModel.SearchTypeSemantic:
 		retrieveResultArr = append(retrieveResultArr, docs2RerankData(vectorRetrieveResult))
@@ -542,9 +478,6 @@ func (k *knowledgeSVC) reRankNode(ctx context.Context, resultMap map[string]any)
 	}
 
 	query := retrieveCtx.OriginQuery
-	if retrieveCtx.Strategy.EnableQueryRewrite && retrieveCtx.RewrittenQuery != nil {
-		query = ptr.From(retrieveCtx.RewrittenQuery)
-	}
 
 	resp, err := k.reranker.Rerank(ctx, &rerank.Request{
 		Query: query,
@@ -558,9 +491,6 @@ func (k *knowledgeSVC) reRankNode(ctx context.Context, resultMap map[string]any)
 
 	retrieveResult = make([]*schema.Document, 0, len(resp.SortedData))
 	for _, item := range resp.SortedData {
-		if item.Score < ptr.From(retrieveCtx.Strategy.MinScore) {
-			continue
-		}
 		doc := item.Document
 		doc.WithScore(item.Score)
 		retrieveResult = append(retrieveResult, doc)
