@@ -243,3 +243,71 @@ In `dynamic-parsing-panel.test.tsx`:
 
 - The `include_image_ref` param (ocr_layout group) — unrelated to image_chunks.
 - Existing `image_chunk`s in rag-side Milvus — they remain but become orphan data with no consumer in the workflow path.
+
+---
+
+# Follow-up 2: Lock produce_text_chunk symmetrically (2026-05-20)
+
+## Problem
+
+After the image_chunk hide+force, the wire payload for image_document looks asymmetric:
+
+```
+enable_ocr: true              ← forced visible
+enable_image_embedding: false ← forced hidden
+produce_image_chunk: false    ← forced hidden
+produce_text_chunk: false     ← schema default, NOT forced
+```
+
+`produce_text_chunk` defaults to false on image_document. rag's ingestion policy resolver (`/app/app/policy/ingestion_policy_resolver.py:255-256`) saves us via an OR fallback:
+```python
+wants_text = bool(produce_text_chunk) or enable_ocr
+wants_image = bool(produce_image_chunk) or enable_image_embedding
+```
+So `enable_ocr=true` overrides `produce_text_chunk=false` → text_chunk is still produced. The current behavior is correct **but only because of rag's tolerance**.
+
+Two reasons to fix:
+1. **Symmetry**: image side is double-locked (embedding off + produce_image_chunk off). Text side should mirror (enable_ocr on + produce_text_chunk on).
+2. **Defense in depth**: if rag ever removes the OR fallback (e.g., refactors to AND semantics — "user must explicitly opt in to each output type"), our wire becomes wrong and OCR work goes nowhere.
+
+Also a minor UX win: `produce_text_chunk` shows up in the form as an editable toggle today, but it's effectively a no-op because of the OR. Hiding it removes the confusion.
+
+## Goal
+
+Add `produce_text_chunk: { value: true, hidden: true }` to both `image_document` and `scanned_document` in `FORCED_PARAMS_BY_SCHEMA`. Toggle disappears from the UI; wire payload explicitly carries `produce_text_chunk=true`.
+
+## Scope confirmed via rag schema dump
+
+`produce_text_chunk` only exists on `image_document` and `scanned_document` — the other schemas (`text_document`, `markdown_document`, `pdf_text_document`, `docx_document`) are pure text sources where text_chunk production is implicit. No extra schema needs updating.
+
+## Non-Goals
+
+- No new architecture changes — Task 6's hidden variant of `ForcedParamEntry` already covers it.
+- No new i18n keys — hidden entries don't render text.
+- No backend, no rag-server changes.
+
+## Design
+
+Two new entries in `FORCED_PARAMS_BY_SCHEMA`:
+
+```ts
+image_document: {
+  // ...existing enable_ocr, enable_image_embedding, produce_image_chunk
+  produce_text_chunk: { value: true, hidden: true },
+},
+scanned_document: {
+  // ...existing enable_ocr, enable_image_embedding, produce_image_chunk
+  produce_text_chunk: { value: true, hidden: true },
+},
+```
+
+For `scanned_document` this aligns with the rag-side default (true), but the explicit lock + hide is for symmetry and defense.
+
+## Tests
+
+Append:
+- `applyForcedParams forces produce_text_chunk=true on image_document`
+- `applyForcedParams forces produce_text_chunk=true on scanned_document`
+- `mergeSchemaDefaults sends produce_text_chunk=true on image_document even when schema default is false`
+- `hides produce_text_chunk control on image_document` (panel)
+- `hides produce_text_chunk control on scanned_document` (panel)

@@ -1567,3 +1567,191 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
+
+---
+
+## Task 7: Lock produce_text_chunk symmetrically (defense + UX)
+
+Adds `produce_text_chunk: { value: true, hidden: true }` to both `image_document` and `scanned_document`. Reuses Task 6's hidden-entry architecture — no new types or rendering paths. Wire payload becomes symmetric (text side: enable_ocr=true + produce_text_chunk=true; image side: enable_image_embedding=false + produce_image_chunk=false). Removes a no-op toggle from the UI. Defends against rag dropping its OR-fallback semantics.
+
+**Files:**
+- Modify: `frontend/packages/data/knowledge/knowledge-resource-processor-base/src/features/dynamic-parsing-panel/use-schemas.ts`
+- Modify: `frontend/packages/data/knowledge/knowledge-resource-processor-base/src/features/dynamic-parsing-panel/validate.test.ts`
+- Modify: `frontend/packages/data/knowledge/knowledge-resource-processor-base/src/features/dynamic-parsing-panel/dynamic-parsing-panel.test.tsx`
+
+(No panel.tsx change — Task 6's hide path already handles any hidden entry.)
+
+---
+
+- [ ] **Step 1: Write failing tests**
+
+In `validate.test.ts`, inside `describe('applyForcedParams', ...)`, append before the closing `});`:
+
+```ts
+  it('forces produce_text_chunk=true on image_document', () => {
+    expect(
+      applyForcedParams('image_document', { produce_text_chunk: false }),
+    ).toEqual({
+      enable_ocr: true,
+      enable_image_embedding: false,
+      produce_image_chunk: false,
+      produce_text_chunk: true,
+    });
+  });
+
+  it('forces produce_text_chunk=true on scanned_document', () => {
+    expect(
+      applyForcedParams('scanned_document', { produce_text_chunk: false }),
+    ).toEqual({
+      enable_ocr: true,
+      enable_image_embedding: false,
+      produce_image_chunk: false,
+      produce_text_chunk: true,
+    });
+  });
+```
+
+Then inside `describe('mergeSchemaDefaults', ...)`, append before its closing `});`:
+
+```ts
+  it('overrides schema-default produce_text_chunk=false to true on image_document', () => {
+    // image_document declares produce_text_chunk default=false on the rag side.
+    // Without the force, our wire payload would carry false — rag's OR fallback
+    // (enable_ocr=true rescues it) is the only reason text_chunk still gets
+    // produced today. Pin it explicitly so the wire reflects intent.
+    const s = imageSchema([
+      param({ name: 'enable_ocr', ui_component: 'switch', default: false }),
+      param({
+        name: 'ocr_model_id',
+        ui_component: 'text',
+        default: 'paddle',
+      }),
+      param({
+        name: 'produce_text_chunk',
+        ui_component: 'switch',
+        default: false,
+      }),
+      param({
+        name: 'enable_image_embedding',
+        ui_component: 'switch',
+        default: true,
+      }),
+      param({
+        name: 'produce_image_chunk',
+        ui_component: 'switch',
+        default: true,
+      }),
+    ]);
+    expect(mergeSchemaDefaults(s, {})).toEqual({
+      enable_ocr: true,
+      ocr_model_id: 'paddle',
+      produce_text_chunk: true,
+      enable_image_embedding: false,
+      produce_image_chunk: false,
+    });
+  });
+```
+
+In `dynamic-parsing-panel.test.tsx`, inside `describe('DynamicParsingPanel forced params', ...)`, append:
+
+```ts
+  it('hides produce_text_chunk control on image_document', () => {
+    const s = schemaOf('image_document', [
+      param({
+        name: 'produce_text_chunk',
+        ui_component: 'switch',
+        group: 'chunk_outputs',
+        default: false,
+      }),
+    ]);
+    render(
+      <DynamicParsingPanel schema={s} value={{}} onChange={vi.fn()} />,
+    );
+    expect(document.getElementById('dpp-produce_text_chunk')).toBeNull();
+  });
+
+  it('hides produce_text_chunk control on scanned_document', () => {
+    const s = schemaOf('scanned_document', [
+      param({
+        name: 'produce_text_chunk',
+        ui_component: 'switch',
+        group: 'chunk_outputs',
+        default: true,
+      }),
+    ]);
+    render(
+      <DynamicParsingPanel schema={s} value={{}} onChange={vi.fn()} />,
+    );
+    expect(document.getElementById('dpp-produce_text_chunk')).toBeNull();
+  });
+```
+
+- [ ] **Step 2: Run tests → expect 5 new failures**
+
+```bash
+cd /home/xinyuliu/coze-studio/frontend/packages/data/knowledge/knowledge-resource-processor-base
+npm run test
+```
+
+Expected: 5 new failures (3 in validate.test.ts, 2 in dynamic-parsing-panel.test.tsx). Existing tests still pass.
+
+- [ ] **Step 3: Add the forced entries**
+
+In `use-schemas.ts`, find the existing `FORCED_PARAMS_BY_SCHEMA` const. Inside each of the `image_document` and `scanned_document` entries, append a new line `produce_text_chunk: { value: true, hidden: true },` so they look like:
+
+```ts
+  image_document: {
+    enable_ocr: {
+      value: true,
+      reason: 'datasets_createFileModel_rag_forced_ocr_hint',
+    },
+    enable_image_embedding: { value: false, hidden: true },
+    produce_image_chunk: { value: false, hidden: true },
+    produce_text_chunk: { value: true, hidden: true },
+  },
+  scanned_document: {
+    enable_ocr: {
+      value: true,
+      reason: 'datasets_createFileModel_rag_forced_ocr_hint',
+    },
+    enable_image_embedding: { value: false, hidden: true },
+    produce_image_chunk: { value: false, hidden: true },
+    produce_text_chunk: { value: true, hidden: true },
+  },
+```
+
+- [ ] **Step 4: Run all tests → expect green**
+
+```bash
+npm run test
+```
+
+Expected: all tests pass. The panel hide logic is already in place from Task 6 — adding a new hidden entry to the map just plugs in.
+
+- [ ] **Step 5: Commit**
+
+```bash
+cd /home/xinyuliu/coze-studio
+git add frontend/packages/data/knowledge/knowledge-resource-processor-base/src/features/dynamic-parsing-panel/use-schemas.ts \
+        frontend/packages/data/knowledge/knowledge-resource-processor-base/src/features/dynamic-parsing-panel/validate.test.ts \
+        frontend/packages/data/knowledge/knowledge-resource-processor-base/src/features/dynamic-parsing-panel/dynamic-parsing-panel.test.tsx
+git commit -m "$(cat <<'EOF'
+feat(knowledge-rag): lock produce_text_chunk=true on image schemas
+
+Symmetric counterpart to the image_chunk hide+force (Task 6). The wire
+payload now explicitly carries produce_text_chunk=true on image_document
+and scanned_document instead of relying on rag's OR-fallback
+(wants_text = produce_text_chunk OR enable_ocr) to compensate for the
+schema's default=false.
+
+Wire shape is now internally consistent: text side double-locked
+(enable_ocr=true + produce_text_chunk=true), image side double-locked
+(enable_image_embedding=false + produce_image_chunk=false).
+
+The toggle is also hidden from the upload form — it was a noop under
+the forced enable_ocr=true regime.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
