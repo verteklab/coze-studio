@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { type FC, useMemo } from 'react';
+import { type FC, type ReactNode, useMemo } from 'react';
 
 import { I18n } from '@coze-arch/i18n';
 import {
@@ -22,12 +22,14 @@ import {
   Input,
   Select,
   Switch,
+  Tooltip,
   Typography,
 } from '@coze-arch/coze-design';
 
 import { CollapsePanel } from '@/components';
 
-import { filterParamsByDependencies } from './validate';
+import { applyForcedParams, filterParamsByDependencies } from './validate';
+import { FORCED_PARAMS_BY_SCHEMA } from './use-schemas';
 import {
   type DocumentParameter,
   type DocumentParameterSchema,
@@ -63,13 +65,21 @@ export const DynamicParsingPanel: FC<DynamicParsingPanelProps> = ({
   value,
   onChange,
 }) => {
+  const forcedMap = FORCED_PARAMS_BY_SCHEMA[schema.schema_id] ?? {};
+
+  // Apply forced overrides to the value before computing visibility. Without
+  // this, a stale value.enable_ocr=false on image_document/scanned_document
+  // would hide OCR-dependent children (ocr_model_id, ocr_languages) even
+  // though the toggle renders as forced-on — internally inconsistent UI.
+  const effectiveValue = useMemo(
+    () => applyForcedParams(schema.schema_id, value),
+    [schema.schema_id, value],
+  );
+
   const { visible, advanced } = useMemo(() => {
-    // Drop params whose dependencies aren't satisfied (e.g. OCR knobs when
-    // enable_ocr is off) before splitting into open/advanced — keeps the
-    // form honest about which knobs actually affect the upload.
     const filtered = filterParamsByDependencies(
       schema.parameters,
-      value,
+      effectiveValue,
       schema,
     );
     const visibleList: DocumentParameter[] = [];
@@ -78,9 +88,15 @@ export const DynamicParsingPanel: FC<DynamicParsingPanelProps> = ({
       (p.advanced ? advancedList : visibleList).push(p);
     }
     return { visible: visibleList, advanced: advancedList };
-  }, [schema, value.enable_ocr]);
+  }, [schema, effectiveValue]);
 
   const handleFieldChange = (paramName: string, fieldValue: unknown): void => {
+    // Forced params are non-interactive in the UI (disabled control), but
+    // defend against programmatic invocations: ignore changes that would
+    // overwrite a forced value.
+    if (paramName in forcedMap) {
+      return;
+    }
     onChange({ ...value, [paramName]: fieldValue });
   };
 
@@ -90,6 +106,7 @@ export const DynamicParsingPanel: FC<DynamicParsingPanelProps> = ({
         params={visible}
         value={value}
         onChange={handleFieldChange}
+        forcedMap={forcedMap}
       />
       {advanced.length > 0 ? (
         <CollapsePanel
@@ -99,6 +116,7 @@ export const DynamicParsingPanel: FC<DynamicParsingPanelProps> = ({
             params={advanced}
             value={value}
             onChange={handleFieldChange}
+            forcedMap={forcedMap}
           />
         </CollapsePanel>
       ) : null}
@@ -111,18 +129,25 @@ export const DynamicParsingPanel: FC<DynamicParsingPanelProps> = ({
  * each group boundary. Order follows the input array — caller is responsible
  * for keeping rag's stable schema order (we don't sort to avoid surprising
  * the user with reshuffles between rag versions).
+ *
+ * `forcedMap` maps param name → forced value override. When a param is
+ * forced, FieldControl renders it disabled with a Tooltip showing the
+ * forced.reason i18n key; we also render the same hint as a Typography
+ * line under the description so it's visible without hovering.
  */
 const GroupedFields: FC<{
   params: DocumentParameter[];
   value: DocumentOptionsValue;
   onChange: (name: string, fieldValue: unknown) => void;
-}> = ({ params, value, onChange }) => {
+  forcedMap: Readonly<Record<string, { value: unknown; reason: string }>>;
+}> = ({ params, value, onChange, forcedMap }) => {
   let lastGroup = '';
   return (
     <>
       {params.map(p => {
         const showHeader = p.group !== lastGroup;
         lastGroup = p.group;
+        const forced = forcedMap[p.name];
         return (
           <div key={p.name} style={{ marginBottom: 12 }}>
             {showHeader ? (
@@ -133,10 +158,24 @@ const GroupedFields: FC<{
                 {p.group}
               </Typography.Title>
             ) : null}
-            <FieldControl param={p} value={value[p.name]} onChange={onChange} />
+            <FieldControl
+              param={p}
+              value={forced ? forced.value : value[p.name]}
+              onChange={onChange}
+              forced={forced}
+            />
             {p.description ? (
               <Typography.Text type="tertiary" size="small">
                 {p.description}
+              </Typography.Text>
+            ) : null}
+            {forced ? (
+              <Typography.Text
+                type="warning"
+                size="small"
+                style={{ display: 'block' }}
+              >
+                {I18n.t(forced.reason)}
               </Typography.Text>
             ) : null}
           </div>
@@ -164,22 +203,26 @@ const GroupedFields: FC<{
  *     for a real tag-input control.
  *   - "text" / anything else -> editable <Input />.
  *
- * The unknown-component fallback is intentionally editable (it used to be
- * disabled): a rag-side ui_component rename or a required param like
- * ocr_model_id would otherwise leave the user with no way to satisfy
- * pydantic's required-field check on submit.
+ * When `forced` is set, the control is disabled and wrapped in a Tooltip
+ * showing the localised reason. The displayed value is the forced override
+ * (passed in via `value`), not whatever the form state currently holds.
  */
 const FieldControl: FC<{
   param: DocumentParameter;
   value: unknown;
   onChange: (name: string, fieldValue: unknown) => void;
-}> = ({ param, value, onChange }) => {
+  forced?: { value: unknown; reason: string };
+}> = ({ param, value, onChange, forced }) => {
   const label = param.ui_label || param.name;
+  const isDisabled = Boolean(forced);
+  const wrap = (node: ReactNode): ReactNode =>
+    forced ? <Tooltip content={I18n.t(forced.reason)}>{node}</Tooltip> : node;
+
   switch (param.ui_component) {
     case 'switch': {
       const current =
         typeof value === 'boolean' ? value : Boolean(param.default);
-      return (
+      return wrap(
         <label
           style={{ display: 'flex', alignItems: 'center', gap: 8 }}
           htmlFor={`dpp-${param.name}`}
@@ -187,10 +230,11 @@ const FieldControl: FC<{
           <Switch
             id={`dpp-${param.name}`}
             checked={current}
+            disabled={isDisabled}
             onChange={(checked: boolean) => onChange(param.name, checked)}
           />
           <span>{label}</span>
-        </label>
+        </label>,
       );
     }
     case 'number': {
@@ -198,18 +242,19 @@ const FieldControl: FC<{
         typeof value === 'number'
           ? value
           : (param.default as number | undefined);
-      return (
+      return wrap(
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <span style={{ marginBottom: 4 }}>{label}</span>
           <InputNumber
             value={current}
             min={param.min_value}
             max={param.max_value}
+            disabled={isDisabled}
             onChange={(next: string | number) =>
               onChange(param.name, Number(next))
             }
           />
-        </div>
+        </div>,
       );
     }
     case 'select': {
@@ -221,31 +266,30 @@ const FieldControl: FC<{
         label: String(v),
         value: String(v),
       }));
-      return (
+      return wrap(
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <span style={{ marginBottom: 4 }}>{label}</span>
           <Select
             value={current}
             optionList={options}
+            disabled={isDisabled}
             onChange={next => onChange(param.name, next)}
           />
-        </div>
+        </div>,
       );
     }
     case 'multi-select': {
-      // Parameter value is array[string] on the wire; UI is a comma-separated
-      // text input that splits/joins on the fly. Trailing-empty splits are
-      // dropped so a user typing "zh, " mid-edit doesn't emit ["zh", ""].
       const arr = Array.isArray(value)
         ? (value as unknown[])
         : ((param.default as unknown[] | undefined) ?? []);
       const display = arr.map(v => String(v)).join(', ');
-      return (
+      return wrap(
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <span style={{ marginBottom: 4 }}>{label}</span>
           <Input
             value={display}
             placeholder="e.g. zh, en"
+            disabled={isDisabled}
             onChange={(next: string) => {
               const parts = next
                 .split(',')
@@ -254,7 +298,7 @@ const FieldControl: FC<{
               onChange(param.name, parts);
             }}
           />
-        </div>
+        </div>,
       );
     }
     case 'model-select':
@@ -264,14 +308,15 @@ const FieldControl: FC<{
         typeof value === 'string'
           ? value
           : ((param.default as string | undefined) ?? '');
-      return (
+      return wrap(
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <span style={{ marginBottom: 4 }}>{label}</span>
           <Input
             value={current}
+            disabled={isDisabled}
             onChange={(next: string) => onChange(param.name, next)}
           />
-        </div>
+        </div>,
       );
     }
   }
