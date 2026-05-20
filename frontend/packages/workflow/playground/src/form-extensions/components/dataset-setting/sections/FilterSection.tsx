@@ -16,13 +16,11 @@
 import { type FC } from 'react';
 
 import { I18n } from '@coze-arch/i18n';
-import { Checkbox, Input, Button } from '@coze-arch/coze-design';
+import { Input, Button } from '@coze-arch/coze-design';
 
 import { type DataSetInfo } from '../type';
 import s from '../index.module.less';
 import { TitleArea } from '../components';
-
-type ChunkType = 'text_chunk' | 'image_chunk';
 
 export interface FilterSectionProps {
   value: DataSetInfo;
@@ -31,81 +29,17 @@ export interface FilterSectionProps {
   disabled?: boolean;
 }
 
-const toggleChunkType = (
-  current: ChunkType[] | undefined,
-  type: ChunkType,
-  checked: boolean,
-): ChunkType[] => {
-  const set = new Set(current ?? []);
-  if (checked) {
-    set.add(type);
-  } else {
-    set.delete(type);
-  }
-  return Array.from(set);
-};
-
 export const FilterSection: FC<FilterSectionProps> = ({
   value,
   onChange,
   readonly,
   disabled,
 }) => {
-  const target = (value?.target_chunk_types ?? []) as ChunkType[];
   const filters = value?.filters ?? {};
   const filterEntries = Object.entries(filters);
 
   return (
     <div>
-      <div className={s['setting-item']}>
-        <TitleArea
-          title={I18n.t(
-            'workflow_knowledge_target_chunk_types',
-            {},
-            'Chunk 类型',
-          )}
-          tip={I18n.t(
-            'workflow_knowledge_target_chunk_types_tip',
-            {},
-            '限定只检索 text chunk 或 image chunk；留空由 query_mode 决定。',
-          )}
-        />
-        <div className="flex gap-3">
-          <Checkbox
-            disabled={readonly || disabled}
-            checked={target.includes('text_chunk')}
-            onChange={e =>
-              onChange({
-                ...value,
-                target_chunk_types: toggleChunkType(
-                  target,
-                  'text_chunk',
-                  !!e.target.checked,
-                ),
-              })
-            }
-          >
-            text_chunk
-          </Checkbox>
-          <Checkbox
-            disabled={readonly || disabled}
-            checked={target.includes('image_chunk')}
-            onChange={e =>
-              onChange({
-                ...value,
-                target_chunk_types: toggleChunkType(
-                  target,
-                  'image_chunk',
-                  !!e.target.checked,
-                ),
-              })
-            }
-          >
-            image_chunk
-          </Checkbox>
-        </div>
-      </div>
-
       <div className={s['setting-item']}>
         <TitleArea
           title={I18n.t('workflow_knowledge_filters', {}, '过滤条件 (filters)')}
