@@ -45,17 +45,6 @@ type Impl struct {
 
 	defaultTextEmbeddingModelID  string
 	defaultImageEmbeddingModelID string
-	// defaultLLMModelID is the rag model id used for query_strategy.llm_model_id
-	// when the caller sets EnableQueryRewrite. Empty value disables the
-	// enhancement at request-build time (see retrieval.go); rag would otherwise
-	// reject with 40004 "llm_model_id is required when query enhancement is
-	// enabled".
-	defaultLLMModelID string
-	// defaultRerankModelID is the rag model id used for query_strategy.rerank_model_id
-	// when the caller sets EnableRerank. Empty value disables rerank at
-	// request-build time (see retrieval.go); rag would otherwise reject with
-	// 40004 "rerank_model_id is required when enable_rerank is true".
-	defaultRerankModelID string
 }
 
 func New(
@@ -64,7 +53,7 @@ func New(
 	idgen idgen.IDGenerator,
 	resolver TenantResolver,
 	storage storage.Storage,
-	defaultTextModel, defaultImageModel, defaultLLMModel, defaultRerankModel string,
+	defaultTextModel, defaultImageModel string,
 ) *Impl {
 	return &Impl{
 		rag:                          rag,
@@ -74,8 +63,6 @@ func New(
 		storage:                      storage,
 		defaultTextEmbeddingModelID:  defaultTextModel,
 		defaultImageEmbeddingModelID: defaultImageModel,
-		defaultLLMModelID:            defaultLLMModel,
-		defaultRerankModelID:         defaultRerankModel,
 	}
 }
 
