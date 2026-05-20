@@ -19,11 +19,12 @@ import path from 'path';
 import { defineConfig } from '@coze-arch/rsbuild-config';
 import { GLOBAL_ENVS } from '@coze-arch/bot-env';
 
-const API_PROXY_TARGET = 'http://117.59.171.81:8890/';
+const API_PROXY_TARGET = 'http://127.0.0.1:8893/';
 
 const mergedConfig = defineConfig({
   server: {
-    strictPort: true,
+    port: 8894,
+    strictPort: false,
     proxy: [
       {
         context: ['/api'],
