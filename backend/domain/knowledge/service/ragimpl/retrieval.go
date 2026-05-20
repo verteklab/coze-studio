@@ -84,13 +84,30 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 			ragReq.TopK = &tk
 		}
 
+		// search_type also implicitly pins the retrievers list. Without this,
+		// rag's _resolve_retrievers auto-derives BOTH dense + bm25 from
+		// target_chunk_types=[text_chunk] regardless of the search_type
+		// string, so a "dense" search_type still triggers a BM25 fanout that
+		// can blow up ES's maxClauseCount=1024 limit when multi_query /
+		// expansion is enabled (the LLM produces N query variants and BM25
+		// turns each term × variant into a bool clause).
+		//
+		// If the caller explicitly populated s.Retrievers (Advanced section
+		// in the workflow node UI), we honor that and don't override.
 		switch s.SearchType {
 		case knowledgeModel.SearchTypeFullText:
 			ragReq.SearchType = "bm25"
+			if len(s.Retrievers) == 0 {
+				ragReq.Retrievers = []string{"bm25"}
+			}
 		case knowledgeModel.SearchTypeHybrid:
 			ragReq.SearchType = "hybrid"
+			// leave retrievers unset; rag derives dense+bm25 (the point of hybrid)
 		default:
 			ragReq.SearchType = "dense"
+			if len(s.Retrievers) == 0 {
+				ragReq.Retrievers = []string{"dense"}
+			}
 		}
 
 		// query_strategy. The deployed rag-web container's validator accepts
