@@ -311,3 +311,123 @@ Append:
 - `mergeSchemaDefaults sends produce_text_chunk=true on image_document even when schema default is false`
 - `hides produce_text_chunk control on image_document` (panel)
 - `hides produce_text_chunk control on scanned_document` (panel)
+
+---
+
+# Follow-up 3: Fix image KB detail page for rag-backed KBs (2026-05-20)
+
+## Problem
+
+In the image-knowledge-workspace detail page (`frontend/.../knowledge-ide-base/.../image-knowledge-workspace/index.tsx`), three symptoms surface for rag-backed image KBs:
+
+1. **Only 1 card shown** even though the KB has multiple uploaded images
+2. **No thumbnail preview** — image cards render an empty image area
+3. **Misleading "未标注数据将无法被检索召回" warning** even though text retrieval works (proven by Tasks 1-7 OCR pipeline)
+
+Root cause: `listPhoto` (`backend/application/knowledge/knowledge.go:1612`) was built for the legacy non-rag model "1 image = 1 document = 1 slice, slice content = user's manual annotation caption". rag-backed reality is "1 image = 1 document = many text_chunks (OCR) + maybe 1 image_chunk (CLIP)". The mismatch produces three connected failures:
+
+- `ListPhotoSlice` in ragimpl (`ragimpl/slice.go:540-643`) queries rag with hardcoded `ChunkType: "image_chunk"`. After Task 6's `enable_image_embedding=false` force, **new documents have zero image_chunks** → zero slices returned → zero document IDs in the listing → zero cards. Older docs (pre-Task-6) that still have 1 image_chunk surface as 1 card each, but pagination by chunk still produces wrong totals.
+- `buildDocumentEntity` (`ragimpl/document.go:195-209`) never populates `entity.Document.URL`. rag's `contract.Document` has no URL field — the image bytes live on rag's internal storage and rag does not expose a presigned URL.
+- The "未标注" warning fires when `PhotoInfo.Caption == ""`. `packPhotoInfo` reads `slice.GetSliceContent()` — for docs that surface (those with an image_chunk), rag's image_chunk has `caption: ""`; for docs that don't surface, no caption entry is created at all. Both paths produce empty captions.
+
+Task 6 (forcing `enable_image_embedding=false`) made symptom 1 strictly worse for newly-uploaded image KBs — they become completely invisible to this page. The fix below corrects all three symptoms.
+
+## Goal
+
+Image KB detail page renders correctly for rag-backed KBs: all uploaded images appear as cards, each card shows a thumbnail, and the "未标注" warning no longer fires falsely.
+
+## Non-Goals
+
+- **Existing image documents are not migrated.** Pre-fix uploads have `rag_doc_mapping.image_url=NULL`; their cards will show no thumbnail (filename-only) until re-uploaded. Listing and filename-as-caption work for them.
+- **No reintroduction of image_chunk production.** Task 6's force remains in effect; we don't undo it to get URLs from chunk metadata.
+- **No new UI annotation/caption editor.** Caption is filename-only for rag-backed KBs.
+- **No HasCaption filter rework.** That filter (legacy "annotated vs unannotated") loses semantic meaning under rag — the ragimpl `ListPhotoSlice` will ignore it.
+
+## Design
+
+### Data layer: add `image_url` column to `rag_doc_mapping`
+
+Declarative atlas schema change in `docker/atlas/opencoze_latest_schema.hcl` (rag_doc_mapping table at line 1884):
+
+```hcl
+column "image_url" {
+  null    = true
+  type    = varchar(512)
+  comment = "Coze-side MinIO URL for image-source documents (for detail-page thumbnails). NULL for non-image docs and for pre-2026-05-20 image uploads."
+}
+```
+
+Also add an informational migration file `docker/atlas/migrations/20260520140000_add_image_url_to_rag_doc_mapping.sql` mirroring the change. Per `[[coze-stack-atlas-declarative-deploy]]`, the HCL is the authoritative source; the migration file is informational.
+
+`MappingRepo.InsertDoc` signature gains an `imageURL string` parameter. `KBByCozeID`/`KBsByCozeIDs`/`DocByCozeID` / hydrators read it back.
+
+### Upload side: persist image bytes to coze MinIO during ingestion (Task 8)
+
+In `ragimpl/document.go CreateDocument` (line 242):
+- After computing `fileBytes`, check if the schema is image-bearing (`image_document` or `scanned_document` — detected via `req.DocumentEntities[i].ParsingStrategy` or document_options `_source_modality` or by file_type/MIME). If so, call `i.storage.PutObject(ctx, objectKey, fileBytes)` with a deterministic key (e.g. `knowledge/image/{kb_id}/{rag_doc_id}/{filename}`) and then `i.storage.GetObjectUrl(ctx, objectKey)` to obtain the URL.
+- Pass the URL through to `i.mapping.InsertDoc(...)`.
+- For non-image docs, the URL is empty/null — pass through as such.
+
+If `i.storage.PutObject` or `GetObjectUrl` fails: don't abort the upload — log the failure and proceed with empty URL. Thumbnails are a UX nicety; ingestion correctness is the primary concern.
+
+### Read side: rewrite `ListPhotoSlice` and populate `Document.URL` (Task 9)
+
+**`ragimpl/slice.go ListPhotoSlice`** (currently lines 540-643): replace chunk-based pagination with document-based pagination.
+
+- Drop the `ChunkType: "image_chunk"` query.
+- Call rag's `GET /api/v1/knowledgebases/{kb_id}/documents` (already exposed via the rag client) with `limit/offset` honoring the input request.
+- For each rag document returned, look up the matching `rag_doc_mapping` row, get `coze_doc_id`.
+- Construct a synthetic `entity.Slice` per document:
+  - `DocumentID = coze_doc_id`
+  - `RawContent = [{Type: SliceContentTypeText, Text: &doc.Filename}]` (so `GetSliceContent()` returns the filename)
+- Ignore `HasCaption` filter (no semantic equivalent in rag-backed mode).
+- Return `entity.SliceResult{Slices, Total}` where Total = rag's documents `total` field.
+
+**`ragimpl/document.go buildDocumentEntity`** (line 195-209): populate `entity.Document.URL` from `DocMapping.ImageURL`. When NULL, leave `URL` as zero-value `""` (existing behavior unchanged for non-image docs and pre-fix image docs).
+
+### Backward compatibility
+
+- Pre-fix image documents: `image_url=NULL` in mapping → URL=`""` → frontend renders empty image area but shows filename as caption (no false warning). Acceptable degradation.
+- Post-fix image documents: URL populated → thumbnail renders.
+- Listing all 3 symptoms resolved for both old and new docs (modulo missing thumbnails on old docs).
+
+## Tests
+
+### Task 8 (upload side)
+
+- `CreateDocument stores image_url in mapping for image_document uploads` (ragimpl integration test)
+- `CreateDocument stores image_url for scanned_document uploads`
+- `CreateDocument leaves image_url empty for text/markdown/docx uploads`
+- `CreateDocument tolerates storage failure: image_url empty, doc still created` (defensive)
+- `MappingRepo.InsertDoc round-trips image_url`
+
+### Task 9 (read side)
+
+- `ListPhotoSlice returns one synthetic slice per rag document (not per chunk)`
+- `ListPhotoSlice honors limit/offset for document-level pagination`
+- `ListPhotoSlice's synthetic slice content equals document filename`
+- `buildDocumentEntity populates URL from mapping.image_url when present`
+- `buildDocumentEntity leaves URL empty when mapping.image_url is NULL`
+
+## Out of Scope
+
+- Migrating pre-fix image documents to populate image_url retroactively. User confirmed: only new uploads.
+- Frontend changes. The legacy "annotation editor" modal (`usePhotoDetailModal`) may still surface but will save no-ops on rag-backed docs; leaving it as-is for this fix.
+- HasCaption filter; legacy semantic doesn't map; ignored in rag.
+- The image_chunk caption (rag-side) — we no longer produce image_chunks, so this is moot.
+
+## Files Touched (across Tasks 8 + 9)
+
+- `docker/atlas/opencoze_latest_schema.hcl` — add image_url column to rag_doc_mapping
+- `docker/atlas/migrations/20260520140000_add_image_url_to_rag_doc_mapping.sql` — informational migration
+- `backend/domain/knowledge/service/ragimpl/mapping.go` — InsertDoc signature, hydrators read image_url
+- `backend/domain/knowledge/service/ragimpl/document.go` — CreateDocument forks fileBytes to storage; buildDocumentEntity populates URL
+- `backend/domain/knowledge/service/ragimpl/slice.go` — ListPhotoSlice rewrite
+- Test files: `mapping_test.go`, `document_test.go`, `slice_test.go`, possibly `integration_test.go`
+
+No frontend changes. No locale changes.
+
+## Related
+
+- `[[coze-rag-kb-type-persisted-locally]]` — same architectural pattern (rag exposes a capability flag but coze needs identity → persist locally in the mapping table). image_url follows the same precedent.
+- `[[coze-stack-atlas-declarative-deploy]]` — schema changes must go in the HCL, migrations dir is informational.

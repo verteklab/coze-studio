@@ -1755,3 +1755,432 @@ Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
 EOF
 )"
 ```
+
+---
+
+## Task 8: Persist image URL in rag_doc_mapping during upload
+
+Adds a new column `image_url` to `rag_doc_mapping` and populates it during `CreateDocument` for image-bearing schemas. No behavioral change visible in the UI yet — that lands in Task 9.
+
+**Files:**
+- Modify: `docker/atlas/opencoze_latest_schema.hcl` (add image_url column to rag_doc_mapping)
+- Create: `docker/atlas/migrations/20260520140000_add_image_url_to_rag_doc_mapping.sql` (informational mirror; not read at deploy per `[[coze-stack-atlas-declarative-deploy]]`)
+- Modify: `backend/domain/knowledge/service/ragimpl/mapping.go` (DocMapping struct, InsertDoc signature, hydrators)
+- Modify: `backend/domain/knowledge/service/ragimpl/document.go` (CreateDocument forks file bytes to coze MinIO for image schemas, persists URL via InsertDoc)
+- Modify: `backend/domain/knowledge/service/ragimpl/mapping_test.go` (test InsertDoc round-trip with image_url)
+- Modify: `backend/domain/knowledge/service/ragimpl/knowledge_test.go` and `integration_test.go` (storage stubs already there)
+
+---
+
+- [ ] **Step 1: Add `image_url` column to declarative atlas schema**
+
+In `docker/atlas/opencoze_latest_schema.hcl`, find the `rag_doc_mapping` table block (starts around line 1884). After the `size` column (line 1916-1922) and before the `created_at` column (line 1923), insert:
+
+```hcl
+  column "image_url" {
+    null    = true
+    type    = varchar(512)
+    comment = "Coze-side MinIO URL for image-source documents (for detail-page thumbnails). NULL for non-image docs and for pre-2026-05-20 image uploads."
+  }
+```
+
+- [ ] **Step 2: Add informational migration file**
+
+Create `docker/atlas/migrations/20260520140000_add_image_url_to_rag_doc_mapping.sql`:
+
+```sql
+-- Add image_url column to rag_doc_mapping.
+-- Note: per coze-stack-atlas-declarative-deploy, this file is informational
+-- only — mysql entrypoint runs atlas schema apply against the HCL, not this
+-- migration. Kept here so an operator can reproduce the change manually if
+-- needed.
+
+ALTER TABLE `rag_doc_mapping`
+  ADD COLUMN `image_url` VARCHAR(512) NULL DEFAULT NULL
+    COMMENT 'Coze-side MinIO URL for image-source documents (for detail-page thumbnails). NULL for non-image docs and for pre-2026-05-20 image uploads.'
+    AFTER `size`;
+```
+
+(Don't update `atlas.sum` — per the same memory it isn't read at deploy.)
+
+- [ ] **Step 3: Apply schema change to running mysql**
+
+The dev stack has a running mysql instance. Apply the change:
+
+```bash
+docker compose -p coze-studio-v2 \
+  -f /home/xinyuliu/coze-studio/docker/docker-compose.yml \
+  -f /home/xinyuliu/coze-studio/docker/docker-compose.override.yml \
+  -f /home/xinyuliu/coze-studio/docker/docker-compose.v2.yml \
+  restart coze-mysql-v2
+```
+
+(Restart triggers the atlas-declarative entrypoint to diff and apply the new column.)
+
+Verify the column exists:
+
+```bash
+docker exec coze-mysql-v2 mysql -uroot -proot opencoze -e "SHOW CREATE TABLE rag_doc_mapping\G" | grep image_url
+```
+
+Expected output: a line like `\`image_url\` varchar(512) DEFAULT NULL COMMENT 'Coze-side MinIO URL for image-source documents...'`.
+
+- [ ] **Step 4: Update DocMapping struct and InsertDoc signature**
+
+In `backend/domain/knowledge/service/ragimpl/mapping.go`:
+
+Find the `DocMapping` struct (search for "type DocMapping struct"). Add an `ImageURL` field:
+
+```go
+ImageURL string  // Coze MinIO URL for image-source docs; empty for others
+```
+
+Find `InsertDoc` (currently around line 324):
+
+```go
+func (m *MappingRepo) InsertDoc(ctx context.Context, cozeID int64, ragDocID string, kbID, creatorID int64, lastTaskID string, nowMs int64, size int64) error {
+```
+
+Change the signature to accept image_url at the end:
+
+```go
+func (m *MappingRepo) InsertDoc(ctx context.Context, cozeID int64, ragDocID string, kbID, creatorID int64, lastTaskID string, nowMs int64, size int64, imageURL string) error {
+```
+
+Inside the function, find the SQL INSERT and append `image_url` to the column list and `imageURL` to the values bind list.
+
+Find any read paths (search for `DocByCozeID`, `DocsByCozeIDs`, `DocByRagID`, or SELECT statements) — add `image_url` to the SELECT list and Scan it into the `ImageURL` field.
+
+- [ ] **Step 5: Update CreateDocument to fork file bytes to coze MinIO for image schemas**
+
+In `backend/domain/knowledge/service/ragimpl/document.go`, find `CreateDocument` (line 242). Around line 309-310 where `ragReq := &contract.CreateDocumentRequest{ FileBytes: fileBytes, ... }` is constructed and before `ragResp, err := i.rag.CreateDocument(...)` at line 321.
+
+Add an image-bytes fork BEFORE the rag call. The image-detection check: schema is image-bearing if the FileExtension matches one of `{png, jpg, jpeg, gif, webp, bmp, tiff}` OR the document_options carry `_source_modality` in `{image_source, scanned_document_source}`. Helper:
+
+```go
+func isImageBearing(ent *entity.Document) bool {
+    ext := strings.ToLower(string(ent.FileExtension))
+    switch ext {
+    case "png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff":
+        return true
+    }
+    return false
+}
+```
+
+(Add this helper at file scope.)
+
+Then in the CreateDocument loop, after `fileBytes` is computed:
+
+```go
+var imageURL string
+if isImageBearing(req.DocumentEntities[i]) {
+    objectKey := fmt.Sprintf("knowledge/image/%d/%s", m.CozeKBID, req.DocumentEntities[i].Name)
+    if err := i.storage.PutObject(ctx, objectKey, fileBytes); err != nil {
+        // Defense in depth: thumbnail is UX, ingestion is primary. Log and continue.
+        logs.CtxWarnf(ctx, "ragimpl.CreateDocument: failed to store image to MinIO for thumbnail, continuing without URL: doc=%s err=%v", req.DocumentEntities[i].Name, err)
+    } else {
+        url, urlErr := i.storage.GetObjectUrl(ctx, objectKey)
+        if urlErr != nil {
+            logs.CtxWarnf(ctx, "ragimpl.CreateDocument: stored image but failed to get URL, continuing without URL: doc=%s err=%v", req.DocumentEntities[i].Name, urlErr)
+        } else {
+            imageURL = url
+        }
+    }
+}
+```
+
+Then in the InsertDoc call later in the function, pass `imageURL` as the new last argument.
+
+- [ ] **Step 6: Update existing call sites and tests**
+
+Search the repo for other call sites of `MappingRepo.InsertDoc`:
+
+```bash
+grep -rn "mapping\.InsertDoc\|m\.InsertDoc\b\|\.InsertDoc(ctx" backend/ | grep -v _test.go
+```
+
+For each call site, pass `""` (empty string) as the new last argument unless it's the CreateDocument path you just updated.
+
+Update mapping_test.go to add a round-trip test:
+
+```go
+func TestMappingRepo_InsertDoc_RoundTripsImageURL(t *testing.T) {
+    // ... seed and call InsertDoc with imageURL="https://minio.example/x.png"
+    // ... assert DocByCozeID returns ImageURL field equal to that string
+}
+```
+
+(Adapt to the existing test fixture style — look at sibling tests for setup.)
+
+- [ ] **Step 7: Run backend tests**
+
+```bash
+cd /home/xinyuliu/coze-studio/backend
+go test ./domain/knowledge/service/ragimpl/...
+```
+
+Expected: all existing tests pass, new InsertDoc test passes.
+
+- [ ] **Step 8: Commit**
+
+```bash
+cd /home/xinyuliu/coze-studio
+git add docker/atlas/opencoze_latest_schema.hcl \
+        docker/atlas/migrations/20260520140000_add_image_url_to_rag_doc_mapping.sql \
+        backend/domain/knowledge/service/ragimpl/mapping.go \
+        backend/domain/knowledge/service/ragimpl/document.go \
+        backend/domain/knowledge/service/ragimpl/mapping_test.go
+git commit -m "$(cat <<'EOF'
+feat(knowledge-rag): persist image_url in rag_doc_mapping on upload
+
+Adds image_url column to rag_doc_mapping. CreateDocument forks file
+bytes to coze MinIO for image-bearing schemas (png/jpg/etc) and stores
+the resulting URL in the mapping.
+
+Rag's contract.Document has no URL field — image bytes live on rag's
+internal storage. The detail page (Task 9) needs thumbnails, so coze
+keeps a parallel copy in MinIO.
+
+Failures in MinIO put/url are logged and don't abort ingestion —
+thumbnail is UX, ingestion correctness is primary.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
+
+---
+
+## Task 9: Rewrite ListPhotoSlice + populate Document.URL — make detail page work
+
+Replaces chunk-based pagination with document-based pagination in ragimpl and reads `image_url` from the mapping into `entity.Document.URL`. After this commit the image KB detail page renders all uploaded images with thumbnails (for post-fix uploads) and filename captions.
+
+**Files:**
+- Modify: `backend/domain/knowledge/service/ragimpl/slice.go` (ListPhotoSlice rewrite)
+- Modify: `backend/domain/knowledge/service/ragimpl/document.go` (buildDocumentEntity reads ImageURL)
+- Modify: `backend/domain/knowledge/service/ragimpl/slice_test.go` or create if not present
+- Modify: `backend/domain/knowledge/service/ragimpl/document_test.go` (buildDocumentEntity URL test)
+
+---
+
+- [ ] **Step 1: Write failing tests for ListPhotoSlice**
+
+In `backend/domain/knowledge/service/ragimpl/slice_test.go` (create if absent, or append to existing), add:
+
+```go
+func TestRagimplListPhotoSlice_ReturnsOneSlicePerDocument(t *testing.T) {
+    // Given a KB with 3 documents (rag_doc_id 1, 2, 3), each with 10+
+    // chunks of various types:
+    //   - doc 1: 13 text_chunks, 0 image_chunks
+    //   - doc 2: 60 text_chunks, 0 image_chunks
+    //   - doc 3: 6 text_chunks, 1 image_chunk
+    // When ListPhotoSlice(KB, limit=20, offset=0) is called,
+    // Then the result has exactly 3 slices, one per document.
+    // And each slice's RawContent[0].Text equals the document filename.
+    // ...
+
+    // (Adapt to existing test fixture style. Use the rag client mock from
+    // sibling tests. The key assertion is "3 slices, not 80 chunks".)
+}
+
+func TestRagimplListPhotoSlice_HonorsLimitOffset(t *testing.T) {
+    // Given 5 documents, when limit=2 offset=0 -> 2 slices; offset=2 -> 2 more; offset=4 -> 1.
+}
+
+func TestRagimplListPhotoSlice_IgnoresHasCaptionFilter(t *testing.T) {
+    // Given req.HasCaption=ptr.Of(false), still returns documents (filter is a no-op in rag mode).
+}
+```
+
+- [ ] **Step 2: Write failing test for buildDocumentEntity URL population**
+
+In `document_test.go` (sibling to `mapping_test.go`), add:
+
+```go
+func TestBuildDocumentEntity_PopulatesURLFromMappingImageURL(t *testing.T) {
+    // Given a DocMapping with ImageURL="https://minio.example/img.png",
+    // When buildDocumentEntity(mapping, ragDoc) is called,
+    // Then result.URL == "https://minio.example/img.png".
+}
+
+func TestBuildDocumentEntity_LeavesURLEmptyWhenMappingImageURLEmpty(t *testing.T) {
+    // Given ImageURL="",
+    // When buildDocumentEntity is called,
+    // Then result.URL == "".
+}
+```
+
+- [ ] **Step 3: Run tests to verify they fail**
+
+```bash
+cd /home/xinyuliu/coze-studio/backend
+go test ./domain/knowledge/service/ragimpl/... -run "ListPhotoSlice|buildDocumentEntity"
+```
+
+Expected: tests fail because the new behavior isn't implemented yet.
+
+- [ ] **Step 4: Rewrite ListPhotoSlice**
+
+In `backend/domain/knowledge/service/ragimpl/slice.go`, find `ListPhotoSlice` (around line 540-643). Replace it with:
+
+```go
+// ListPhotoSlice returns one synthetic Slice per document in the given KB,
+// not one slice per chunk. This is the data shape the image KB detail page
+// expects (1 image = 1 card). The synthetic slice's content is the document
+// filename — used by packPhotoInfo as the card caption.
+//
+// HasCaption filter: ignored in rag mode. The legacy "user-typed annotation"
+// concept doesn't map onto rag-backed documents; all rag image docs are
+// considered "captioned" via their OCR-extracted text_chunks.
+func (i *Impl) ListPhotoSlice(ctx context.Context, req *service.ListPhotoSliceRequest) (*service.ListPhotoSliceResponse, error) {
+    m, err := i.mapping.KBByCozeID(ctx, req.KnowledgeID)
+    if err != nil {
+        return nil, err
+    }
+    if m == nil {
+        return &service.ListPhotoSliceResponse{}, nil
+    }
+
+    tenant, err := i.tenantFor(ctx)
+    if err != nil {
+        return nil, err
+    }
+
+    limit := 20
+    if req.Limit != nil && *req.Limit > 0 {
+        limit = *req.Limit
+    }
+    offset := 0
+    if req.Offset != nil && *req.Offset > 0 {
+        offset = *req.Offset
+    }
+
+    listResp, err := i.rag.ListDocuments(ctx, tenant, m.RagKBID, &contract.ListDocumentsRequest{
+        Limit:  limit,
+        Offset: offset,
+    })
+    if err != nil {
+        return nil, err
+    }
+
+    if len(listResp.Items) == 0 {
+        return &service.ListPhotoSliceResponse{Total: int64(listResp.Total)}, nil
+    }
+
+    // Resolve coze_doc_id for each rag document.
+    ragIDs := make([]string, 0, len(listResp.Items))
+    for _, d := range listResp.Items {
+        ragIDs = append(ragIDs, d.DocID)
+    }
+    docMappings, err := i.mapping.DocsByRagIDs(ctx, ragIDs)
+    if err != nil {
+        return nil, err
+    }
+    cozeIDByRag := make(map[string]int64, len(docMappings))
+    for _, dm := range docMappings {
+        cozeIDByRag[dm.RagDocID] = dm.CozeDocID
+    }
+
+    slices := make([]*entity.Slice, 0, len(listResp.Items))
+    for _, d := range listResp.Items {
+        cozeID, ok := cozeIDByRag[d.DocID]
+        if !ok {
+            // Orphan rag doc (no mapping row). Skip — listPhoto would fail to
+            // resolve its parent document anyway.
+            continue
+        }
+        filename := d.Filename
+        slices = append(slices, &entity.Slice{
+            DocumentID: cozeID,
+            RawContent: []*model.SliceContent{
+                {Type: model.SliceContentTypeText, Text: &filename},
+            },
+        })
+    }
+    return &service.ListPhotoSliceResponse{
+        Slices: slices,
+        Total:  int64(listResp.Total),
+    }, nil
+}
+```
+
+(Note: this assumes `i.rag.ListDocuments(...)` exists with that signature. If the signature differs, adapt to the actual rag client API — search `backend/infra/rag/client.go` for the ListDocuments method.)
+
+(Also: if `i.mapping.DocsByRagIDs` doesn't exist, add it as a batch lookup in `mapping.go` mirroring `KBsByCozeIDs` from prior work.)
+
+- [ ] **Step 5: Populate URL in buildDocumentEntity**
+
+In `backend/domain/knowledge/service/ragimpl/document.go`, find `buildDocumentEntity` (around line 195-209). It currently does NOT set `URL`. Add:
+
+```go
+ent.URL = mapping.ImageURL
+```
+
+(Inserted after the existing field assignments. If `ent` isn't the variable name in the actual code, use whatever the function builds and returns.)
+
+- [ ] **Step 6: Run tests to verify they pass**
+
+```bash
+cd /home/xinyuliu/coze-studio/backend
+go test ./domain/knowledge/service/ragimpl/...
+```
+
+Expected: all tests pass.
+
+- [ ] **Step 7: End-to-end verification against the running stack**
+
+Restart coze-server-v2 to pick up the Go binary changes:
+
+```bash
+cd /home/xinyuliu/coze-studio
+docker compose -p coze-studio-v2 \
+  -f docker/docker-compose.yml \
+  -f docker/docker-compose.override.yml \
+  -f docker/docker-compose.v2.yml \
+  restart coze-server-v2
+```
+
+Wait ~10 seconds for the server to come back up. Open the image KB detail page in the browser at http://localhost:8891 against the new image KB (`2ec6be92-...` with 3 docs from today's testing). Expected:
+
+- All 3 image cards appear (not just 1)
+- Each card shows the filename as caption (not "未标注")
+- Thumbnails are empty for these 3 docs (uploaded before Task 8 took effect)
+
+To verify thumbnails work on new uploads:
+
+- Upload a fresh image to the same KB via the UI
+- Reload the detail page
+- The new image's card should have a thumbnail
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add backend/domain/knowledge/service/ragimpl/slice.go \
+        backend/domain/knowledge/service/ragimpl/document.go \
+        backend/domain/knowledge/service/ragimpl/slice_test.go \
+        backend/domain/knowledge/service/ragimpl/document_test.go \
+        backend/domain/knowledge/service/ragimpl/mapping.go
+git commit -m "$(cat <<'EOF'
+fix(knowledge-rag): make image KB detail page work end-to-end
+
+ListPhotoSlice in ragimpl no longer queries by image_chunk (which our
+Task 6 force suppressed) — it now paginates rag documents directly and
+returns one synthetic slice per document. The synthetic slice's content
+is the document filename, which packPhotoInfo uses as the photo card
+caption — replacing the misleading "未标注" warning.
+
+buildDocumentEntity populates Document.URL from rag_doc_mapping.image_url
+(persisted by Task 8 for image uploads). Pre-Task-8 uploads keep an
+empty URL; their cards render without thumbnails but with filename
+captions and correct listing.
+
+Three symptoms fixed:
+  1. Only 1 image shown -> all docs now appear
+  2. No thumbnail -> populated for new uploads, empty for pre-fix
+  3. "未标注" warning -> replaced by filename caption
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
