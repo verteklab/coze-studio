@@ -25,6 +25,7 @@ import {
 
 import { type NodeTestMeta } from '@/test-run-kit';
 
+import { test } from './node-test';
 import { OCR_FORM_META } from './form-meta';
 
 export const OCR_NODE_REGISTRY: WorkflowNodeRegistry<NodeTestMeta> = {
@@ -38,6 +39,7 @@ export const OCR_NODE_REGISTRY: WorkflowNodeRegistry<NodeTestMeta> = {
     nodeMetaPath: DEFAULT_NODE_META_PATH,
     outputsPath: DEFAULT_OUTPUTS_PATH,
     inputParametersPath: 'inputs.inputParameters',
+    test,
   },
   formMeta: OCR_FORM_META,
 };

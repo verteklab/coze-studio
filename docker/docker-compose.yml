@@ -126,9 +126,9 @@ services:
     healthcheck:
       test: [ 'CMD-SHELL', 'curl -f http://localhost:9200 && [ -f /tmp/es_plugins_ready ] && [ -f /tmp/es_init_complete ]' ]
       interval: 5s
-      timeout: 10s
+      timeout: 100s
       retries: 10
-      start_period: 10s
+      start_period: 300s
     networks:
       - coze-network
     # Install smartcn analyzer plugin and initialize ES
@@ -397,9 +397,9 @@ services:
     command: [ '/app/opencoze' ]
 
   coze-web:
-    # build:
-    #   context: ..
-    #   dockerfile: frontend/Dockerfile
+    build:
+      context: ..
+      dockerfile: frontend/Dockerfile
     image: cozedev/coze-studio-web:latest
     container_name: coze-web
     restart: always
