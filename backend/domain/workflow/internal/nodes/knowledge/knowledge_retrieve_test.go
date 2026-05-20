@@ -40,52 +40,6 @@ func newDatasetParam(name string, schemaType vo.VariableType, ids []any) *vo.Par
 	}
 }
 
-// TestAdapt_ParsesDocumentIDs verifies that RetrieveConfig.Adapt extracts the
-// documentIDs param (JSON list of numbers) into RetrieveConfig.DocumentIDs.
-//
-// The frontend serializes selected documents as:
-//
-//	{ name: "documentIDs", input: { type: "list", schema: { type: "number" },
-//	  value: { type: "literal", content: [101, 202, 303] } } }
-//
-// After JSON round-trip, numeric items arrive as float64 / int64 (depending on
-// decoder); cast.ToInt64E handles both. Test the mixed path here.
-func TestAdapt_ParsesDocumentIDs(t *testing.T) {
-	cfg := &RetrieveConfig{}
-	node := &vo.Node{
-		ID:   "n1",
-		Type: "knowledge-retrieve",
-		Data: &vo.Data{
-			Meta: &vo.NodeMetaFE{Title: "test-retrieve"},
-			Inputs: &vo.Inputs{
-				InputParameters: []*vo.Param{},
-				Knowledge: &vo.Knowledge{
-					DatasetParam: []*vo.Param{
-						// datasetList must be index 0 -- handler asserts that.
-						newDatasetParam("datasetList", vo.VariableTypeString, []any{int64(1), int64(2)}),
-						newDatasetParam("documentIDs", vo.VariableTypeInteger, []any{
-							int64(101), float64(202), 303,
-						}),
-					},
-				},
-			},
-		},
-	}
-
-	if _, err := cfg.Adapt(context.Background(), node); err != nil {
-		t.Fatalf("Adapt returned error: %v", err)
-	}
-
-	if got, want := len(cfg.DocumentIDs), 3; got != want {
-		t.Fatalf("DocumentIDs length = %d, want %d (cfg=%+v)", got, want, cfg.DocumentIDs)
-	}
-	for i, want := range []int64{101, 202, 303} {
-		if cfg.DocumentIDs[i] != want {
-			t.Errorf("DocumentIDs[%d] = %d, want %d", i, cfg.DocumentIDs[i], want)
-		}
-	}
-}
-
 // newScalarParam helper builds a vo.Param of a scalar (non-list) shape. Pass
 // nil for `content` to model the "UI left blank" case — the frontend emits the
 // param with an absent Content key, which round-trips through JSON as a nil
@@ -218,11 +172,24 @@ func TestAdapt_PositiveTopKIsKept(t *testing.T) {
 	}
 }
 
-// TestAdapt_NoDocumentIDsKeepsNil ensures the parse loop is opt-in: when the
-// param is absent (the common case -- "all docs in KB"), DocumentIDs stays nil
-// so the rag /retrieval call doesn't get an empty list that would filter out
-// every result.
-func TestAdapt_NoDocumentIDsKeepsNil(t *testing.T) {
+// newMapParam helper builds a vo.Param of object shape.
+func newMapParam(name string, content map[string]any) *vo.Param {
+	return &vo.Param{
+		Name: name,
+		Input: &vo.BlockInput{
+			Type: vo.VariableTypeObject,
+			Value: &vo.BlockInputValue{
+				Type:    "literal",
+				Content: content,
+			},
+		},
+	}
+}
+
+// TestAdapt_ParsesNewQueryStrategy verifies the 4 new boolean params
+// (rewrite / expansion / multiQuery / enableRerank) land on the
+// matching RetrievalStrategy fields.
+func TestAdapt_ParsesNewQueryStrategy(t *testing.T) {
 	cfg := &RetrieveConfig{}
 	node := &vo.Node{
 		ID:   "n1",
@@ -234,6 +201,10 @@ func TestAdapt_NoDocumentIDsKeepsNil(t *testing.T) {
 				Knowledge: &vo.Knowledge{
 					DatasetParam: []*vo.Param{
 						newDatasetParam("datasetList", vo.VariableTypeString, []any{int64(1)}),
+						newScalarParam("rewrite", vo.VariableTypeBoolean, true),
+						newScalarParam("expansion", vo.VariableTypeBoolean, false),
+						newScalarParam("multiQuery", vo.VariableTypeBoolean, true),
+						newScalarParam("enableRerank", vo.VariableTypeBoolean, true),
 					},
 				},
 			},
@@ -241,10 +212,157 @@ func TestAdapt_NoDocumentIDsKeepsNil(t *testing.T) {
 	}
 
 	if _, err := cfg.Adapt(context.Background(), node); err != nil {
-		t.Fatalf("Adapt returned error: %v", err)
+		t.Fatalf("Adapt error: %v", err)
+	}
+	if cfg.RetrievalStrategy == nil {
+		t.Fatalf("RetrievalStrategy is nil")
+	}
+	if !cfg.RetrievalStrategy.Rewrite {
+		t.Errorf("Rewrite = false, want true")
+	}
+	if cfg.RetrievalStrategy.Expansion {
+		t.Errorf("Expansion = true, want false")
+	}
+	if !cfg.RetrievalStrategy.MultiQuery {
+		t.Errorf("MultiQuery = false, want true")
+	}
+	if !cfg.RetrievalStrategy.EnableRerank {
+		t.Errorf("EnableRerank = false, want true")
+	}
+}
+
+// TestAdapt_ParsesFiltersRetrieversTargetChunkTypes verifies map and
+// list params hydrate the corresponding RetrievalStrategy fields.
+func TestAdapt_ParsesFiltersRetrieversTargetChunkTypes(t *testing.T) {
+	cfg := &RetrieveConfig{}
+	node := &vo.Node{
+		ID:   "n1",
+		Type: "knowledge-retrieve",
+		Data: &vo.Data{
+			Meta: &vo.NodeMetaFE{Title: "test-retrieve"},
+			Inputs: &vo.Inputs{
+				InputParameters: []*vo.Param{},
+				Knowledge: &vo.Knowledge{
+					DatasetParam: []*vo.Param{
+						newDatasetParam("datasetList", vo.VariableTypeString, []any{int64(1)}),
+						newDatasetParam("targetChunkTypes", vo.VariableTypeString, []any{"text_chunk"}),
+						newDatasetParam("retrievers", vo.VariableTypeString, []any{"dense", "bm25"}),
+						newMapParam("filters", map[string]any{"tag": "guides", "year": int64(2026)}),
+					},
+				},
+			},
+		},
 	}
 
-	if cfg.DocumentIDs != nil {
-		t.Errorf("DocumentIDs = %+v, want nil", cfg.DocumentIDs)
+	if _, err := cfg.Adapt(context.Background(), node); err != nil {
+		t.Fatalf("Adapt error: %v", err)
+	}
+	if got := cfg.RetrievalStrategy.TargetChunkTypes; len(got) != 1 || got[0] != "text_chunk" {
+		t.Errorf("TargetChunkTypes = %v, want [text_chunk]", got)
+	}
+	if got := cfg.RetrievalStrategy.Retrievers; len(got) != 2 || got[0] != "dense" || got[1] != "bm25" {
+		t.Errorf("Retrievers = %v, want [dense bm25]", got)
+	}
+	if got := cfg.RetrievalStrategy.Filters; got["tag"] != "guides" || got["year"] != int64(2026) {
+		t.Errorf("Filters = %+v, want {tag:guides year:2026}", got)
+	}
+}
+
+// TestAdapt_ParsesQueryImage verifies image_base64 / image_ref hydrate
+// the QueryImage; an empty payload leaves the field nil.
+func TestAdapt_ParsesQueryImage(t *testing.T) {
+	cfg := &RetrieveConfig{}
+	node := &vo.Node{
+		ID:   "n1",
+		Type: "knowledge-retrieve",
+		Data: &vo.Data{
+			Meta: &vo.NodeMetaFE{Title: "test-retrieve"},
+			Inputs: &vo.Inputs{
+				InputParameters: []*vo.Param{},
+				Knowledge: &vo.Knowledge{
+					DatasetParam: []*vo.Param{
+						newDatasetParam("datasetList", vo.VariableTypeString, []any{int64(1)}),
+						newMapParam("queryImage", map[string]any{"image_ref": "ref-1"}),
+					},
+				},
+			},
+		},
+	}
+
+	if _, err := cfg.Adapt(context.Background(), node); err != nil {
+		t.Fatalf("Adapt error: %v", err)
+	}
+	if cfg.RetrievalStrategy.QueryImage == nil {
+		t.Fatalf("QueryImage is nil")
+	}
+	if cfg.RetrievalStrategy.QueryImage.ImageRef != "ref-1" {
+		t.Errorf("ImageRef = %q, want ref-1", cfg.RetrievalStrategy.QueryImage.ImageRef)
+	}
+}
+
+// TestAdapt_RejectsInvalidQueryMode verifies a non-enum queryMode
+// returns an error rather than silently propagating to rag.
+func TestAdapt_RejectsInvalidQueryMode(t *testing.T) {
+	cfg := &RetrieveConfig{}
+	node := &vo.Node{
+		ID:   "n1",
+		Type: "knowledge-retrieve",
+		Data: &vo.Data{
+			Meta: &vo.NodeMetaFE{Title: "test-retrieve"},
+			Inputs: &vo.Inputs{
+				InputParameters: []*vo.Param{},
+				Knowledge: &vo.Knowledge{
+					DatasetParam: []*vo.Param{
+						newDatasetParam("datasetList", vo.VariableTypeString, []any{int64(1)}),
+						newScalarParam("queryMode", vo.VariableTypeString, "garbage"),
+					},
+				},
+			},
+		},
+	}
+
+	_, err := cfg.Adapt(context.Background(), node)
+	if err == nil {
+		t.Fatalf("Adapt returned no error; want validation error for queryMode=garbage")
+	}
+}
+
+// TestAdapt_IgnoresLegacyParams locks in that the new Adapt silently
+// drops legacy param names (useRewrite/useRerank/useNl2sql/
+// isPersonalOnly/minScore/documentIDs) so old workflow JSON loads
+// without error.
+func TestAdapt_IgnoresLegacyParams(t *testing.T) {
+	cfg := &RetrieveConfig{}
+	node := &vo.Node{
+		ID:   "n1",
+		Type: "knowledge-retrieve",
+		Data: &vo.Data{
+			Meta: &vo.NodeMetaFE{Title: "test-retrieve"},
+			Inputs: &vo.Inputs{
+				InputParameters: []*vo.Param{},
+				Knowledge: &vo.Knowledge{
+					DatasetParam: []*vo.Param{
+						newDatasetParam("datasetList", vo.VariableTypeString, []any{int64(1)}),
+						newScalarParam("useRewrite", vo.VariableTypeBoolean, true),
+						newScalarParam("useRerank", vo.VariableTypeBoolean, true),
+						newScalarParam("useNl2sql", vo.VariableTypeBoolean, true),
+						newScalarParam("isPersonalOnly", vo.VariableTypeBoolean, true),
+						newScalarParam("minScore", vo.VariableTypeFloat, 0.7),
+						newDatasetParam("documentIDs", vo.VariableTypeInteger, []any{int64(1), int64(2)}),
+					},
+				},
+			},
+		},
+	}
+
+	if _, err := cfg.Adapt(context.Background(), node); err != nil {
+		t.Fatalf("Adapt returned error for legacy params: %v", err)
+	}
+	if cfg.RetrievalStrategy == nil {
+		t.Fatalf("RetrievalStrategy is nil")
+	}
+	// None of the new fields should be set from legacy params.
+	if cfg.RetrievalStrategy.Rewrite || cfg.RetrievalStrategy.EnableRerank {
+		t.Errorf("legacy useRewrite/useRerank leaked into new fields")
 	}
 }
