@@ -50,7 +50,7 @@ func TestRetrieve_HappyPath(t *testing.T) {
 	i := newTestImpl(t, fc, 8800) // single id for the lazy backfill
 	ctx := context.Background()
 	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
-	require.NoError(t, i.mapping.InsertDoc(ctx, 555, "rag-doc-X", 100, 7, "task-1", 0, 0))
+	require.NoError(t, i.mapping.InsertDoc(ctx, 555, "rag-doc-X", 100, 7, "task-1", 0, 0, ""))
 
 	resp, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
 		Query:        "hi",
@@ -89,7 +89,7 @@ func TestRetrieve_ChunkIDBackfill_StableAcrossCalls(t *testing.T) {
 	i := newTestImpl(t, fc, 9001) // only ONE id; second call must NOT need a fresh allocation
 	ctx := context.Background()
 	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
-	require.NoError(t, i.mapping.InsertDoc(ctx, 555, "rag-doc-X", 100, 7, "task-1", 0, 0))
+	require.NoError(t, i.mapping.InsertDoc(ctx, 555, "rag-doc-X", 100, 7, "task-1", 0, 0, ""))
 
 	resp1, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{Query: "x", KnowledgeIDs: []int64{100}})
 	require.NoError(t, err)

@@ -55,6 +55,7 @@ type docRow struct {
 	CreatorID  int64   `gorm:"column:creator_id"`
 	LastTaskID string  `gorm:"column:last_task_id"`
 	Size       int64   `gorm:"column:size"`
+	ImageURL   string  `gorm:"column:image_url"`
 	CreatedAt  int64   `gorm:"column:created_at"`
 	DeletedAt  *string `gorm:"column:deleted_at"`
 }
@@ -228,7 +229,7 @@ func TestMapping_DocsByCozeIDs(t *testing.T) {
 func TestMapping_InsertDocAndSoftDelete(t *testing.T) {
 	db := setupDB(t)
 	m := NewMappingRepo(db)
-	require.NoError(t, m.InsertDoc(context.Background(), 500, "rag-doc-500", 100, 7, "task-99", 1700000000, 1024))
+	require.NoError(t, m.InsertDoc(context.Background(), 500, "rag-doc-500", 100, 7, "task-99", 1700000000, 1024, ""))
 	got, err := m.DocByCozeID(context.Background(), 500)
 	require.NoError(t, err)
 	require.Equal(t, "rag-doc-500", got.RagDocID)
@@ -651,4 +652,32 @@ func TestChunksInsertOrGetCozeIDs_EmptyInput(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	require.Empty(t, got)
+}
+
+// --- image_url round-trip tests -------------------------------------------
+
+func TestMappingRepo_InsertDoc_RoundTripsImageURL(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+
+	err := m.InsertDoc(context.Background(), 123, "uuid-abc", 1, 0, "task-x", 1700000000000, 42, "https://minio.local/img.png")
+	require.NoError(t, err)
+
+	got, err := m.DocByCozeID(context.Background(), 123)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, "https://minio.local/img.png", got.ImageURL)
+}
+
+func TestMappingRepo_InsertDoc_EmptyImageURLStoredAsNull(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+
+	err := m.InsertDoc(context.Background(), 124, "uuid-def", 1, 0, "task-y", 1700000000000, 42, "")
+	require.NoError(t, err)
+
+	got, err := m.DocByCozeID(context.Background(), 124)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.Equal(t, "", got.ImageURL)
 }

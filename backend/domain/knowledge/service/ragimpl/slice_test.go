@@ -33,7 +33,7 @@ import (
 func seedKBAndDoc(t *testing.T, i *Impl, cozeKBID int64, ragKBID string, cozeDocID int64, ragDocID string) {
 	t.Helper()
 	require.NoError(t, i.mapping.InsertKB(context.Background(), cozeKBID, ragKBID, "", 0, 0, 0, knowledgeModel.DocumentTypeText))
-	require.NoError(t, i.mapping.InsertDoc(context.Background(), cozeDocID, ragDocID, cozeKBID, 0, "", 0, 0))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), cozeDocID, ragDocID, cozeKBID, 0, "", 0, 0, ""))
 }
 
 // strPtr is a tiny helper to build *string literals inline.
@@ -433,7 +433,7 @@ func TestListPhotoSlice_DocumentIDsTranslated(t *testing.T) {
 	i := newTestImpl(t, fc)
 	ctx := context.Background()
 	seedKBAndDoc(t, i, 100, "rag-kb-1", 200, "rag-doc-A")
-	require.NoError(t, i.mapping.InsertDoc(ctx, 201, "rag-doc-B", 100, 0, "", 0, 0))
+	require.NoError(t, i.mapping.InsertDoc(ctx, 201, "rag-doc-B", 100, 0, "", 0, 0, ""))
 
 	_, err := i.ListPhotoSlice(ctx, &service.ListPhotoSliceRequest{
 		KnowledgeID: 100,

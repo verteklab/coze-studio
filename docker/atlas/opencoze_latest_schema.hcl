@@ -1920,6 +1920,11 @@ table "rag_doc_mapping" {
     unsigned = true
     comment  = "Document file size in bytes; coze-side, since rag does not return size on its Document response."
   }
+  column "image_url" {
+    null    = true
+    type    = varchar(512)
+    comment = "Coze-side MinIO URL for image-source documents (for detail-page thumbnails). NULL for non-image docs and for pre-2026-05-20 image uploads."
+  }
   column "created_at" {
     null     = false
     type     = bigint

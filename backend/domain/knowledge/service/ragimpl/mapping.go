@@ -18,6 +18,7 @@ package ragimpl
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -55,7 +56,8 @@ type DocMapping struct {
 	KBID       int64
 	CreatorID  int64
 	LastTaskID string
-	Size       int64 // file size in bytes; populated at upload, read on display
+	Size       int64  // file size in bytes; populated at upload, read on display
+	ImageURL   string // coze-side MinIO URL for image-source documents; "" for non-image docs
 }
 
 // ChunkMapping bridges coze's int64 slice id and rag's string chunk UUID. No
@@ -221,16 +223,17 @@ func (m *MappingRepo) kbByRagID(ctx context.Context, ragKBID string) (*KBMapping
 
 func (m *MappingRepo) DocByCozeID(ctx context.Context, cozeID int64) (*DocMapping, error) {
 	var row struct {
-		CozeDocID  int64  `gorm:"column:coze_doc_id"`
-		RagDocID   string `gorm:"column:rag_doc_id"`
-		CozeKBID   int64  `gorm:"column:coze_kb_id"`
-		CreatorID  int64  `gorm:"column:creator_id"`
-		LastTaskID string `gorm:"column:last_task_id"`
-		Size       int64  `gorm:"column:size"`
+		CozeDocID  int64          `gorm:"column:coze_doc_id"`
+		RagDocID   string         `gorm:"column:rag_doc_id"`
+		CozeKBID   int64          `gorm:"column:coze_kb_id"`
+		CreatorID  int64          `gorm:"column:creator_id"`
+		LastTaskID string         `gorm:"column:last_task_id"`
+		Size       int64          `gorm:"column:size"`
+		ImageURL   sql.NullString `gorm:"column:image_url"`
 	}
 	err := m.db.WithContext(ctx).
 		Table("rag_doc_mapping").
-		Select("coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id, size").
+		Select("coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id, size, image_url").
 		Where("coze_doc_id = ? AND (deleted_at IS NULL)", cozeID).
 		Take(&row).Error
 	if err != nil {
@@ -239,9 +242,14 @@ func (m *MappingRepo) DocByCozeID(ctx context.Context, cozeID int64) (*DocMappin
 		}
 		return nil, err
 	}
+	imageURL := ""
+	if row.ImageURL.Valid {
+		imageURL = row.ImageURL.String
+	}
 	return &DocMapping{
 		CozeID: row.CozeDocID, RagDocID: row.RagDocID, KBID: row.CozeKBID,
 		CreatorID: row.CreatorID, LastTaskID: row.LastTaskID, Size: row.Size,
+		ImageURL: imageURL,
 	}, nil
 }
 
@@ -250,16 +258,17 @@ func (m *MappingRepo) DocsByCozeIDs(ctx context.Context, ids []int64) ([]*DocMap
 		return nil, nil
 	}
 	var rows []struct {
-		CozeDocID  int64  `gorm:"column:coze_doc_id"`
-		RagDocID   string `gorm:"column:rag_doc_id"`
-		CozeKBID   int64  `gorm:"column:coze_kb_id"`
-		CreatorID  int64  `gorm:"column:creator_id"`
-		LastTaskID string `gorm:"column:last_task_id"`
-		Size       int64  `gorm:"column:size"`
+		CozeDocID  int64          `gorm:"column:coze_doc_id"`
+		RagDocID   string         `gorm:"column:rag_doc_id"`
+		CozeKBID   int64          `gorm:"column:coze_kb_id"`
+		CreatorID  int64          `gorm:"column:creator_id"`
+		LastTaskID string         `gorm:"column:last_task_id"`
+		Size       int64          `gorm:"column:size"`
+		ImageURL   sql.NullString `gorm:"column:image_url"`
 	}
 	err := m.db.WithContext(ctx).
 		Table("rag_doc_mapping").
-		Select("coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id, size").
+		Select("coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id, size, image_url").
 		Where("coze_doc_id IN ? AND (deleted_at IS NULL)", ids).
 		Scan(&rows).Error
 	if err != nil {
@@ -267,9 +276,14 @@ func (m *MappingRepo) DocsByCozeIDs(ctx context.Context, ids []int64) ([]*DocMap
 	}
 	out := make([]*DocMapping, 0, len(rows))
 	for _, r := range rows {
+		imageURL := ""
+		if r.ImageURL.Valid {
+			imageURL = r.ImageURL.String
+		}
 		out = append(out, &DocMapping{
 			CozeID: r.CozeDocID, RagDocID: r.RagDocID, KBID: r.CozeKBID,
 			CreatorID: r.CreatorID, LastTaskID: r.LastTaskID, Size: r.Size,
+			ImageURL: imageURL,
 		})
 	}
 	return out, nil
@@ -278,16 +292,17 @@ func (m *MappingRepo) DocsByCozeIDs(ctx context.Context, ids []int64) ([]*DocMap
 // docByRagID is the reverse lookup, used by retrieval result translation.
 func (m *MappingRepo) docByRagID(ctx context.Context, ragDocID string) (*DocMapping, error) {
 	var row struct {
-		CozeDocID  int64  `gorm:"column:coze_doc_id"`
-		RagDocID   string `gorm:"column:rag_doc_id"`
-		CozeKBID   int64  `gorm:"column:coze_kb_id"`
-		CreatorID  int64  `gorm:"column:creator_id"`
-		LastTaskID string `gorm:"column:last_task_id"`
-		Size       int64  `gorm:"column:size"`
+		CozeDocID  int64          `gorm:"column:coze_doc_id"`
+		RagDocID   string         `gorm:"column:rag_doc_id"`
+		CozeKBID   int64          `gorm:"column:coze_kb_id"`
+		CreatorID  int64          `gorm:"column:creator_id"`
+		LastTaskID string         `gorm:"column:last_task_id"`
+		Size       int64          `gorm:"column:size"`
+		ImageURL   sql.NullString `gorm:"column:image_url"`
 	}
 	err := m.db.WithContext(ctx).
 		Table("rag_doc_mapping").
-		Select("coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id, size").
+		Select("coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id, size, image_url").
 		Where("rag_doc_id = ? AND (deleted_at IS NULL)", ragDocID).
 		Take(&row).Error
 	if err != nil {
@@ -296,9 +311,14 @@ func (m *MappingRepo) docByRagID(ctx context.Context, ragDocID string) (*DocMapp
 		}
 		return nil, err
 	}
+	imageURL := ""
+	if row.ImageURL.Valid {
+		imageURL = row.ImageURL.String
+	}
 	return &DocMapping{
 		CozeID: row.CozeDocID, RagDocID: row.RagDocID, KBID: row.CozeKBID,
 		CreatorID: row.CreatorID, LastTaskID: row.LastTaskID, Size: row.Size,
+		ImageURL: imageURL,
 	}, nil
 }
 
@@ -321,12 +341,16 @@ func (m *MappingRepo) InsertKB(ctx context.Context, cozeID int64, ragKBID, iconU
 	).Error
 }
 
-func (m *MappingRepo) InsertDoc(ctx context.Context, cozeID int64, ragDocID string, kbID, creatorID int64, lastTaskID string, nowMs int64, size int64) error {
+func (m *MappingRepo) InsertDoc(ctx context.Context, cozeID int64, ragDocID string, kbID, creatorID int64, lastTaskID string, nowMs int64, size int64, imageURL string) error {
+	var imageURLVal sql.NullString
+	if imageURL != "" {
+		imageURLVal = sql.NullString{String: imageURL, Valid: true}
+	}
 	return m.db.WithContext(ctx).Exec(
 		`INSERT INTO rag_doc_mapping
-		 (coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id, created_at, size)
-		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		cozeID, ragDocID, kbID, creatorID, lastTaskID, nowMs, size,
+		 (coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id, created_at, size, image_url)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		cozeID, ragDocID, kbID, creatorID, lastTaskID, nowMs, size, imageURLVal,
 	).Error
 }
 

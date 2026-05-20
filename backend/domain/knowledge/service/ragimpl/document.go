@@ -20,6 +20,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	knowledgeModel "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
@@ -183,6 +184,21 @@ func buildDocMetadata(d *entity.Document) map[string]any {
 	return md
 }
 
+// isImageBearing reports whether the document's file should be persisted to
+// coze MinIO for detail-page thumbnail use. Detection by file extension —
+// rag's image_document and scanned_document schemas accept the same set.
+func isImageBearing(ent *entity.Document) bool {
+	if ent == nil {
+		return false
+	}
+	ext := strings.ToLower(string(ent.FileExtension))
+	switch ext {
+	case "png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff":
+		return true
+	}
+	return false
+}
+
 // buildDocumentEntity constructs an entity.Document from a rag-side Document
 // response plus the coze-side mapping row. Shared between ListDocument and
 // MGetDocument so that future field additions land in one place.
@@ -306,6 +322,22 @@ func (i *Impl) CreateDocument(ctx context.Context, req *service.CreateDocumentRe
 			}
 		}
 
+		var imageURL string
+		if isImageBearing(d) {
+			objectKey := fmt.Sprintf("knowledge/image/%d/%s", m.CozeID, d.Name)
+			if putErr := i.storage.PutObject(ctx, objectKey, fileBytes); putErr != nil {
+				// Defense in depth: thumbnail is UX, ingestion is primary. Log + continue.
+				logs.CtxWarnf(ctx, "ragimpl.CreateDocument: failed to store image to MinIO for thumbnail, continuing without URL: doc=%s err=%v", d.Name, putErr)
+			} else {
+				url, urlErr := i.storage.GetObjectUrl(ctx, objectKey)
+				if urlErr != nil {
+					logs.CtxWarnf(ctx, "ragimpl.CreateDocument: stored image but failed to get URL, continuing without URL: doc=%s err=%v", d.Name, urlErr)
+				} else {
+					imageURL = url
+				}
+			}
+		}
+
 		ragReq := &contract.CreateDocumentRequest{
 			FileBytes:            fileBytes,
 			Filename:             d.Name,
@@ -331,7 +363,7 @@ func (i *Impl) CreateDocument(ctx context.Context, req *service.CreateDocumentRe
 			return nil, err
 		}
 		nowMs := time.Now().UnixMilli()
-		if err := i.mapping.InsertDoc(ctx, cozeID, ragResp.DocID, d.KnowledgeID, d.CreatorID, ragResp.TaskID, nowMs, int64(len(fileBytes))); err != nil {
+		if err := i.mapping.InsertDoc(ctx, cozeID, ragResp.DocID, d.KnowledgeID, d.CreatorID, ragResp.TaskID, nowMs, int64(len(fileBytes)), imageURL); err != nil {
 			if delErr := i.rag.DeleteDocument(ctx, tenant, m.RagKBID, ragResp.DocID); delErr != nil {
 				logs.CtxWarnf(ctx, "ragimpl: rollback DeleteDocument after InsertDoc failure: %v", delErr)
 			}

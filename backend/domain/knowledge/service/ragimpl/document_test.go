@@ -404,7 +404,7 @@ func TestMGetDocumentProgress_NoMirror(t *testing.T) {
 		},
 	}
 	i := newTestImpl(t, fc)
-	require.NoError(t, i.mapping.InsertDoc(context.Background(), 4242, "rag-doc-Z", 100, 7, "task-Z", 1700000000, 0))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 4242, "rag-doc-Z", 100, 7, "task-Z", 1700000000, 0, ""))
 
 	resp, err := i.MGetDocumentProgress(context.Background(), &service.MGetDocumentProgressRequest{
 		DocumentIDs: []int64{4242},
@@ -431,7 +431,7 @@ func TestMGetDocumentProgress_FilenameSet(t *testing.T) {
 		},
 	}
 	i := newTestImpl(t, fc)
-	require.NoError(t, i.mapping.InsertDoc(context.Background(), 4301, "rag-doc-fn-1", 100, 7, "task-fn-1", 1700000000, 0))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 4301, "rag-doc-fn-1", 100, 7, "task-fn-1", 1700000000, 0, ""))
 
 	resp, err := i.MGetDocumentProgress(context.Background(), &service.MGetDocumentProgressRequest{
 		DocumentIDs: []int64{4301},
@@ -451,7 +451,7 @@ func TestMGetDocumentProgress_FilenameNil(t *testing.T) {
 		},
 	}
 	i := newTestImpl(t, fc)
-	require.NoError(t, i.mapping.InsertDoc(context.Background(), 4302, "rag-doc-fn-nil", 100, 7, "task-fn-nil", 1700000000, 0))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 4302, "rag-doc-fn-nil", 100, 7, "task-fn-nil", 1700000000, 0, ""))
 
 	resp, err := i.MGetDocumentProgress(context.Background(), &service.MGetDocumentProgressRequest{
 		DocumentIDs: []int64{4302},
@@ -478,9 +478,9 @@ func TestMGetDocumentProgress_MixedFilenames(t *testing.T) {
 		},
 	}
 	i := newTestImpl(t, fc)
-	require.NoError(t, i.mapping.InsertDoc(context.Background(), 5001, "rag-doc-A", 100, 7, "task-A", 1700000000, 0))
-	require.NoError(t, i.mapping.InsertDoc(context.Background(), 5002, "rag-doc-B", 100, 7, "task-B", 1700000000, 0))
-	require.NoError(t, i.mapping.InsertDoc(context.Background(), 5003, "rag-doc-C", 100, 7, "task-C", 1700000000, 0))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 5001, "rag-doc-A", 100, 7, "task-A", 1700000000, 0, ""))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 5002, "rag-doc-B", 100, 7, "task-B", 1700000000, 0, ""))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 5003, "rag-doc-C", 100, 7, "task-C", 1700000000, 0, ""))
 
 	resp, err := i.MGetDocumentProgress(context.Background(), &service.MGetDocumentProgressRequest{
 		DocumentIDs: []int64{5001, 5002, 5003},
@@ -513,7 +513,7 @@ func TestUpdateDocument_HappyPath_RenameOnly(t *testing.T) {
 	}
 	i := newTestImpl(t, fc)
 	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000, knowledgeModel.DocumentTypeText))
-	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-1", 1700000000, 0))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-1", 1700000000, 0, ""))
 
 	newName := "new.pdf"
 	err := i.UpdateDocument(context.Background(), &service.UpdateDocumentRequest{
@@ -547,7 +547,7 @@ func TestUpdateDocument_TableInfo_Rejected(t *testing.T) {
 	}
 	i := newTestImpl(t, fc)
 	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000, knowledgeModel.DocumentTypeText))
-	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-1", 1700000000, 0))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-1", 1700000000, 0, ""))
 
 	newName := "new.pdf"
 	err := i.UpdateDocument(context.Background(), &service.UpdateDocumentRequest{
@@ -596,7 +596,7 @@ func TestUpdateDocument_RagError_Propagated(t *testing.T) {
 	}
 	i := newTestImpl(t, fc)
 	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000, knowledgeModel.DocumentTypeText))
-	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-1", 1700000000, 0))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-1", 1700000000, 0, ""))
 
 	newName := "new.pdf"
 	err := i.UpdateDocument(context.Background(), &service.UpdateDocumentRequest{
@@ -625,7 +625,7 @@ func TestRagimpl_RetryDocument(t *testing.T) {
 	// Wire mapping rows: coze KB 100 → rag UUID "rag-kb-X";
 	// coze doc 500 → rag UUID "rag-doc-Y" in KB 100 with last_task_id="task-old-1".
 	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000, knowledgeModel.DocumentTypeText))
-	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-old-1", 1700000000, 0))
+	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-old-1", 1700000000, 0, ""))
 
 	resp, err := i.RetryDocument(context.Background(), &service.RetryDocumentRequest{DocumentID: 500})
 	require.NoError(t, err)
