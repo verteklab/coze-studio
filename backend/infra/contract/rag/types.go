@@ -267,9 +267,9 @@ type QueryImage struct {
 }
 
 // RetrieveRequest mirrors rag's RetrievalRequest. Tenant comes from the
-// X-Tenant-Id header, not the body. DocumentIDs scopes retrieval to the named
-// rag doc UUIDs; rag's pydantic validator caps the list at 200 entries, dedups,
-// and rejects empty strings, so callers should pre-clean before sending.
+// X-Tenant-Id header, not the body. Wire-level fields not consumed by
+// rag (legacy document_ids / min_score / max_tokens) were removed in
+// 2026-05-20 — they were pydantic extra="ignore" silent no-ops.
 type RetrieveRequest struct {
 	KBIDs            []string       `json:"kb_ids"`
 	Query            *string        `json:"query,omitempty"`
@@ -278,9 +278,6 @@ type RetrieveRequest struct {
 	SearchType       string         `json:"search_type,omitempty"`
 	TopK             *int           `json:"top_k,omitempty"`
 	CandidateK       *int           `json:"candidate_k,omitempty"`
-	DocumentIDs      []string       `json:"document_ids,omitempty"`
-	MinScore         *float64       `json:"min_score,omitempty"`
-	MaxTokens        *int           `json:"max_tokens,omitempty"`
 	Filters          map[string]any `json:"filters,omitempty"`
 	TargetChunkTypes []string       `json:"target_chunk_types,omitempty"`
 	Retrievers       []string       `json:"retrievers,omitempty"`
