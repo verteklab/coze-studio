@@ -122,6 +122,8 @@ func TestRetrieve_QueryStrategy_FourBooleanSubset_NoModelIDs(t *testing.T) {
 		KnowledgeIDs: []int64{100},
 		Strategy: &knowledgeModel.RetrievalStrategy{
 			Rewrite:      true,
+			Expansion:    true,
+			MultiQuery:   true,
 			EnableRerank: true,
 		},
 	})
@@ -130,6 +132,8 @@ func TestRetrieve_QueryStrategy_FourBooleanSubset_NoModelIDs(t *testing.T) {
 	require.NotNil(t, capturedReq.QueryStrategy)
 	require.Equal(t, map[string]any{
 		"rewrite":       true,
+		"expansion":     true,
+		"multi_query":   true,
 		"enable_rerank": true,
 	}, capturedReq.QueryStrategy)
 
