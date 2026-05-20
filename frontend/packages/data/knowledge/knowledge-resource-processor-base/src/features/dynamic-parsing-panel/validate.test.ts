@@ -216,12 +216,14 @@ describe('mergeSchemaDefaults', () => {
     ]);
     // enable_image_embedding is forced to false (hidden entry) and
     // produce_image_chunk is also forced to false even though not in schema
-    // here — applyForcedParams injects it anyway.
+    // here — applyForcedParams injects it anyway. produce_text_chunk is also
+    // forced to true.
     expect(mergeSchemaDefaults(s, {})).toEqual({
       enable_ocr: true,
       ocr_model_id: 'model-ocr-paddle-infer-text',
       enable_image_embedding: false,
       produce_image_chunk: false,
+      produce_text_chunk: true,
     });
   });
 
@@ -239,6 +241,7 @@ describe('mergeSchemaDefaults', () => {
       ocr_model_id: 'model-ocr-paddle-infer-text',
       enable_image_embedding: false,
       produce_image_chunk: false,
+      produce_text_chunk: true,
     });
   });
 
@@ -259,6 +262,7 @@ describe('mergeSchemaDefaults', () => {
       ocr_model_id: 'model-ocr-paddle-infer-text',
       enable_image_embedding: false,
       produce_image_chunk: false,
+      produce_text_chunk: true,
     });
   });
 
@@ -311,6 +315,44 @@ describe('mergeSchemaDefaults', () => {
     expect(mergeSchemaDefaults(s, {})).toEqual({
       enable_ocr: true,
       ocr_model_id: 'paddle',
+      enable_image_embedding: false,
+      produce_image_chunk: false,
+      produce_text_chunk: true,
+    });
+  });
+
+  it('overrides schema-default produce_text_chunk=false to true on image_document', () => {
+    // image_document declares produce_text_chunk default=false on the rag side.
+    // Without the force, our wire payload would carry false — rag's OR fallback
+    // (enable_ocr=true rescues it) is the only reason text_chunk still gets
+    // produced today. Pin it explicitly so the wire reflects intent.
+    const s = imageSchema([
+      param({ name: 'enable_ocr', ui_component: 'switch', default: false }),
+      param({
+        name: 'ocr_model_id',
+        ui_component: 'text',
+        default: 'paddle',
+      }),
+      param({
+        name: 'produce_text_chunk',
+        ui_component: 'switch',
+        default: false,
+      }),
+      param({
+        name: 'enable_image_embedding',
+        ui_component: 'switch',
+        default: true,
+      }),
+      param({
+        name: 'produce_image_chunk',
+        ui_component: 'switch',
+        default: true,
+      }),
+    ]);
+    expect(mergeSchemaDefaults(s, {})).toEqual({
+      enable_ocr: true,
+      ocr_model_id: 'paddle',
+      produce_text_chunk: true,
       enable_image_embedding: false,
       produce_image_chunk: false,
     });
@@ -403,6 +445,7 @@ describe('applyForcedParams', () => {
       enable_ocr: true,
       enable_image_embedding: false,
       produce_image_chunk: false,
+      produce_text_chunk: true,
     });
   });
 
@@ -413,6 +456,7 @@ describe('applyForcedParams', () => {
       enable_ocr: true,
       enable_image_embedding: false,
       produce_image_chunk: false,
+      produce_text_chunk: true,
     });
   });
 
@@ -428,6 +472,7 @@ describe('applyForcedParams', () => {
       ocr_model_id: 'paddle',
       enable_image_embedding: false,
       produce_image_chunk: false,
+      produce_text_chunk: true,
     });
   });
 
@@ -442,12 +487,14 @@ describe('applyForcedParams', () => {
       enable_ocr: true,
       enable_image_embedding: false,
       produce_image_chunk: false,
+      produce_text_chunk: true,
     });
     expect(applyForcedParams('scanned_document', { enable_ocr: true })).toEqual(
       {
         enable_ocr: true,
         enable_image_embedding: false,
         produce_image_chunk: false,
+        produce_text_chunk: true,
       },
     );
   });
@@ -459,6 +506,7 @@ describe('applyForcedParams', () => {
       enable_image_embedding: false,
       enable_ocr: true,
       produce_image_chunk: false,
+      produce_text_chunk: true,
     });
   });
 
@@ -469,6 +517,7 @@ describe('applyForcedParams', () => {
       produce_image_chunk: false,
       enable_ocr: true,
       enable_image_embedding: false,
+      produce_text_chunk: true,
     });
   });
 
@@ -482,6 +531,29 @@ describe('applyForcedParams', () => {
       enable_image_embedding: false,
       produce_image_chunk: false,
       enable_ocr: true,
+      produce_text_chunk: true,
+    });
+  });
+
+  it('forces produce_text_chunk=true on image_document', () => {
+    expect(
+      applyForcedParams('image_document', { produce_text_chunk: false }),
+    ).toEqual({
+      enable_ocr: true,
+      enable_image_embedding: false,
+      produce_image_chunk: false,
+      produce_text_chunk: true,
+    });
+  });
+
+  it('forces produce_text_chunk=true on scanned_document', () => {
+    expect(
+      applyForcedParams('scanned_document', { produce_text_chunk: false }),
+    ).toEqual({
+      enable_ocr: true,
+      enable_image_embedding: false,
+      produce_image_chunk: false,
+      produce_text_chunk: true,
     });
   });
 });

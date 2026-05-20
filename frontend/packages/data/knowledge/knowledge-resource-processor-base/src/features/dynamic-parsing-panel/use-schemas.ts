@@ -79,6 +79,7 @@ export const FORCED_PARAMS_BY_SCHEMA: Readonly<
     },
     enable_image_embedding: { value: false, hidden: true },
     produce_image_chunk: { value: false, hidden: true },
+    produce_text_chunk: { value: true, hidden: true },
   },
   scanned_document: {
     enable_ocr: {
@@ -87,6 +88,7 @@ export const FORCED_PARAMS_BY_SCHEMA: Readonly<
     },
     enable_image_embedding: { value: false, hidden: true },
     produce_image_chunk: { value: false, hidden: true },
+    produce_text_chunk: { value: true, hidden: true },
   },
 };
 

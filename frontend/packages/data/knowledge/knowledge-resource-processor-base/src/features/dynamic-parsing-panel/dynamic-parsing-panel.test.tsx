@@ -341,4 +341,30 @@ describe('DynamicParsingPanel forced params', () => {
       document.getElementById('dpp-enable_image_embedding'),
     ).not.toBeNull();
   });
+
+  it('hides produce_text_chunk control on image_document', () => {
+    const s = schemaOf('image_document', [
+      param({
+        name: 'produce_text_chunk',
+        ui_component: 'switch',
+        group: 'chunk_outputs',
+        default: false,
+      }),
+    ]);
+    render(<DynamicParsingPanel schema={s} value={{}} onChange={vi.fn()} />);
+    expect(document.getElementById('dpp-produce_text_chunk')).toBeNull();
+  });
+
+  it('hides produce_text_chunk control on scanned_document', () => {
+    const s = schemaOf('scanned_document', [
+      param({
+        name: 'produce_text_chunk',
+        ui_component: 'switch',
+        group: 'chunk_outputs',
+        default: true,
+      }),
+    ]);
+    render(<DynamicParsingPanel schema={s} value={{}} onChange={vi.fn()} />);
+    expect(document.getElementById('dpp-produce_text_chunk')).toBeNull();
+  });
 });
