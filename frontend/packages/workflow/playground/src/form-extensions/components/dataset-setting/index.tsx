@@ -24,7 +24,6 @@ import {
   QueryEnhancementSection,
   QueryInputSection,
   FilterSection,
-  AdvancedSection,
 } from './sections';
 
 import s from './index.module.less';
@@ -103,12 +102,6 @@ export const DataSetSetting: FC<DataSetSettingProps> = ({
         disabled={disabled}
       />
       <FilterSection
-        value={dataSetInfo}
-        onChange={onDataSetInfoChange}
-        readonly={readonly}
-        disabled={disabled}
-      />
-      <AdvancedSection
         value={dataSetInfo}
         onChange={onDataSetInfoChange}
         readonly={readonly}
