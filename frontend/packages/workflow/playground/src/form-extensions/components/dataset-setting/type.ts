@@ -20,21 +20,27 @@ export enum Strategy {
   FullText = 20,
 }
 
+export interface QueryImage {
+  image_base64?: string;
+  image_ref?: string;
+}
+
 export interface DataSetInfo {
-  top_k: number;
-  min_score?: number;
+  top_k?: number;
   strategy?: Strategy;
-  use_nl2sql?: boolean;
-  use_rerank?: boolean;
-  use_rewrite?: boolean;
-  is_personal_only?: boolean;
-  /**
-   * Optional list of rag document IDs (as strings -- coze int64 ids exceed
-   * JS Number's safe range, so storing them as numbers truncates trailing
-   * digits and silently breaks the mapping lookup) to restrict retrieval to.
-   * Empty or undefined means "all documents in the selected KBs". Mapped to
-   * the top-level `document_ids` field of the rag /retrieval request via the
-   * `documentIDs` datasetParam block. See R2-I spec.
-   */
-  document_ids?: string[];
+
+  // query_strategy 4 booleans (wire-level rag keys)
+  rewrite?: boolean;
+  expansion?: boolean;
+  multi_query?: boolean;
+  enable_rerank?: boolean;
+
+  // new top-level rag fields
+  query_image?: QueryImage;
+  query_mode?: 'text_input' | 'image_input' | 'mixed_input';
+  target_chunk_types?: Array<'text_chunk' | 'image_chunk'>;
+  filters?: Record<string, unknown>;
+  retrievers?: Array<'dense' | 'bm25' | 'image_vector'>;
+  fusion_policy?: Record<string, unknown>;
+  retriever_params?: Record<string, unknown>;
 }
