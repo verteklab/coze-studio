@@ -19,37 +19,22 @@ package ragimpl
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	knowledgeModel "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
 	contract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
-	"github.com/coze-dev/coze-studio/backend/pkg/errorx"
 	"github.com/coze-dev/coze-studio/backend/pkg/logs"
-	"github.com/coze-dev/coze-studio/backend/types/errno"
 )
 
 // Retrieve queries rag for chunks matching the request and translates each
 // hit back to a coze entity. Tenant isolation is enforced by rag (which
 // filters its KB index on tenant_id) — we don't re-check on the coze side
 // because Phase 1 has exactly one global tenant.
-//
-// NL2SQL is a separately-tracked sub-feature (the rag service doesn't expose
-// SQL generation yet), so a request that opts into it returns 501 early.
 func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*knowledgeModel.RetrieveResponse, error) {
-	// NL2SQL guard. Retrieve itself is bucket-A, but this sub-feature isn't.
-	if req.Strategy != nil && req.Strategy.EnableNL2SQL {
-		return nil, errorx.New(errno.ErrRagFeaturePendingCode, errorx.KV("msg",
-			"NL2SQL retrieval is pending rag support (roadmap: rag/docs/notes/roadmap.md#nl2sql)"))
-	}
-
 	if len(req.KnowledgeIDs) == 0 {
 		return nil, errors.New("ragimpl.Retrieve: at least one knowledge_id required")
 	}
 
-	// Resolve KB mappings. We tolerate partial resolution (caller asked for ids we
-	// don't know about) but fail if NOTHING resolves -- that's almost certainly
-	// a wiring bug worth surfacing.
 	kbs, err := i.mapping.KBsByCozeIDs(ctx, req.KnowledgeIDs)
 	if err != nil {
 		return nil, err
@@ -71,73 +56,20 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 		QueryMode: "text_input",
 	}
 
-	// Translate coze int64 doc ids -> rag UUIDs via the mapping repo. Rag's
-	// pydantic validator caps document_ids at 200; reject earlier on the coze
-	// side so the error surfaces with a clearer message than rag's 422.
-	if len(req.DocumentIDs) > 0 {
-		if len(req.DocumentIDs) > 200 {
-			return nil, errorx.New(errno.ErrKnowledgeInvalidParamCode,
-				errorx.KV("msg", fmt.Sprintf("DocumentIDs exceeds 200 (got %d)", len(req.DocumentIDs))))
-		}
-		docs, err := i.mapping.DocsByCozeIDs(ctx, req.DocumentIDs)
-		if err != nil {
-			return nil, err
-		}
-		ragDocIDs := make([]string, 0, len(docs))
-		for _, d := range docs {
-			ragDocIDs = append(ragDocIDs, d.RagDocID)
-		}
-		if len(ragDocIDs) > 0 {
-			ragReq.DocumentIDs = ragDocIDs
-		} else {
-			// All ids unmapped (soft-deleted or drift). The user asked to scope
-			// retrieval; falling through to whole-KB search would be worse than
-			// returning nothing, so short-circuit with an empty response.
-			logs.CtxWarnf(ctx, "ragimpl.Retrieve: all %d DocumentIDs had no mapping; returning empty hits", len(req.DocumentIDs))
-			return &knowledgeModel.RetrieveResponse{}, nil
-		}
-	}
-
 	if req.Query != "" {
 		q := req.Query
 		ragReq.Query = &q
 	}
+
 	if req.Strategy != nil {
-		if req.Strategy.TopK != nil && *req.Strategy.TopK > 0 {
-			// Rag's pydantic validator rejects top_k <= 0 (40004
-			// "top_k must be a positive integer"). Defensive filter so a
-			// future caller path that propagates zero/negative (the
-			// workflow-node bug fixed in knowledge_retrieve.go) doesn't
-			// resurface the same wire-level error. Same intent as the
-			// MaxTokens guard below, just non-fatal here -- dropping the
-			// override lets rag use its own default rather than blocking
-			// retrieval on a bad value the caller didn't mean to send.
-			topK := int(*req.Strategy.TopK)
-			ragReq.TopK = &topK
+		s := req.Strategy
+
+		if s.TopK != nil && *s.TopK > 0 {
+			tk := int(*s.TopK)
+			ragReq.TopK = &tk
 		}
-		if req.Strategy.MinScore != nil {
-			ms := *req.Strategy.MinScore
-			ragReq.MinScore = &ms
-		}
-		if req.Strategy.MaxTokens != nil {
-			mt := int(*req.Strategy.MaxTokens)
-			if mt < 1 {
-				// Rag's pydantic schema requires ge=1; pre-rejecting here gives a
-				// clearer error than rag's 422.
-				return nil, errorx.New(errno.ErrKnowledgeInvalidParamCode,
-					errorx.KV("msg", fmt.Sprintf("MaxTokens must be >= 1 (got %d)", mt)))
-			}
-			// MaxTokens is enforced by rag at chunk boundary granularity (approximate;
-			// not exact token-count cutoff). Callers needing a strict budget should
-			// post-process the returned slices.
-			ragReq.MaxTokens = &mt
-		}
-		// Rag's accepted search_type values are dense / bm25 / hybrid /
-		// image_vector (see rag/app/core/constants.py SUPPORTED_SEARCH_TYPES).
-		// Earlier "semantic" / "fulltext" labels were rag-side legacy and were
-		// dropped; "semantic" now hits 40004 "unsupported search_type". Map to
-		// the current vocabulary explicitly.
-		switch req.Strategy.SearchType {
+
+		switch s.SearchType {
 		case knowledgeModel.SearchTypeFullText:
 			ragReq.SearchType = "bm25"
 		case knowledgeModel.SearchTypeHybrid:
@@ -145,41 +77,52 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 		default:
 			ragReq.SearchType = "dense"
 		}
-		if req.Strategy.EnableQueryRewrite {
-			if i.defaultLLMModelID != "" {
-				if ragReq.QueryStrategy == nil {
-					ragReq.QueryStrategy = map[string]any{}
-				}
-				ragReq.QueryStrategy["rewrite"] = true
-				ragReq.QueryStrategy["llm_model_id"] = i.defaultLLMModelID
-			} else {
-				// EnableQueryRewrite was requested but RAG_DEFAULT_LLM_MODEL_ID
-				// is unset. Rag's validator rejects {rewrite:true} without an
-				// llm_model_id (40004), so dropping the enhancement is
-				// preferable to failing the whole retrieval. Basic retrieval
-				// still completes.
-				logs.CtxWarnf(ctx, "ragimpl.Retrieve: EnableQueryRewrite=true but RAG_DEFAULT_LLM_MODEL_ID is empty; dropping rewrite to avoid rag 40004")
+
+		// query_strategy 4-boolean. Omit the dict entirely when all four are
+		// false (matches the "no enhancement requested" wire shape).
+		qs := map[string]any{}
+		if s.Rewrite {
+			qs["rewrite"] = true
+		}
+		if s.Expansion {
+			qs["expansion"] = true
+		}
+		if s.MultiQuery {
+			qs["multi_query"] = true
+		}
+		if s.EnableRerank {
+			qs["enable_rerank"] = true
+		}
+		if len(qs) > 0 {
+			ragReq.QueryStrategy = qs
+		}
+
+		// New top-level rag fields. Each is forwarded only when the caller
+		// explicitly set a non-zero value; zero values let rag use its
+		// own defaults.
+		if s.QueryMode != "" {
+			ragReq.QueryMode = s.QueryMode
+		}
+		if s.QueryImage != nil {
+			ragReq.QueryImage = &contract.QueryImage{
+				ImageBase64: s.QueryImage.ImageBase64,
+				ImageRef:    s.QueryImage.ImageRef,
 			}
 		}
-		if req.Strategy.EnableRerank {
-			if i.defaultRerankModelID != "" {
-				// Map-merge, not overwrite: query rewrite above may have
-				// already populated QueryStrategy with rewrite/llm_model_id.
-				// Rag's validator (retrieval_validator.py:294) requires
-				// rerank_model_id whenever enable_rerank is true.
-				if ragReq.QueryStrategy == nil {
-					ragReq.QueryStrategy = map[string]any{}
-				}
-				ragReq.QueryStrategy["enable_rerank"] = true
-				ragReq.QueryStrategy["rerank_model_id"] = i.defaultRerankModelID
-			} else {
-				// EnableRerank was requested but RAG_DEFAULT_RERANK_MODEL_ID
-				// is unset. Mirror the rewrite-drop pattern: dropping rerank
-				// keeps basic retrieval working instead of failing with rag
-				// 40004 ("rerank_model_id is required when enable_rerank is
-				// true").
-				logs.CtxWarnf(ctx, "ragimpl.Retrieve: EnableRerank=true but RAG_DEFAULT_RERANK_MODEL_ID is empty; dropping rerank to avoid rag 40004")
-			}
+		if len(s.TargetChunkTypes) > 0 {
+			ragReq.TargetChunkTypes = s.TargetChunkTypes
+		}
+		if len(s.Filters) > 0 {
+			ragReq.Filters = s.Filters
+		}
+		if len(s.Retrievers) > 0 {
+			ragReq.Retrievers = s.Retrievers
+		}
+		if len(s.FusionPolicy) > 0 {
+			ragReq.FusionPolicy = s.FusionPolicy
+		}
+		if len(s.RetrieverParams) > 0 {
+			ragReq.RetrieverParams = s.RetrieverParams
 		}
 	}
 
@@ -188,18 +131,11 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 		return nil, err
 	}
 
-	// Translate hits. Chunk-level int64 ids are materialised lazily via the
-	// rag_chunk_mapping table; ChunkInsertOrGetCozeID either reads the
-	// existing row or allocates a new int64 + inserts. Failure is logged and
-	// the hit is still returned with Slice.Info.ID = 0 -- graceful degradation
-	// rather than dropping a relevant chunk on a transient mapping error.
 	slices := make([]*knowledgeModel.RetrieveSlice, 0, len(resp.Items))
 	for idx := range resp.Items {
 		h := resp.Items[idx]
 		m, err := i.mapping.docByRagID(ctx, h.DocID)
 		if err != nil {
-			// Hit from a doc we don't have a coze handle for -- drift or another
-			// tenant of the same rag KB; skip rather than fabricate an id.
 			logs.CtxWarnf(ctx, "ragimpl.Retrieve: docByRagID(%s) failed, skipping hit: %v", h.DocID, err)
 			continue
 		}
