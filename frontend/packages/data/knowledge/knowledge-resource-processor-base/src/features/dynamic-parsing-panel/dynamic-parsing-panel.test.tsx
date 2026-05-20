@@ -281,4 +281,64 @@ describe('DynamicParsingPanel forced params', () => {
     const textInputs = document.querySelectorAll('input[type="text"]');
     expect(textInputs.length).toBeGreaterThan(0);
   });
+
+  it('hides enable_image_embedding control on image_document', () => {
+    const s = schemaOf('image_document', [
+      param({
+        name: 'enable_image_embedding',
+        ui_component: 'switch',
+        group: 'image_chunking',
+        default: true,
+      }),
+    ]);
+    render(<DynamicParsingPanel schema={s} value={{}} onChange={vi.fn()} />);
+    expect(document.getElementById('dpp-enable_image_embedding')).toBeNull();
+  });
+
+  it('hides produce_image_chunk control on image_document', () => {
+    const s = schemaOf('image_document', [
+      param({
+        name: 'produce_image_chunk',
+        ui_component: 'switch',
+        group: 'chunk_outputs',
+        default: true,
+      }),
+    ]);
+    render(<DynamicParsingPanel schema={s} value={{}} onChange={vi.fn()} />);
+    expect(document.getElementById('dpp-produce_image_chunk')).toBeNull();
+  });
+
+  it('hides both image-chunk controls on scanned_document', () => {
+    const s = schemaOf('scanned_document', [
+      param({
+        name: 'enable_image_embedding',
+        ui_component: 'switch',
+        group: 'image_chunking',
+        default: false,
+      }),
+      param({
+        name: 'produce_image_chunk',
+        ui_component: 'switch',
+        group: 'chunk_outputs',
+        default: false,
+      }),
+    ]);
+    render(<DynamicParsingPanel schema={s} value={{}} onChange={vi.fn()} />);
+    expect(document.getElementById('dpp-enable_image_embedding')).toBeNull();
+    expect(document.getElementById('dpp-produce_image_chunk')).toBeNull();
+  });
+
+  it('does NOT hide enable_image_embedding on unforced schemas', () => {
+    const s = schemaOf('text_document', [
+      param({
+        name: 'enable_image_embedding',
+        ui_component: 'switch',
+        default: false,
+      }),
+    ]);
+    render(<DynamicParsingPanel schema={s} value={{}} onChange={vi.fn()} />);
+    expect(
+      document.getElementById('dpp-enable_image_embedding'),
+    ).not.toBeNull();
+  });
 });

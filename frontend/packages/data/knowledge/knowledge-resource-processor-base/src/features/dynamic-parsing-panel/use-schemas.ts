@@ -56,25 +56,37 @@ const FRONTEND_PARAM_DEFAULTS: Readonly<Record<string, unknown>> = {
 // OCR-off image upload silently produces a KB the node cannot retrieve from.
 // Force OCR on at the frontend so the natural upload UX produces text_chunks.
 //
-// `reason` is an i18n key used for the disabled-control tooltip in
-// dynamic-parsing-panel.tsx.
+// Two entry forms:
+//   - visible (omits hidden, requires reason): control renders disabled with
+//     a Tooltip + inline warning showing I18n.t(reason)
+//   - hidden (hidden: true, no reason): control is not rendered at all; the
+//     wire value is still pinned via applyForcedParams
+//
+// image_chunk-related entries (enable_image_embedding, produce_image_chunk)
+// are hidden because the workflow knowledge-retrieve node can't consume
+// image_chunks — producing them is pure waste in this UX.
+type ForcedParamEntry =
+  | { value: unknown; reason: string; hidden?: false }
+  | { value: unknown; hidden: true };
+
 export const FORCED_PARAMS_BY_SCHEMA: Readonly<
-  Record<
-    string,
-    Readonly<Record<string, Readonly<{ value: unknown; reason: string }>>>
-  >
+  Record<string, Readonly<Record<string, Readonly<ForcedParamEntry>>>>
 > = {
   image_document: {
     enable_ocr: {
       value: true,
       reason: 'datasets_createFileModel_rag_forced_ocr_hint',
     },
+    enable_image_embedding: { value: false, hidden: true },
+    produce_image_chunk: { value: false, hidden: true },
   },
   scanned_document: {
     enable_ocr: {
       value: true,
       reason: 'datasets_createFileModel_rag_forced_ocr_hint',
     },
+    enable_image_embedding: { value: false, hidden: true },
+    produce_image_chunk: { value: false, hidden: true },
   },
 };
 

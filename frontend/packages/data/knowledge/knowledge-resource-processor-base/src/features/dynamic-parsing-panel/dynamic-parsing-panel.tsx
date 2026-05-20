@@ -139,7 +139,13 @@ const GroupedFields: FC<{
   params: DocumentParameter[];
   value: DocumentOptionsValue;
   onChange: (name: string, fieldValue: unknown) => void;
-  forcedMap: Readonly<Record<string, { value: unknown; reason: string }>>;
+  forcedMap: Readonly<
+    Record<
+      string,
+      | { value: unknown; reason: string; hidden?: false }
+      | { value: unknown; hidden: true }
+    >
+  >;
 }> = ({ params, value, onChange, forcedMap }) => {
   let lastGroup = '';
   return (
@@ -148,6 +154,11 @@ const GroupedFields: FC<{
         const showHeader = p.group !== lastGroup;
         lastGroup = p.group;
         const forced = forcedMap[p.name];
+        // Hidden forced params skip rendering entirely. applyForcedParams still
+        // pins their wire value via mergeSchemaDefaults — no UI surface needed.
+        if (forced && 'hidden' in forced && forced.hidden) {
+          return null;
+        }
         return (
           <div key={p.name} style={{ marginBottom: 12 }}>
             {showHeader ? (
@@ -169,7 +180,7 @@ const GroupedFields: FC<{
                 {p.description}
               </Typography.Text>
             ) : null}
-            {forced ? (
+            {forced && 'reason' in forced ? (
               <Typography.Text
                 type="warning"
                 size="small"
@@ -211,12 +222,18 @@ const FieldControl: FC<{
   param: DocumentParameter;
   value: unknown;
   onChange: (name: string, fieldValue: unknown) => void;
-  forced?: { value: unknown; reason: string };
+  forced?:
+    | { value: unknown; reason: string; hidden?: false }
+    | { value: unknown; hidden: true };
 }> = ({ param, value, onChange, forced }) => {
   const label = param.ui_label || param.name;
   const isDisabled = Boolean(forced);
   const wrap = (node: ReactNode): ReactNode =>
-    forced ? <Tooltip content={I18n.t(forced.reason)}>{node}</Tooltip> : node;
+    forced && 'reason' in forced ? (
+      <Tooltip content={I18n.t(forced.reason)}>{node}</Tooltip>
+    ) : (
+      node
+    );
 
   switch (param.ui_component) {
     case 'switch': {

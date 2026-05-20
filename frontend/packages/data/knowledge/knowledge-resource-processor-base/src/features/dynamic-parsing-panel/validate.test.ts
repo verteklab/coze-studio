@@ -214,10 +214,14 @@ describe('mergeSchemaDefaults', () => {
         default: true,
       }),
     ]);
+    // enable_image_embedding is forced to false (hidden entry) and
+    // produce_image_chunk is also forced to false even though not in schema
+    // here — applyForcedParams injects it anyway.
     expect(mergeSchemaDefaults(s, {})).toEqual({
       enable_ocr: true,
       ocr_model_id: 'model-ocr-paddle-infer-text',
-      enable_image_embedding: true,
+      enable_image_embedding: false,
+      produce_image_chunk: false,
     });
   });
 
@@ -233,6 +237,8 @@ describe('mergeSchemaDefaults', () => {
     expect(mergeSchemaDefaults(s, {})).toEqual({
       enable_ocr: true,
       ocr_model_id: 'model-ocr-paddle-infer-text',
+      enable_image_embedding: false,
+      produce_image_chunk: false,
     });
   });
 
@@ -251,6 +257,8 @@ describe('mergeSchemaDefaults', () => {
     expect(mergeSchemaDefaults(s, { enable_ocr: false })).toEqual({
       enable_ocr: true,
       ocr_model_id: 'model-ocr-paddle-infer-text',
+      enable_image_embedding: false,
+      produce_image_chunk: false,
     });
   });
 
@@ -278,6 +286,33 @@ describe('mergeSchemaDefaults', () => {
     expect(mergeSchemaDefaults(s, { enable_ocr: false })).toEqual({
       enable_ocr: false,
       chunk_size: 512,
+    });
+  });
+
+  it('strips all image_chunk-related defaults on image_document', () => {
+    const s = imageSchema([
+      param({ name: 'enable_ocr', ui_component: 'switch', default: false }),
+      param({
+        name: 'ocr_model_id',
+        ui_component: 'text',
+        default: 'paddle',
+      }),
+      param({
+        name: 'enable_image_embedding',
+        ui_component: 'switch',
+        default: true,
+      }),
+      param({
+        name: 'produce_image_chunk',
+        ui_component: 'switch',
+        default: true,
+      }),
+    ]);
+    expect(mergeSchemaDefaults(s, {})).toEqual({
+      enable_ocr: true,
+      ocr_model_id: 'paddle',
+      enable_image_embedding: false,
+      produce_image_chunk: false,
     });
   });
 });
@@ -366,13 +401,19 @@ describe('applyForcedParams', () => {
   it('overrides value.enable_ocr=false to true for image_document', () => {
     expect(applyForcedParams('image_document', { enable_ocr: false })).toEqual({
       enable_ocr: true,
+      enable_image_embedding: false,
+      produce_image_chunk: false,
     });
   });
 
   it('overrides value.enable_ocr=false to true for scanned_document', () => {
     expect(
       applyForcedParams('scanned_document', { enable_ocr: false }),
-    ).toEqual({ enable_ocr: true });
+    ).toEqual({
+      enable_ocr: true,
+      enable_image_embedding: false,
+      produce_image_chunk: false,
+    });
   });
 
   it('preserves other keys when overriding forced params', () => {
@@ -385,7 +426,8 @@ describe('applyForcedParams', () => {
     ).toEqual({
       enable_ocr: true,
       ocr_model_id: 'paddle',
-      enable_image_embedding: true,
+      enable_image_embedding: false,
+      produce_image_chunk: false,
     });
   });
 
@@ -398,9 +440,48 @@ describe('applyForcedParams', () => {
   it('returns enable_ocr=true unchanged when value already has it true (idempotent)', () => {
     expect(applyForcedParams('image_document', { enable_ocr: true })).toEqual({
       enable_ocr: true,
+      enable_image_embedding: false,
+      produce_image_chunk: false,
     });
     expect(applyForcedParams('scanned_document', { enable_ocr: true })).toEqual(
-      { enable_ocr: true },
+      {
+        enable_ocr: true,
+        enable_image_embedding: false,
+        produce_image_chunk: false,
+      },
     );
+  });
+
+  it('forces enable_image_embedding=false on image_document', () => {
+    expect(
+      applyForcedParams('image_document', { enable_image_embedding: true }),
+    ).toEqual({
+      enable_image_embedding: false,
+      enable_ocr: true,
+      produce_image_chunk: false,
+    });
+  });
+
+  it('forces produce_image_chunk=false on image_document', () => {
+    expect(
+      applyForcedParams('image_document', { produce_image_chunk: true }),
+    ).toEqual({
+      produce_image_chunk: false,
+      enable_ocr: true,
+      enable_image_embedding: false,
+    });
+  });
+
+  it('forces enable_image_embedding=false and produce_image_chunk=false on scanned_document', () => {
+    expect(
+      applyForcedParams('scanned_document', {
+        enable_image_embedding: true,
+        produce_image_chunk: true,
+      }),
+    ).toEqual({
+      enable_image_embedding: false,
+      produce_image_chunk: false,
+      enable_ocr: true,
+    });
   });
 });
