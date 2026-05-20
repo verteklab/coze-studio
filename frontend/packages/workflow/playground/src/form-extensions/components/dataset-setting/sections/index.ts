@@ -15,4 +15,3 @@
  */
 export { BasicSection } from './BasicSection';
 export { QueryEnhancementSection } from './QueryEnhancementSection';
-export { FilterSection } from './FilterSection';

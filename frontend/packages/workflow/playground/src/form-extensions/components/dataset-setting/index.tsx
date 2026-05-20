@@ -19,11 +19,7 @@ import { isNil } from 'lodash-es';
 import { type Dataset } from '@coze-arch/idl/knowledge';
 
 import { Strategy, type DataSetInfo } from './type';
-import {
-  BasicSection,
-  QueryEnhancementSection,
-  FilterSection,
-} from './sections';
+import { BasicSection, QueryEnhancementSection } from './sections';
 
 import s from './index.module.less';
 
@@ -89,12 +85,6 @@ export const DataSetSetting: FC<DataSetSettingProps> = ({
         disabled={disabled}
       />
       <QueryEnhancementSection
-        value={dataSetInfo}
-        onChange={onDataSetInfoChange}
-        readonly={readonly}
-        disabled={disabled}
-      />
-      <FilterSection
         value={dataSetInfo}
         onChange={onDataSetInfoChange}
         readonly={readonly}
