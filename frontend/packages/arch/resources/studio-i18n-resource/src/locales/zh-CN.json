@@ -6004,6 +6004,7 @@
   "datasets_createFileModel_step4_processing": "服务器处理中",
   "datasets_createFileModel_step4_title": "无标题",
   "datasets_createFileModel_rag_advanced_params": "高级参数",
+  "datasets_createFileModel_rag_forced_ocr_hint": "图片知识库需要开启 OCR 才能被工作流的知识库检索节点命中（节点目前只支持文本输入/输出）",
   "datasets_createFileModel_rag_loading_schemas": "加载解析参数中…",
   "datasets_createFileModel_rag_mode_label": "解析模式",
   "datasets_createFileModel_rag_required_missing": "请填写必填项：{fields}",

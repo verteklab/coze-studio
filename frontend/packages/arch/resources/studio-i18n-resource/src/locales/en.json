@@ -5434,6 +5434,7 @@
   "datasets_createFileModel_step4_processing": "Server processing…",
   "datasets_createFileModel_step4_title": "Untitled",
   "datasets_createFileModel_rag_advanced_params": "Advanced parameters",
+  "datasets_createFileModel_rag_forced_ocr_hint": "OCR is required for image knowledge bases — the workflow knowledge-retrieve node currently supports text input/output only, and only OCR-extracted text chunks can be matched.",
   "datasets_createFileModel_rag_loading_schemas": "Loading parsing options…",
   "datasets_createFileModel_rag_mode_label": "Parsing mode",
   "datasets_createFileModel_rag_required_missing": "Please fill in the required field(s): {fields}",
