@@ -19,12 +19,16 @@ services:
   redis:
     container_name: coze-redis-v2
     env_file: *env_file
+    ports:
+      - '16379:6379'
     volumes:
       - /data_big/coze/bitnami/redis:/bitnami/redis/data:rw,Z
 
   elasticsearch:
     container_name: coze-elasticsearch-v2
     env_file: *env_file
+    ports:
+      - '19200:9200'
     volumes:
       - /data_big/coze/bitnami/elasticsearch:/bitnami/elasticsearch/data
       - ./volumes/elasticsearch/elasticsearch.yml:/opt/bitnami/elasticsearch/config/my_elasticsearch.yml
@@ -33,12 +37,17 @@ services:
   minio:
     container_name: coze-minio-v2
     env_file: *env_file
+    ports:
+      - '19000:9000'
+      - '19001:9001'
     volumes:
       - /data_big/coze/minio:/data
 
   etcd:
     container_name: coze-etcd-v2
     env_file: *env_file
+    ports:
+      - '12379:2379'
     volumes:
       - /data_big/coze/bitnami/etcd:/bitnami/etcd:rw,Z
       - ./volumes/etcd/etcd.conf.yml:/opt/bitnami/etcd/conf/etcd.conf.yml:ro,Z
@@ -46,20 +55,31 @@ services:
   milvus:
     container_name: coze-milvus-v2
     env_file: *env_file
+    ports:
+      - '29530:19530'
+      - '19091:9091'
     volumes:
       - /data_big/coze/milvus:/var/lib/milvus:rw,Z
 
   nsqlookupd:
     container_name: coze-nsqlookupd-v2
     env_file: *env_file
+    ports:
+      - '14160:4160'
+      - '14161:4161'
 
   nsqd:
     container_name: coze-nsqd-v2
     env_file: *env_file
+    ports:
+      - '14150:4150'
+      - '14151:4151'
 
   nsqadmin:
     container_name: coze-nsqadmin-v2
     env_file: *env_file
+    ports:
+      - '14171:4171'
 
   coze-server:
     container_name: coze-server-v2
