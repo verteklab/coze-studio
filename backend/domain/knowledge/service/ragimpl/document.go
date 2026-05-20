@@ -221,6 +221,7 @@ func buildDocumentEntity(dm *DocMapping, rd *contract.Document) *entity.Document
 		Status:        RagStatusToEntity(rd.Status),
 		FileExtension: parser.FileExtension(rd.FileType),
 		Size:          dm.Size,
+		URL:           dm.ImageURL,
 	}
 }
 

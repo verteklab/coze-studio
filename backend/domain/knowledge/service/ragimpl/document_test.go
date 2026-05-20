@@ -663,3 +663,47 @@ func TestRagimpl_RetryDocument_MissingDocMapping(t *testing.T) {
 	require.ErrorIs(t, err, ErrMappingNotFound)
 	require.False(t, called, "rag client should NOT be called when mapping is missing")
 }
+
+// --- buildDocumentEntity URL population ---------------------------------------
+
+// TestBuildDocumentEntity_PopulatesURLFromMappingImageURL verifies that
+// buildDocumentEntity copies DocMapping.ImageURL into entity.Document.URL.
+// This is the read-side half of the image_url column: Task 8 writes it at
+// upload time; Task 9 surfaces it here so the detail page can render thumbnails.
+func TestBuildDocumentEntity_PopulatesURLFromMappingImageURL(t *testing.T) {
+	dm := &DocMapping{
+		CozeID:    9001,
+		RagDocID:  "rag-doc-img",
+		KBID:      100,
+		CreatorID: 7,
+		ImageURL:  "https://minio.local/foo.png",
+	}
+	rd := &contract.Document{
+		DocID:    "rag-doc-img",
+		Filename: "foo.png",
+		Status:   "ready",
+	}
+	got := buildDocumentEntity(dm, rd)
+	require.Equal(t, "https://minio.local/foo.png", got.URL,
+		"entity.Document.URL must be populated from DocMapping.ImageURL")
+}
+
+// TestBuildDocumentEntity_LeavesURLEmptyWhenMappingImageURLEmpty verifies that
+// a DocMapping with no image_url (pre-Task-8 uploads or non-image docs) results
+// in an empty entity.Document.URL rather than a nil-pointer panic or garbage.
+func TestBuildDocumentEntity_LeavesURLEmptyWhenMappingImageURLEmpty(t *testing.T) {
+	dm := &DocMapping{
+		CozeID:   9002,
+		RagDocID: "rag-doc-txt",
+		KBID:     100,
+		ImageURL: "", // non-image doc or pre-Task-8 upload
+	}
+	rd := &contract.Document{
+		DocID:    "rag-doc-txt",
+		Filename: "notes.txt",
+		Status:   "ready",
+	}
+	got := buildDocumentEntity(dm, rd)
+	require.Equal(t, "", got.URL,
+		"entity.Document.URL must be empty when DocMapping.ImageURL is empty")
+}

@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	knowledgeModel "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
+	"github.com/coze-dev/coze-studio/backend/domain/knowledge/entity"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
 	contract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
 )
@@ -395,53 +396,132 @@ func TestListSlice_RequiresDocumentID(t *testing.T) {
 }
 
 // --- ListPhotoSlice -------------------------------------------------------
+//
+// The new implementation paginates rag documents (not image_chunks). One
+// synthetic slice is returned per document. The slice's RawContent[0].Text
+// is the document filename; its Info.ID is the coze_doc_id from the mapping
+// (not a freshly-allocated chunk id).
 
-func TestListPhotoSlice_PostFiltersHasCaption(t *testing.T) {
+func TestRagimplListPhotoSlice_ReturnsOneSlicePerDocument(t *testing.T) {
+	// Three docs in rag; all three have mapping rows.
 	fc := &fakeClient{
-		listChunksByKBFunc: func(_, _ string, q *contract.ListChunksByKBQuery) (*contract.ListChunksResponse, error) {
-			require.Equal(t, "image_chunk", q.ChunkType, "must request image chunks only")
-			return &contract.ListChunksResponse{
-				Items: []contract.Chunk{
-					{ChunkID: "img-1", DocID: "rag-doc-1", ChunkType: "image_chunk", Image: &contract.ChunkImage{Caption: "a cat"}},
-					{ChunkID: "img-2", DocID: "rag-doc-1", ChunkType: "image_chunk", Image: &contract.ChunkImage{}}, // no caption
+		listDocsFunc: func(_, _ string, page, pageSize int) (*contract.ListDocumentsResponse, error) {
+			return &contract.ListDocumentsResponse{
+				Items: []contract.Document{
+					{DocID: "rd1", Filename: "dog.png", Status: "ready"},
+					{DocID: "rd2", Filename: "cat.jpg", Status: "ready"},
+					{DocID: "rd3", Filename: "bird.webp", Status: "ready"},
 				},
-				Total: 2,
+				Total: 3,
 			}, nil
-		},
-	}
-	i := newTestImpl(t, fc, 8001, 8002)
-	ctx := context.Background()
-	seedKBAndDoc(t, i, 100, "rag-kb-1", 200, "rag-doc-1")
-
-	hasCaption := true
-	got, err := i.ListPhotoSlice(ctx, &service.ListPhotoSliceRequest{
-		KnowledgeID: 100,
-		HasCaption:  &hasCaption,
-	})
-	require.NoError(t, err)
-	require.Len(t, got.Slices, 1, "only the caption-bearing chunk should pass the filter")
-}
-
-func TestListPhotoSlice_DocumentIDsTranslated(t *testing.T) {
-	var capturedQuery *contract.ListChunksByKBQuery
-	fc := &fakeClient{
-		listChunksByKBFunc: func(_, _ string, q *contract.ListChunksByKBQuery) (*contract.ListChunksResponse, error) {
-			capturedQuery = q
-			return &contract.ListChunksResponse{}, nil
 		},
 	}
 	i := newTestImpl(t, fc)
 	ctx := context.Background()
-	seedKBAndDoc(t, i, 100, "rag-kb-1", 200, "rag-doc-A")
-	require.NoError(t, i.mapping.InsertDoc(ctx, 201, "rag-doc-B", 100, 0, "", 0, 0, ""))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-1", "", 0, 0, 0, knowledgeModel.DocumentTypeImage))
+	require.NoError(t, i.mapping.InsertDoc(ctx, 1001, "rd1", 100, 7, "", 0, 0, ""))
+	require.NoError(t, i.mapping.InsertDoc(ctx, 1002, "rd2", 100, 7, "", 0, 0, ""))
+	require.NoError(t, i.mapping.InsertDoc(ctx, 1003, "rd3", 100, 7, "", 0, 0, ""))
 
-	_, err := i.ListPhotoSlice(ctx, &service.ListPhotoSliceRequest{
+	limit := 20
+	offset := 0
+	got, err := i.ListPhotoSlice(ctx, &service.ListPhotoSliceRequest{
 		KnowledgeID: 100,
-		DocumentIDs: []int64{200, 201},
+		Limit:       &limit,
+		Offset:      &offset,
 	})
 	require.NoError(t, err)
-	require.NotNil(t, capturedQuery)
-	require.ElementsMatch(t, []string{"rag-doc-A", "rag-doc-B"}, capturedQuery.DocIDs)
+	require.Equal(t, 3, got.Total)
+	require.Len(t, got.Slices, 3, "one slice per document")
+
+	// Build a map from coze_doc_id to slice for assertions.
+	byDocID := map[int64]*entity.Slice{}
+	for _, s := range got.Slices {
+		byDocID[s.DocumentID] = s
+	}
+	require.Contains(t, byDocID, int64(1001))
+	require.Contains(t, byDocID, int64(1002))
+	require.Contains(t, byDocID, int64(1003))
+
+	// Each slice's RawContent[0].Text should be the filename.
+	require.NotEmpty(t, byDocID[1001].RawContent)
+	require.NotNil(t, byDocID[1001].RawContent[0].Text)
+	require.Equal(t, "dog.png", *byDocID[1001].RawContent[0].Text)
+}
+
+func TestRagimplListPhotoSlice_HonorsLimitOffset(t *testing.T) {
+	// 5 docs total; request page 2 (offset=2, limit=2) -> 2 slices.
+	allDocs := []contract.Document{
+		{DocID: "rd1", Filename: "a.png", Status: "ready"},
+		{DocID: "rd2", Filename: "b.png", Status: "ready"},
+		{DocID: "rd3", Filename: "c.png", Status: "ready"},
+		{DocID: "rd4", Filename: "d.png", Status: "ready"},
+		{DocID: "rd5", Filename: "e.png", Status: "ready"},
+	}
+	fc := &fakeClient{
+		listDocsFunc: func(_, _ string, page, pageSize int) (*contract.ListDocumentsResponse, error) {
+			start := (page - 1) * pageSize
+			end := start + pageSize
+			if start >= len(allDocs) {
+				return &contract.ListDocumentsResponse{Total: len(allDocs)}, nil
+			}
+			if end > len(allDocs) {
+				end = len(allDocs)
+			}
+			return &contract.ListDocumentsResponse{
+				Items: allDocs[start:end],
+				Total: len(allDocs),
+			}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-1", "", 0, 0, 0, knowledgeModel.DocumentTypeImage))
+	for idx, id := range []int64{2001, 2002, 2003, 2004, 2005} {
+		require.NoError(t, i.mapping.InsertDoc(ctx, id, allDocs[idx].DocID, 100, 7, "", 0, 0, ""))
+	}
+
+	limit := 2
+	offset := 2
+	got, err := i.ListPhotoSlice(ctx, &service.ListPhotoSliceRequest{
+		KnowledgeID: 100,
+		Limit:       &limit,
+		Offset:      &offset,
+	})
+	require.NoError(t, err)
+	require.Equal(t, 5, got.Total)
+	require.Len(t, got.Slices, 2, "limit=2 means 2 slices")
+}
+
+func TestRagimplListPhotoSlice_SkipsOrphanRagDocs(t *testing.T) {
+	// rag returns 3 docs, but only 2 have mapping rows; the 3rd is an orphan.
+	fc := &fakeClient{
+		listDocsFunc: func(_, _ string, page, pageSize int) (*contract.ListDocumentsResponse, error) {
+			return &contract.ListDocumentsResponse{
+				Items: []contract.Document{
+					{DocID: "rd1", Filename: "kept-1.png", Status: "ready"},
+					{DocID: "rd-orphan", Filename: "orphan.png", Status: "ready"},
+					{DocID: "rd2", Filename: "kept-2.png", Status: "ready"},
+				},
+				Total: 3,
+			}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-1", "", 0, 0, 0, knowledgeModel.DocumentTypeImage))
+	require.NoError(t, i.mapping.InsertDoc(ctx, 3001, "rd1", 100, 7, "", 0, 0, ""))
+	require.NoError(t, i.mapping.InsertDoc(ctx, 3002, "rd2", 100, 7, "", 0, 0, ""))
+	// rd-orphan has NO mapping row.
+
+	limit := 20
+	got, err := i.ListPhotoSlice(ctx, &service.ListPhotoSliceRequest{
+		KnowledgeID: 100,
+		Limit:       &limit,
+	})
+	require.NoError(t, err)
+	require.Len(t, got.Slices, 2, "orphan must be skipped")
+	require.Equal(t, 3, got.Total, "total still reflects rag's document count")
 }
 
 // --- Concurrency: lazy backfill convergence -------------------------------

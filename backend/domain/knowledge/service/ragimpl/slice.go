@@ -532,11 +532,23 @@ func (i *Impl) resolveCozeSliceIDsForDoc(ctx context.Context, chunks []contract.
 	return ids
 }
 
-// ListPhotoSlice covers the image-only chunk listing. Rag does not implement
-// has_caption filtering (see brief §7 note), so coze post-filters on
-// SliceImage.OCRText / caption presence. The post-filter is approximate when
-// the rag page returns more than listPhotoSlicePageCap items: we log a WARN
-// and filter only within that page (per spec §9 Q1 "option a + cap").
+// ListPhotoSlice lists the documents in an image KB and returns one synthetic
+// slice per document. This replaces the old image_chunk-based implementation.
+//
+// Why: rag's image ingestion pipeline (force-OCR path) does not materialise
+// image_chunk records — it treats the whole document as a single embedding
+// unit. Querying by ChunkType="image_chunk" therefore returns nothing. The
+// correct data model for the image KB detail page is: one card per document,
+// where the card shows the document filename as its caption and the persisted
+// MinIO URL (from rag_doc_mapping.image_url, written at upload time by Task 8)
+// as its thumbnail.
+//
+// Pagination is document-level (page/pageSize derived from limit/offset).
+// HasCaption and DocumentIDs filters are intentionally ignored: HasCaption has
+// no document-level equivalent, and the DocumentIDs filter is not supported
+// for the paginated document listing path (rag's ListDocuments does not filter
+// by doc_id list). If either filter is requested, it is silently ignored and
+// a WARN is logged so the caller is informed.
 func (i *Impl) ListPhotoSlice(ctx context.Context, req *service.ListPhotoSliceRequest) (*service.ListPhotoSliceResponse, error) {
 	kbMapping, err := i.mapping.KBByCozeID(ctx, req.KnowledgeID)
 	if err != nil {
@@ -546,98 +558,77 @@ func (i *Impl) ListPhotoSlice(ctx context.Context, req *service.ListPhotoSliceRe
 	if err != nil {
 		return nil, err
 	}
-	q := &contract.ListChunksByKBQuery{
-		ChunkType: "image_chunk",
-		Page:      1,
-		PageSize:  listPhotoSlicePageCap,
-	}
+
+	// Translate coze limit/offset to rag page/pageSize.
+	pageSize := 20
+	page := 1
 	if req.Limit != nil && *req.Limit > 0 {
-		if *req.Limit > listPhotoSlicePageCap {
-			q.PageSize = listPhotoSlicePageCap
-		} else {
-			q.PageSize = *req.Limit
-		}
+		pageSize = *req.Limit
 	}
-	if req.Offset != nil && *req.Offset > 0 && q.PageSize > 0 {
-		q.Page = (*req.Offset / q.PageSize) + 1
+	if req.Offset != nil && *req.Offset > 0 && pageSize > 0 {
+		page = (*req.Offset / pageSize) + 1
+	}
+
+	if req.HasCaption != nil {
+		logs.CtxWarnf(ctx, "ragimpl.ListPhotoSlice: HasCaption filter is not supported in the document-paginated path; ignoring")
 	}
 	if len(req.DocumentIDs) > 0 {
-		docs, err := i.mapping.DocsByCozeIDs(ctx, req.DocumentIDs)
-		if err != nil {
-			return nil, err
-		}
-		ragDocIDs := make([]string, 0, len(docs))
-		for _, d := range docs {
-			ragDocIDs = append(ragDocIDs, d.RagDocID)
-		}
-		q.DocIDs = ragDocIDs
+		logs.CtxWarnf(ctx, "ragimpl.ListPhotoSlice: DocumentIDs filter is not supported in the document-paginated path; ignoring")
 	}
-	resp, err := i.rag.ListChunksByKB(ctx, tenant, kbMapping.RagKBID, q)
+
+	docsResp, err := i.rag.ListDocuments(ctx, tenant, kbMapping.RagKBID, page, pageSize)
 	if err != nil {
 		return nil, err
 	}
-	if req.HasCaption != nil && len(resp.Items) >= listPhotoSlicePageCap {
-		logs.CtxWarnf(ctx, "ragimpl.ListPhotoSlice: HasCaption post-filter is approximate (filter applied only within first %d items; rag has not yet implemented has_caption)", listPhotoSlicePageCap)
+	if len(docsResp.Items) == 0 {
+		return &service.ListPhotoSliceResponse{
+			Slices: []*entity.Slice{},
+			Total:  docsResp.Total,
+		}, nil
 	}
 
-	// Build a coze_doc_id cache via reverse lookup on rag_doc_id -- we don't
-	// have the int64 ids directly from rag.
-	// Resolve all distinct rag_doc_ids in one shot before walking chunks --
-	// then collect per-chunk batch items and resolve coze_slice_ids in a single
-	// call. Two passes over resp.Items keep the loop body trivial and ensure
-	// HasCaption-filtered chunks don't waste an id allocation.
-	docByRagID := map[string]*DocMapping{}
-	for idx := range resp.Items {
-		ragDocID := resp.Items[idx].DocID
-		if _, ok := docByRagID[ragDocID]; ok {
-			continue
-		}
-		rev, rerr := i.mapping.docByRagID(ctx, ragDocID)
-		if rerr != nil {
-			logs.CtxWarnf(ctx, "ragimpl.ListPhotoSlice: docByRagID(%s) failed; skipping chunk: %v", ragDocID, rerr)
-			continue
-		}
-		docByRagID[ragDocID] = rev
+	// Batch-resolve all rag_doc_ids to coze mappings in a single DB query.
+	ragDocIDs := make([]string, 0, len(docsResp.Items))
+	for idx := range docsResp.Items {
+		ragDocIDs = append(ragDocIDs, docsResp.Items[idx].DocID)
+	}
+	mappings, err := i.mapping.DocsByRagIDs(ctx, ragDocIDs)
+	if err != nil {
+		return nil, err
+	}
+	dmByRagID := make(map[string]*DocMapping, len(mappings))
+	for _, dm := range mappings {
+		dmByRagID[dm.RagDocID] = dm
 	}
 
-	kept := make([]*contract.Chunk, 0, len(resp.Items))
-	items := make([]ChunkInsertOrGetItem, 0, len(resp.Items))
-	for idx := range resp.Items {
-		c := &resp.Items[idx]
-		dm := docByRagID[c.DocID]
+	// Build one synthetic slice per document. Orphan rag docs (no mapping row)
+	// are skipped with a WARN — they were uploaded before the mapping was
+	// written or belong to a different coze tenant.
+	out := make([]*entity.Slice, 0, len(docsResp.Items))
+	for idx := range docsResp.Items {
+		rd := &docsResp.Items[idx]
+		dm := dmByRagID[rd.DocID]
 		if dm == nil {
-			continue // docByRagID failure already logged above
+			logs.CtxWarnf(ctx, "ragimpl.ListPhotoSlice: no mapping for rag doc %s; skipping", rd.DocID)
+			continue
 		}
-		if req.HasCaption != nil {
-			hasCaption := c.Image != nil && strings.TrimSpace(c.Image.Caption) != ""
-			if *req.HasCaption != hasCaption {
-				continue
-			}
-		}
-		kept = append(kept, c)
-		items = append(items, ChunkInsertOrGetItem{
-			RagChunkID: c.ChunkID, RagDocID: c.DocID,
-			CozeDocID: dm.CozeID, CreatorID: dm.CreatorID,
+		filename := rd.Filename
+		out = append(out, &entity.Slice{
+			Info: knowledgeModel.Info{
+				ID:        dm.CozeID,
+				Name:      filename,
+				CreatorID: dm.CreatorID,
+			},
+			KnowledgeID:  dm.KBID,
+			DocumentID:   dm.CozeID,
+			DocumentName: filename,
+			RawContent: []*knowledgeModel.SliceContent{
+				{Type: knowledgeModel.SliceContentTypeText, Text: &filename},
+			},
 		})
-	}
-
-	idByRagChunk := map[string]int64{}
-	if len(items) > 0 {
-		ids, err := i.mapping.ChunksInsertOrGetCozeIDs(ctx, items, i.idgen.GenMultiIDs, time.Now().UnixMilli())
-		if err != nil {
-			logs.CtxWarnf(ctx, "ragimpl.ListPhotoSlice: ChunksInsertOrGetCozeIDs(%d chunks) failed; slice ids will be 0: %v", len(items), err)
-		} else {
-			idByRagChunk = ids
-		}
-	}
-
-	out := make([]*entity.Slice, 0, len(kept))
-	for _, c := range kept {
-		dm := docByRagID[c.DocID]
-		out = append(out, buildSliceFromChunk(c, idByRagChunk[c.ChunkID], dm.CozeID, dm.KBID, dm.CreatorID))
 	}
 	return &service.ListPhotoSliceResponse{
 		Slices: out,
-		Total:  resp.Total,
+		Total:  docsResp.Total,
 	}, nil
 }

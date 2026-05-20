@@ -289,6 +289,54 @@ func (m *MappingRepo) DocsByCozeIDs(ctx context.Context, ids []int64) ([]*DocMap
 	return out, nil
 }
 
+// DocsByRagIDs is the batch reverse lookup by rag_doc_id. It returns at most one
+// mapping per requested rag_doc_id (the first row found — same dedup contract as
+// docByRagID). Missing ids are simply absent from the returned slice; the caller
+// diffs against its input. Empty input short-circuits with no DB hit.
+func (m *MappingRepo) DocsByRagIDs(ctx context.Context, ragDocIDs []string) ([]*DocMapping, error) {
+	if len(ragDocIDs) == 0 {
+		return nil, nil
+	}
+	var rows []struct {
+		CozeDocID  int64          `gorm:"column:coze_doc_id"`
+		RagDocID   string         `gorm:"column:rag_doc_id"`
+		CozeKBID   int64          `gorm:"column:coze_kb_id"`
+		CreatorID  int64          `gorm:"column:creator_id"`
+		LastTaskID string         `gorm:"column:last_task_id"`
+		Size       int64          `gorm:"column:size"`
+		ImageURL   sql.NullString `gorm:"column:image_url"`
+	}
+	err := m.db.WithContext(ctx).
+		Table("rag_doc_mapping").
+		Select("coze_doc_id, rag_doc_id, coze_kb_id, creator_id, last_task_id, size, image_url").
+		Where("rag_doc_id IN ? AND (deleted_at IS NULL)", ragDocIDs).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	// Dedup: when multiple active rows share a rag_doc_id (shouldn't happen in
+	// practice but mirrors the defensive contract of docByRagID), keep the first
+	// occurrence in result order.
+	seen := make(map[string]struct{}, len(rows))
+	out := make([]*DocMapping, 0, len(rows))
+	for _, r := range rows {
+		if _, dup := seen[r.RagDocID]; dup {
+			continue
+		}
+		seen[r.RagDocID] = struct{}{}
+		imageURL := ""
+		if r.ImageURL.Valid {
+			imageURL = r.ImageURL.String
+		}
+		out = append(out, &DocMapping{
+			CozeID: r.CozeDocID, RagDocID: r.RagDocID, KBID: r.CozeKBID,
+			CreatorID: r.CreatorID, LastTaskID: r.LastTaskID, Size: r.Size,
+			ImageURL: imageURL,
+		})
+	}
+	return out, nil
+}
+
 // docByRagID is the reverse lookup, used by retrieval result translation.
 func (m *MappingRepo) docByRagID(ctx context.Context, ragDocID string) (*DocMapping, error) {
 	var row struct {
