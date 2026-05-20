@@ -47,7 +47,7 @@ export const BasicSection: FC<BasicSectionProps> = ({
           tip={I18n.t('knowledge_search_strategy_tooltip')}
         />
         <SearchStrategy
-          readonly={readonly}
+          readonly={readonly || disabled}
           value={strategy as Strategy}
           onChange={v => onChange({ ...value, strategy: v })}
         />

@@ -39,12 +39,14 @@ export interface QueryEnhancementSectionProps {
   value: DataSetInfo;
   onChange: (next: DataSetInfo) => void;
   readonly?: boolean;
+  disabled?: boolean;
 }
 
 export const QueryEnhancementSection: FC<QueryEnhancementSectionProps> = ({
   value,
   onChange,
   readonly,
+  disabled,
 }) => {
   const { getNodeSetterId } = useNodeTestId();
 
@@ -56,7 +58,7 @@ export const QueryEnhancementSection: FC<QueryEnhancementSectionProps> = ({
       <CheckboxWithLabel
         checked={!!value?.rewrite}
         onChange={checked => onChange({ ...value, rewrite: checked })}
-        readonly={readonly}
+        readonly={readonly || disabled}
         label={I18n.t('workflow_knowledge_rewrite', {}, '查询改写')}
         description={I18n.t(
           'workflow_knowledge_rewrite_desc',
@@ -70,7 +72,7 @@ export const QueryEnhancementSection: FC<QueryEnhancementSectionProps> = ({
       <CheckboxWithLabel
         checked={!!value?.expansion}
         onChange={checked => onChange({ ...value, expansion: checked })}
-        readonly={readonly}
+        readonly={readonly || disabled}
         label={I18n.t('workflow_knowledge_expansion', {}, '查询扩展')}
         description={I18n.t(
           'workflow_knowledge_expansion_desc',
@@ -84,7 +86,7 @@ export const QueryEnhancementSection: FC<QueryEnhancementSectionProps> = ({
       <CheckboxWithLabel
         checked={!!value?.multi_query}
         onChange={checked => onChange({ ...value, multi_query: checked })}
-        readonly={readonly}
+        readonly={readonly || disabled}
         label={I18n.t('workflow_knowledge_multi_query', {}, '多重查询')}
         description={I18n.t(
           'workflow_knowledge_multi_query_desc',
@@ -98,7 +100,7 @@ export const QueryEnhancementSection: FC<QueryEnhancementSectionProps> = ({
       <CheckboxWithLabel
         checked={!!value?.enable_rerank}
         onChange={checked => onChange({ ...value, enable_rerank: checked })}
-        readonly={readonly}
+        readonly={readonly || disabled}
         label={I18n.t('workflow_knowledge_enable_rerank', {}, '启用 Rerank')}
         description={I18n.t(
           'workflow_knowledge_enable_rerank_desc',

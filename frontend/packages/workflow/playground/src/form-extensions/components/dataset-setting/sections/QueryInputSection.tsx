@@ -32,12 +32,14 @@ export interface QueryInputSectionProps {
   value: DataSetInfo;
   onChange: (next: DataSetInfo) => void;
   readonly?: boolean;
+  disabled?: boolean;
 }
 
 export const QueryInputSection: FC<QueryInputSectionProps> = ({
   value,
   onChange,
   readonly,
+  disabled,
 }) => {
   const [open, setOpen] = useState(false);
   const queryMode = value?.query_mode ?? 'text_input';
@@ -61,14 +63,15 @@ export const QueryInputSection: FC<QueryInputSectionProps> = ({
             title={I18n.t('workflow_knowledge_query_mode', {}, '查询模式')}
           />
           <Select
-            disabled={readonly}
+            disabled={readonly || disabled}
             value={queryMode}
             optionList={QUERY_MODE_OPTIONS}
             onChange={v =>
-              onChange({
-                ...value,
-                query_mode: v as DataSetInfo['query_mode'],
-              })
+              onChange(
+                v === 'text_input'
+                  ? { ...value, query_mode: v, query_image: undefined }
+                  : { ...value, query_mode: v as DataSetInfo['query_mode'] },
+              )
             }
           />
         </div>
@@ -88,7 +91,7 @@ export const QueryInputSection: FC<QueryInputSectionProps> = ({
               )}
             />
             <Input
-              disabled={readonly}
+              disabled={readonly || disabled}
               value={queryImage?.image_ref ?? ''}
               onChange={v =>
                 onChange({

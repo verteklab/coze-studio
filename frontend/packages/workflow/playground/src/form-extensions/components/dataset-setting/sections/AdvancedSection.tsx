@@ -13,10 +13,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { type FC, useState } from 'react';
+import { type FC, useEffect, useRef, useState } from 'react';
 
 import { I18n } from '@coze-arch/i18n';
 import { Checkbox, TextArea, Collapse } from '@coze-arch/coze-design';
+import { IconWarningInfo } from '@coze-arch/bot-icons';
 
 import { type DataSetInfo } from '../type';
 import s from '../index.module.less';
@@ -30,6 +31,7 @@ export interface AdvancedSectionProps {
   value: DataSetInfo;
   onChange: (next: DataSetInfo) => void;
   readonly?: boolean;
+  disabled?: boolean;
 }
 
 const stringifyJSON = (v: unknown): string => {
@@ -65,6 +67,7 @@ export const AdvancedSection: FC<AdvancedSectionProps> = ({
   value,
   onChange,
   readonly,
+  disabled,
 }) => {
   const [open, setOpen] = useState(false);
   const retrievers = (value?.retrievers ?? []) as Retriever[];
@@ -73,6 +76,21 @@ export const AdvancedSection: FC<AdvancedSectionProps> = ({
   const [fpError, setFpError] = useState<string | null>(null);
   const [rpText, setRpText] = useState(stringifyJSON(value?.retriever_params));
   const [rpError, setRpError] = useState<string | null>(null);
+
+  const fpFocusedRef = useRef(false);
+  const rpFocusedRef = useRef(false);
+
+  useEffect(() => {
+    if (!fpFocusedRef.current) {
+      setFpText(stringifyJSON(value?.fusion_policy));
+    }
+  }, [value?.fusion_policy]);
+
+  useEffect(() => {
+    if (!rpFocusedRef.current) {
+      setRpText(stringifyJSON(value?.retriever_params));
+    }
+  }, [value?.retriever_params]);
 
   return (
     <Collapse
@@ -84,8 +102,8 @@ export const AdvancedSection: FC<AdvancedSectionProps> = ({
       <Collapse.Panel
         itemKey="adv"
         header={
-          <span>
-            ⚠️{' '}
+          <span className="inline-flex items-center gap-1">
+            <IconWarningInfo />
             {I18n.t(
               'workflow_knowledge_advanced',
               {},
@@ -107,7 +125,7 @@ export const AdvancedSection: FC<AdvancedSectionProps> = ({
             {RETRIEVERS.map(r => (
               <Checkbox
                 key={r}
-                disabled={readonly}
+                disabled={readonly || disabled}
                 checked={retrievers.includes(r)}
                 onChange={e => {
                   const set = new Set(retrievers);
@@ -139,11 +157,15 @@ export const AdvancedSection: FC<AdvancedSectionProps> = ({
             )}
           />
           <TextArea
-            disabled={readonly}
+            disabled={readonly || disabled}
             value={fpText}
             rows={4}
             onChange={v => setFpText(v)}
+            onFocus={() => {
+              fpFocusedRef.current = true;
+            }}
             onBlur={() => {
+              fpFocusedRef.current = false;
               const r = parseJSONLoose(fpText);
               if (!r.ok) {
                 setFpError(I18n.t('workflow_json_invalid', {}, 'JSON 无效'));
@@ -172,11 +194,15 @@ export const AdvancedSection: FC<AdvancedSectionProps> = ({
             )}
           />
           <TextArea
-            disabled={readonly}
+            disabled={readonly || disabled}
             value={rpText}
             rows={4}
             onChange={v => setRpText(v)}
+            onFocus={() => {
+              rpFocusedRef.current = true;
+            }}
             onBlur={() => {
+              rpFocusedRef.current = false;
               const r = parseJSONLoose(rpText);
               if (!r.ok) {
                 setRpError(I18n.t('workflow_json_invalid', {}, 'JSON 无效'));

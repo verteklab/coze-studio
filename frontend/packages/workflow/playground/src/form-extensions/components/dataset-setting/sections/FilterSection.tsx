@@ -28,6 +28,7 @@ export interface FilterSectionProps {
   value: DataSetInfo;
   onChange: (next: DataSetInfo) => void;
   readonly?: boolean;
+  disabled?: boolean;
 }
 
 const toggleChunkType = (
@@ -48,6 +49,7 @@ export const FilterSection: FC<FilterSectionProps> = ({
   value,
   onChange,
   readonly,
+  disabled,
 }) => {
   const target = (value?.target_chunk_types ?? []) as ChunkType[];
   const filters = value?.filters ?? {};
@@ -70,7 +72,7 @@ export const FilterSection: FC<FilterSectionProps> = ({
         />
         <div className="flex gap-3">
           <Checkbox
-            disabled={readonly}
+            disabled={readonly || disabled}
             checked={target.includes('text_chunk')}
             onChange={e =>
               onChange({
@@ -86,7 +88,7 @@ export const FilterSection: FC<FilterSectionProps> = ({
             text_chunk
           </Checkbox>
           <Checkbox
-            disabled={readonly}
+            disabled={readonly || disabled}
             checked={target.includes('image_chunk')}
             onChange={e =>
               onChange({
@@ -114,9 +116,9 @@ export const FilterSection: FC<FilterSectionProps> = ({
           )}
         />
         {filterEntries.map(([k, v], idx) => (
-          <div className="flex gap-2 mb-2" key={`${k}-${idx}`}>
+          <div className="flex gap-2 mb-2" key={idx}>
             <Input
-              disabled={readonly}
+              disabled={readonly || disabled}
               value={k}
               placeholder="key"
               onChange={nk => {
@@ -127,7 +129,7 @@ export const FilterSection: FC<FilterSectionProps> = ({
               }}
             />
             <Input
-              disabled={readonly}
+              disabled={readonly || disabled}
               value={typeof v === 'string' ? v : JSON.stringify(v)}
               placeholder="value"
               onChange={nv =>
@@ -136,7 +138,7 @@ export const FilterSection: FC<FilterSectionProps> = ({
             />
             <Button
               type="tertiary"
-              disabled={readonly}
+              disabled={readonly || disabled}
               onClick={() => {
                 const next = { ...filters };
                 delete next[k];
@@ -149,7 +151,7 @@ export const FilterSection: FC<FilterSectionProps> = ({
         ))}
         <Button
           type="tertiary"
-          disabled={readonly}
+          disabled={readonly || disabled}
           onClick={() =>
             onChange({ ...value, filters: { ...filters, '': '' } })
           }
