@@ -175,6 +175,111 @@ describe('mergeSchemaDefaults', () => {
       ocr_model_id: 'paddle',
     });
   });
+
+  // Force order test (image_document): the forced enable_ocr=true must be
+  // applied BEFORE the inverse-OCR mutex would strip ocr_model_id. Without
+  // the correct ordering, stale user input with enable_ocr=false would
+  // trigger the mutex and the wire would end up with {enable_ocr:true,
+  // missing ocr_model_id} → rag 40001.
+  const imageSchema = (
+    params: DocumentParameter[],
+  ): DocumentParameterSchema => ({
+    schema_id: 'image_document',
+    description: '',
+    file_types: [],
+    source_modalities: [],
+    parameters: params,
+  });
+  const scannedSchema = (
+    params: DocumentParameter[],
+  ): DocumentParameterSchema => ({
+    schema_id: 'scanned_document',
+    description: '',
+    file_types: [],
+    source_modalities: [],
+    parameters: params,
+  });
+
+  it('forces enable_ocr=true on image_document even with empty user input', () => {
+    const s = imageSchema([
+      param({ name: 'enable_ocr', ui_component: 'switch', default: false }),
+      param({
+        name: 'ocr_model_id',
+        ui_component: 'text',
+        default: 'model-ocr-paddle-infer-text',
+      }),
+      param({
+        name: 'enable_image_embedding',
+        ui_component: 'switch',
+        default: true,
+      }),
+    ]);
+    expect(mergeSchemaDefaults(s, {})).toEqual({
+      enable_ocr: true,
+      ocr_model_id: 'model-ocr-paddle-infer-text',
+      enable_image_embedding: true,
+    });
+  });
+
+  it('forces enable_ocr=true on scanned_document even with empty user input', () => {
+    const s = scannedSchema([
+      param({ name: 'enable_ocr', ui_component: 'switch', default: true }),
+      param({
+        name: 'ocr_model_id',
+        ui_component: 'text',
+        default: 'model-ocr-paddle-infer-text',
+      }),
+    ]);
+    expect(mergeSchemaDefaults(s, {})).toEqual({
+      enable_ocr: true,
+      ocr_model_id: 'model-ocr-paddle-infer-text',
+    });
+  });
+
+  it('forces enable_ocr=true when stale user input carries enable_ocr=false', () => {
+    const s = imageSchema([
+      param({ name: 'enable_ocr', ui_component: 'switch', default: false }),
+      param({
+        name: 'ocr_model_id',
+        ui_component: 'text',
+        default: 'model-ocr-paddle-infer-text',
+      }),
+    ]);
+    // User somehow has enable_ocr:false in their form state (cached value,
+    // devtools-poked, schema-switch artifact). The wire should still ship
+    // enable_ocr:true AND keep ocr_model_id.
+    expect(mergeSchemaDefaults(s, { enable_ocr: false })).toEqual({
+      enable_ocr: true,
+      ocr_model_id: 'model-ocr-paddle-infer-text',
+    });
+  });
+
+  it('keeps ocr_model_id present on image_document because force runs before mutex', () => {
+    // Regression test for the ordering bug: if applyForcedParams ran AFTER
+    // the mutex, this would strip ocr_model_id and then re-enable ocr → rag
+    // 40001 "ocr_model_id is required when enable_ocr is true".
+    const s = imageSchema([
+      param({ name: 'enable_ocr', ui_component: 'switch', default: false }),
+      param({ name: 'ocr_model_id', ui_component: 'text', default: 'paddle' }),
+    ]);
+    const out = mergeSchemaDefaults(s, { enable_ocr: false });
+    expect(out.enable_ocr).toBe(true);
+    expect(out.ocr_model_id).toBe('paddle');
+  });
+
+  it('does not force on schemas not listed in FORCED_PARAMS_BY_SCHEMA', () => {
+    // text_document does not appear in FORCED_PARAMS_BY_SCHEMA; user choice
+    // about enable_ocr (if the schema has it) must travel intact.
+    const s = schema([
+      param({ name: 'enable_ocr', ui_component: 'switch', default: false }),
+      param({ name: 'chunk_size', ui_component: 'number', default: 512 }),
+    ]);
+    // schema() helper uses schema_id 'test' — not in the forced map.
+    expect(mergeSchemaDefaults(s, { enable_ocr: false })).toEqual({
+      enable_ocr: false,
+      chunk_size: 512,
+    });
+  });
 });
 
 describe('filterParamsByDependencies', () => {

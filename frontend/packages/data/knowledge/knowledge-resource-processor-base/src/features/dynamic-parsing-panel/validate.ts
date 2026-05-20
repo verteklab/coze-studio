@@ -134,14 +134,23 @@ export function mergeSchemaDefaults(
       defaults[p.name] = p.default;
     }
   }
-  const merged: DocumentOptionsValue = { ...defaults, ...value };
+  let merged: DocumentOptionsValue = { ...defaults, ...value };
+
+  // Force-apply locked params (e.g. enable_ocr=true for image_document /
+  // scanned_document) BEFORE the inverse-OCR mutex below. Ordering matters:
+  // if we forced after, a stale enable_ocr=false in `value` would let the
+  // mutex strip ocr_model_id, and only then would the force flip enable_ocr
+  // back to true — wire ends up `{enable_ocr:true, ⌀ ocr_model_id}` → rag 40001.
+  merged = applyForcedParams(schema.schema_id, merged);
 
   // Rag's ingestion validator enforces a mutex: ocr_model_id may only travel
   // when enable_ocr is true. Sending both `{enable_ocr: false, ocr_model_id}`
   // fires 40001 "ocr_model_id requires enable_ocr=true". image_document
   // declares enable_ocr default=false with a non-required ocr_model_id, and
   // FRONTEND_PARAM_DEFAULTS synthesises a model-id default — without this
-  // prune every image-KB upload that left OCR off would hit 40001.
+  // prune every image-KB upload that left OCR off would hit 40001. (No-op
+  // for forced schemas because applyForcedParams just pinned enable_ocr=true
+  // above.)
   if (merged.enable_ocr !== true && 'ocr_model_id' in merged) {
     delete merged.ocr_model_id;
   }
