@@ -15,5 +15,4 @@
  */
 export { BasicSection } from './BasicSection';
 export { QueryEnhancementSection } from './QueryEnhancementSection';
-export { QueryInputSection } from './QueryInputSection';
 export { FilterSection } from './FilterSection';

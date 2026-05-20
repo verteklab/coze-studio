@@ -22,7 +22,6 @@ import { Strategy, type DataSetInfo } from './type';
 import {
   BasicSection,
   QueryEnhancementSection,
-  QueryInputSection,
   FilterSection,
 } from './sections';
 
@@ -90,12 +89,6 @@ export const DataSetSetting: FC<DataSetSettingProps> = ({
         disabled={disabled}
       />
       <QueryEnhancementSection
-        value={dataSetInfo}
-        onChange={onDataSetInfoChange}
-        readonly={readonly}
-        disabled={disabled}
-      />
-      <QueryInputSection
         value={dataSetInfo}
         onChange={onDataSetInfoChange}
         readonly={readonly}
