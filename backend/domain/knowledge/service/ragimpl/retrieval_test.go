@@ -18,7 +18,7 @@ package ragimpl
 
 import (
 	"context"
-	"strings"
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -26,20 +26,6 @@ import (
 	knowledgeModel "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
 	contract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
 )
-
-// TestRetrieve_RejectsNL2SQL asserts that the NL2SQL sub-feature returns 501
-// (ErrRagFeaturePendingCode) with a recognizable message. NL2SQL is bucket-B
-// even though Retrieve itself is bucket-A.
-func TestRetrieve_RejectsNL2SQL(t *testing.T) {
-	i := newTestImpl(t, &fakeClient{})
-	_, err := i.Retrieve(context.Background(), &knowledgeModel.RetrieveRequest{
-		Query:        "anything",
-		KnowledgeIDs: []int64{1},
-		Strategy:     &knowledgeModel.RetrievalStrategy{EnableNL2SQL: true},
-	})
-	require.Error(t, err)
-	require.True(t, strings.Contains(err.Error(), "NL2SQL"), "expected NL2SQL in error, got: %v", err)
-}
 
 // TestRetrieve_HappyPath verifies the end-to-end translation:
 //   - tenant_id passed to rag.Retrieve comes from the resolver, not the request
@@ -114,11 +100,12 @@ func TestRetrieve_ChunkIDBackfill_StableAcrossCalls(t *testing.T) {
 	require.Equal(t, int64(9001), resp2.RetrieveSlices[0].Slice.Info.ID, "same chunk_id must resolve to same coze id; idgen was already exhausted")
 }
 
-// TestRetrieve_EnableQueryRewrite_WithLLMModelID verifies that when the caller
-// requests EnableQueryRewrite AND defaultLLMModelID is configured, ragimpl
-// sends both rewrite=true AND llm_model_id in the rag query_strategy. This is
-// the post-R2-F happy path; before R2-F, only rewrite was sent and rag 40004'd.
-func TestRetrieve_EnableQueryRewrite_WithLLMModelID(t *testing.T) {
+// TestRetrieve_QueryStrategy_FourBooleanSubset_NoModelIDs verifies that
+// when Strategy sets some subset of the 4 booleans (Rewrite / Expansion /
+// MultiQuery / EnableRerank), ragimpl emits exactly those keys in
+// query_strategy — no llm_model_id / rerank_model_id, no min_score /
+// document_ids / max_tokens anywhere on the wire.
+func TestRetrieve_QueryStrategy_FourBooleanSubset_NoModelIDs(t *testing.T) {
 	var capturedReq *contract.RetrieveRequest
 	fc := &fakeClient{
 		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
@@ -127,375 +114,38 @@ func TestRetrieve_EnableQueryRewrite_WithLLMModelID(t *testing.T) {
 		},
 	}
 	i := newTestImpl(t, fc)
-	i.defaultLLMModelID = "model-openai-gpt-4o-mini"
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-1", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
-		Query:        "hi",
+		Query:        "hello",
 		KnowledgeIDs: []int64{100},
 		Strategy: &knowledgeModel.RetrievalStrategy{
-			EnableQueryRewrite: true,
-		},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, capturedReq)
-	require.NotNil(t, capturedReq.QueryStrategy, "rewrite enhancement should be sent when LLM id is configured")
-	require.Equal(t, true, capturedReq.QueryStrategy["rewrite"])
-	require.Equal(t, "model-openai-gpt-4o-mini", capturedReq.QueryStrategy["llm_model_id"])
-}
-
-// TestRetrieve_EnableQueryRewrite_NoLLMModelID_DropsEnhancement verifies that
-// when EnableQueryRewrite is true but defaultLLMModelID is empty, ragimpl drops
-// the enhancement entirely (no query_strategy sent) rather than triggering rag
-// 40004. Basic retrieval still completes.
-func TestRetrieve_EnableQueryRewrite_NoLLMModelID_DropsEnhancement(t *testing.T) {
-	var capturedReq *contract.RetrieveRequest
-	fc := &fakeClient{
-		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
-			capturedReq = req
-			return &contract.RetrieveResponse{}, nil
-		},
-	}
-	i := newTestImpl(t, fc)
-	i.defaultLLMModelID = ""
-	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
-
-	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
-		Query:        "hi",
-		KnowledgeIDs: []int64{100},
-		Strategy: &knowledgeModel.RetrievalStrategy{
-			EnableQueryRewrite: true,
-		},
-	})
-	require.NoError(t, err, "basic retrieval should still succeed; enhancement is dropped silently")
-	require.NotNil(t, capturedReq)
-	require.Nil(t, capturedReq.QueryStrategy, "query_strategy must be nil when LLM id is empty, even with EnableQueryRewrite=true")
-}
-
-// TestRetrieve_DocumentIDs_Translated verifies that when the caller supplies
-// req.DocumentIDs as coze int64s, ragimpl translates them through the mapping
-// repo and the resulting rag UUIDs land on ragReq.DocumentIDs.
-func TestRetrieve_DocumentIDs_Translated(t *testing.T) {
-	var capturedReq *contract.RetrieveRequest
-	fc := &fakeClient{
-		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
-			capturedReq = req
-			return &contract.RetrieveResponse{}, nil
-		},
-	}
-	i := newTestImpl(t, fc)
-	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
-	require.NoError(t, i.mapping.InsertDoc(ctx, 1, "uuid-1", 100, 0, "", 0, 0))
-	require.NoError(t, i.mapping.InsertDoc(ctx, 2, "uuid-2", 100, 0, "", 0, 0))
-
-	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
-		Query:        "hi",
-		KnowledgeIDs: []int64{100},
-		DocumentIDs:  []int64{1, 2},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, capturedReq)
-	require.ElementsMatch(t, []string{"uuid-1", "uuid-2"}, capturedReq.DocumentIDs)
-}
-
-// TestRetrieve_DocumentIDs_AllUnmapped verifies that if every coze doc id the
-// caller supplied has no mapping row, ragimpl short-circuits with an empty
-// response and does NOT call rag (avoids accidentally widening the scope to
-// "whole KB" when the user asked to narrow it).
-func TestRetrieve_DocumentIDs_AllUnmapped(t *testing.T) {
-	called := false
-	fc := &fakeClient{
-		retrieveFunc: func(_ string, _ *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
-			called = true
-			return &contract.RetrieveResponse{}, nil
-		},
-	}
-	i := newTestImpl(t, fc)
-	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
-	// No InsertDoc for ids 1 and 2.
-
-	resp, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
-		Query:        "hi",
-		KnowledgeIDs: []int64{100},
-		DocumentIDs:  []int64{1, 2},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, resp)
-	require.Empty(t, resp.RetrieveSlices)
-	require.False(t, called, "rag must NOT be called when every requested DocumentID is unmapped")
-}
-
-// TestRetrieve_DocumentIDs_PartiallyMapped verifies that mixed mapping (some
-// mapped, some not) results in only the mapped ones being forwarded; rag is
-// still called.
-func TestRetrieve_DocumentIDs_PartiallyMapped(t *testing.T) {
-	var capturedReq *contract.RetrieveRequest
-	fc := &fakeClient{
-		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
-			capturedReq = req
-			return &contract.RetrieveResponse{}, nil
-		},
-	}
-	i := newTestImpl(t, fc)
-	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
-	require.NoError(t, i.mapping.InsertDoc(ctx, 1, "uuid-1", 100, 0, "", 0, 0))
-	// id=2 intentionally not inserted.
-
-	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
-		Query:        "hi",
-		KnowledgeIDs: []int64{100},
-		DocumentIDs:  []int64{1, 2},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, capturedReq)
-	require.Equal(t, []string{"uuid-1"}, capturedReq.DocumentIDs)
-}
-
-// TestRetrieve_DocumentIDs_Over200 verifies that ragimpl pre-rejects oversized
-// DocumentIDs (rag's pydantic validator caps at 200) before calling either
-// the mapping repo or the rag client.
-func TestRetrieve_DocumentIDs_Over200(t *testing.T) {
-	called := false
-	fc := &fakeClient{
-		retrieveFunc: func(_ string, _ *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
-			called = true
-			return &contract.RetrieveResponse{}, nil
-		},
-	}
-	i := newTestImpl(t, fc)
-	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
-
-	ids := make([]int64, 201)
-	for k := range ids {
-		ids[k] = int64(k + 1)
-	}
-	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
-		Query:        "hi",
-		KnowledgeIDs: []int64{100},
-		DocumentIDs:  ids,
-	})
-	require.Error(t, err)
-	require.False(t, called, "rag must not be called when DocumentIDs exceeds 200")
-}
-
-// TestRetrieve_DocumentIDs_Empty_FallsThrough verifies that an empty
-// DocumentIDs slice leaves ragReq.DocumentIDs unset (nil), so rag-side
-// filtering is not invoked.
-func TestRetrieve_DocumentIDs_Empty_FallsThrough(t *testing.T) {
-	var capturedReq *contract.RetrieveRequest
-	fc := &fakeClient{
-		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
-			capturedReq = req
-			return &contract.RetrieveResponse{}, nil
-		},
-	}
-	i := newTestImpl(t, fc)
-	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
-
-	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
-		Query:        "hi",
-		KnowledgeIDs: []int64{100},
-		DocumentIDs:  nil,
-	})
-	require.NoError(t, err)
-	require.NotNil(t, capturedReq)
-	require.Nil(t, capturedReq.DocumentIDs, "ragReq.DocumentIDs should remain nil when caller passes no doc ids")
-}
-
-// TestRetrieve_MinScore_Set verifies that when the caller supplies
-// Strategy.MinScore, ragimpl forwards it on ragReq.MinScore so rag is the
-// single authoritative filtering point (no coze-side post-trim in this path).
-func TestRetrieve_MinScore_Set(t *testing.T) {
-	var capturedReq *contract.RetrieveRequest
-	fc := &fakeClient{
-		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
-			capturedReq = req
-			return &contract.RetrieveResponse{}, nil
-		},
-	}
-	i := newTestImpl(t, fc)
-	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
-
-	ms := 0.7
-	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
-		Query:        "hi",
-		KnowledgeIDs: []int64{100},
-		Strategy:     &knowledgeModel.RetrievalStrategy{MinScore: &ms},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, capturedReq)
-	require.NotNil(t, capturedReq.MinScore)
-	require.InDelta(t, 0.7, *capturedReq.MinScore, 1e-9)
-}
-
-// TestRetrieve_MinScore_Nil verifies that an unset Strategy.MinScore is not
-// forwarded — ragReq.MinScore stays nil and the field is omitted from the
-// JSON body (omitempty).
-func TestRetrieve_MinScore_Nil(t *testing.T) {
-	var capturedReq *contract.RetrieveRequest
-	fc := &fakeClient{
-		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
-			capturedReq = req
-			return &contract.RetrieveResponse{}, nil
-		},
-	}
-	i := newTestImpl(t, fc)
-	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
-
-	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
-		Query:        "hi",
-		KnowledgeIDs: []int64{100},
-		Strategy:     &knowledgeModel.RetrievalStrategy{},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, capturedReq)
-	require.Nil(t, capturedReq.MinScore)
-}
-
-// TestRetrieve_MaxTokens_Set verifies that Strategy.MaxTokens is forwarded as
-// rag's max_tokens (with int64 -> int conversion). Rag's cut is chunk-boundary
-// approximate, not strict; the wire contract is what this test locks.
-func TestRetrieve_MaxTokens_Set(t *testing.T) {
-	var capturedReq *contract.RetrieveRequest
-	fc := &fakeClient{
-		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
-			capturedReq = req
-			return &contract.RetrieveResponse{}, nil
-		},
-	}
-	i := newTestImpl(t, fc)
-	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
-
-	mt := int64(2048)
-	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
-		Query:        "hi",
-		KnowledgeIDs: []int64{100},
-		Strategy:     &knowledgeModel.RetrievalStrategy{MaxTokens: &mt},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, capturedReq)
-	require.NotNil(t, capturedReq.MaxTokens)
-	require.Equal(t, 2048, *capturedReq.MaxTokens)
-}
-
-// TestRetrieve_MaxTokens_Nil verifies that an unset Strategy.MaxTokens leaves
-// ragReq.MaxTokens nil (omitted from the wire).
-func TestRetrieve_MaxTokens_Nil(t *testing.T) {
-	var capturedReq *contract.RetrieveRequest
-	fc := &fakeClient{
-		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
-			capturedReq = req
-			return &contract.RetrieveResponse{}, nil
-		},
-	}
-	i := newTestImpl(t, fc)
-	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
-
-	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
-		Query:        "hi",
-		KnowledgeIDs: []int64{100},
-		Strategy:     &knowledgeModel.RetrievalStrategy{},
-	})
-	require.NoError(t, err)
-	require.NotNil(t, capturedReq)
-	require.Nil(t, capturedReq.MaxTokens)
-}
-
-// TestRetrieve_MaxTokens_Zero_Rejected verifies that *MaxTokens == 0 is
-// rejected on the coze side (rag's pydantic schema requires ge=1; pre-rejecting
-// surfaces a clearer ErrKnowledgeInvalidParam than rag's 422).
-func TestRetrieve_MaxTokens_Zero_Rejected(t *testing.T) {
-	called := false
-	fc := &fakeClient{
-		retrieveFunc: func(_ string, _ *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
-			called = true
-			return &contract.RetrieveResponse{}, nil
-		},
-	}
-	i := newTestImpl(t, fc)
-	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
-
-	mt := int64(0)
-	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
-		Query:        "hi",
-		KnowledgeIDs: []int64{100},
-		Strategy:     &knowledgeModel.RetrievalStrategy{MaxTokens: &mt},
-	})
-	require.Error(t, err)
-	require.False(t, called, "rag must not be called when MaxTokens is zero")
-}
-
-// TestRetrieve_MaxTokens_Negative_Rejected mirrors the zero case for negative
-// values. Both fall under "< 1" per rag's ge=1 constraint.
-func TestRetrieve_MaxTokens_Negative_Rejected(t *testing.T) {
-	called := false
-	fc := &fakeClient{
-		retrieveFunc: func(_ string, _ *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
-			called = true
-			return &contract.RetrieveResponse{}, nil
-		},
-	}
-	i := newTestImpl(t, fc)
-	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
-
-	mt := int64(-1)
-	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
-		Query:        "hi",
-		KnowledgeIDs: []int64{100},
-		Strategy:     &knowledgeModel.RetrievalStrategy{MaxTokens: &mt},
-	})
-	require.Error(t, err)
-	require.False(t, called, "rag must not be called when MaxTokens is negative")
-}
-
-// TestRetrieve_EnableRerank_WithModelID verifies that when the caller requests
-// EnableRerank AND defaultRerankModelID is configured, ragimpl sends both
-// enable_rerank=true AND rerank_model_id in the rag query_strategy.
-func TestRetrieve_EnableRerank_WithModelID(t *testing.T) {
-	var capturedReq *contract.RetrieveRequest
-	fc := &fakeClient{
-		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
-			capturedReq = req
-			return &contract.RetrieveResponse{}, nil
-		},
-	}
-	i := newTestImpl(t, fc)
-	i.defaultLLMModelID = ""
-	i.defaultRerankModelID = "model-rerank-x"
-	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
-
-	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
-		Query:        "hi",
-		KnowledgeIDs: []int64{100},
-		Strategy: &knowledgeModel.RetrievalStrategy{
+			Rewrite:      true,
 			EnableRerank: true,
 		},
 	})
 	require.NoError(t, err)
-	require.NotNil(t, capturedReq)
-	require.NotNil(t, capturedReq.QueryStrategy, "rerank should be sent when rerank model id is configured")
-	require.Equal(t, true, capturedReq.QueryStrategy["enable_rerank"])
-	require.Equal(t, "model-rerank-x", capturedReq.QueryStrategy["rerank_model_id"])
+
+	require.NotNil(t, capturedReq.QueryStrategy)
+	require.Equal(t, map[string]any{
+		"rewrite":       true,
+		"enable_rerank": true,
+	}, capturedReq.QueryStrategy)
+
+	body, err := json.Marshal(capturedReq)
+	require.NoError(t, err)
+	require.NotContains(t, string(body), "llm_model_id")
+	require.NotContains(t, string(body), "rerank_model_id")
+	require.NotContains(t, string(body), "min_score")
+	require.NotContains(t, string(body), "document_ids")
+	require.NotContains(t, string(body), "max_tokens")
 }
 
-// TestRetrieve_EnableRerank_NoModelID_Drops verifies that when EnableRerank is
-// true but defaultRerankModelID is empty, ragimpl drops the rerank enhancement
-// (no rerank keys written) rather than triggering rag 40004.
-func TestRetrieve_EnableRerank_NoModelID_Drops(t *testing.T) {
+// TestRetrieve_QueryStrategy_AllFalse_Omitted verifies that when the
+// caller sets no query_strategy booleans, the wire payload omits the
+// query_strategy key entirely.
+func TestRetrieve_QueryStrategy_AllFalse_Omitted(t *testing.T) {
 	var capturedReq *contract.RetrieveRequest
 	fc := &fakeClient{
 		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
@@ -504,31 +154,28 @@ func TestRetrieve_EnableRerank_NoModelID_Drops(t *testing.T) {
 		},
 	}
 	i := newTestImpl(t, fc)
-	i.defaultLLMModelID = ""
-	i.defaultRerankModelID = ""
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-1", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
-		Query:        "hi",
+		Query:        "hello",
 		KnowledgeIDs: []int64{100},
-		Strategy: &knowledgeModel.RetrievalStrategy{
-			EnableRerank: true,
-		},
+		Strategy:     &knowledgeModel.RetrievalStrategy{},
 	})
-	require.NoError(t, err, "basic retrieval should still succeed; rerank is dropped silently")
-	require.NotNil(t, capturedReq)
-	if capturedReq.QueryStrategy != nil {
-		_, hasEnable := capturedReq.QueryStrategy["enable_rerank"]
-		_, hasModel := capturedReq.QueryStrategy["rerank_model_id"]
-		require.False(t, hasEnable, "enable_rerank must NOT be present when rerank model id is empty")
-		require.False(t, hasModel, "rerank_model_id must NOT be present when rerank model id is empty")
-	}
+	require.NoError(t, err)
+
+	require.Nil(t, capturedReq.QueryStrategy)
+
+	body, err := json.Marshal(capturedReq)
+	require.NoError(t, err)
+	require.NotContains(t, string(body), "query_strategy")
 }
 
-// TestRetrieve_EnableRerank_WithRewrite_Coexist verifies that rewrite and
-// rerank populate query_strategy together without clobbering each other.
-func TestRetrieve_EnableRerank_WithRewrite_Coexist(t *testing.T) {
+// TestRetrieve_NewTopLevelFields_Forwarded verifies that the new
+// top-level rag fields (filters / target_chunk_types / retrievers /
+// fusion_policy / retriever_params / query_image / query_mode) are
+// transparently forwarded.
+func TestRetrieve_NewTopLevelFields_Forwarded(t *testing.T) {
 	var capturedReq *contract.RetrieveRequest
 	fc := &fakeClient{
 		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
@@ -537,24 +184,30 @@ func TestRetrieve_EnableRerank_WithRewrite_Coexist(t *testing.T) {
 		},
 	}
 	i := newTestImpl(t, fc)
-	i.defaultLLMModelID = "model-openai-gpt-4o-mini"
-	i.defaultRerankModelID = "model-rerank-x"
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-1", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
-		Query:        "hi",
+		Query:        "hello",
 		KnowledgeIDs: []int64{100},
 		Strategy: &knowledgeModel.RetrievalStrategy{
-			EnableQueryRewrite: true,
-			EnableRerank:       true,
+			QueryMode:        "mixed_input",
+			QueryImage:       &knowledgeModel.QueryImage{ImageRef: "ref-1"},
+			TargetChunkTypes: []string{"text_chunk"},
+			Filters:          map[string]any{"tag": "guides"},
+			Retrievers:       []string{"dense", "bm25"},
+			FusionPolicy:     map[string]any{"rrf_k": 60},
+			RetrieverParams:  map[string]any{"dense": map[string]any{"candidate_k": 75}},
 		},
 	})
 	require.NoError(t, err)
-	require.NotNil(t, capturedReq)
-	require.NotNil(t, capturedReq.QueryStrategy, "both rewrite and rerank should populate query_strategy")
-	require.Equal(t, true, capturedReq.QueryStrategy["rewrite"])
-	require.Equal(t, "model-openai-gpt-4o-mini", capturedReq.QueryStrategy["llm_model_id"])
-	require.Equal(t, true, capturedReq.QueryStrategy["enable_rerank"])
-	require.Equal(t, "model-rerank-x", capturedReq.QueryStrategy["rerank_model_id"])
+
+	require.Equal(t, "mixed_input", capturedReq.QueryMode)
+	require.NotNil(t, capturedReq.QueryImage)
+	require.Equal(t, "ref-1", capturedReq.QueryImage.ImageRef)
+	require.Equal(t, []string{"text_chunk"}, capturedReq.TargetChunkTypes)
+	require.Equal(t, map[string]any{"tag": "guides"}, capturedReq.Filters)
+	require.Equal(t, []string{"dense", "bm25"}, capturedReq.Retrievers)
+	require.Equal(t, map[string]any{"rrf_k": 60}, capturedReq.FusionPolicy)
+	require.Equal(t, map[string]any{"dense": map[string]any{"candidate_k": 75}}, capturedReq.RetrieverParams)
 }
