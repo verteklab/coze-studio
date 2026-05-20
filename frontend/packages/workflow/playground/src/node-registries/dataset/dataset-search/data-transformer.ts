@@ -66,29 +66,45 @@ export function transformOnInit(value) {
   );
   formData.inputs.datasetParameters.datasetParam = datasetParam[0]?.input.value
     .content as string[];
-  // In the case of initial creation/stock data, the top_k and min_score are empty, and the initial default value is processed in the dataset-settings component
+  // In the case of initial creation/stock data, the top_k and other rag params
+  // may be empty; defaults are handled by the dataset-settings component.
+  // Legacy wire-keys (useRewrite/useRerank/useNl2sql/isPersonalOnly/minScore/
+  // documentIDs) are silently dropped per the no-migration decision — old
+  // workflow JSON with those keys simply does not populate any DataSetInfo field.
   formData.inputs.datasetParameters.datasetSetting = {
     top_k: datasetParam.find(item => item.name === 'topK')?.input.value
-      .content as number,
-
-    min_score: datasetParam.find(item => item.name === 'minScore')?.input.value
-      .content as number,
-
+      .content as number | undefined,
     strategy: datasetParam.find(item => item.name === 'strategy')?.input.value
-      .content as number,
-
-    use_nl2sql: datasetParam.find(item => item.name === 'useNl2sql')?.input
-      .value.content as boolean,
-    use_rerank: datasetParam.find(item => item.name === 'useRerank')?.input
-      .value.content as boolean,
-    use_rewrite: datasetParam.find(item => item.name === 'useRewrite')?.input
-      .value.content as boolean,
-    is_personal_only: datasetParam.find(item => item.name === 'isPersonalOnly')
-      ?.input.value.content as boolean,
-    // R2-I: optional list filter. Falls back to undefined (== "all docs")
-    // rather than [] so consumers don't misread an empty array.
-    document_ids: datasetParam.find(item => item.name === 'documentIDs')?.input
-      .value.content as string[] | undefined,
+      .content as number | undefined,
+    rewrite: datasetParam.find(item => item.name === 'rewrite')?.input.value
+      .content as boolean | undefined,
+    expansion: datasetParam.find(item => item.name === 'expansion')?.input.value
+      .content as boolean | undefined,
+    multi_query: datasetParam.find(item => item.name === 'multiQuery')?.input
+      .value.content as boolean | undefined,
+    enable_rerank: datasetParam.find(item => item.name === 'enableRerank')
+      ?.input.value.content as boolean | undefined,
+    query_mode: datasetParam.find(item => item.name === 'queryMode')?.input
+      .value.content as
+      | 'text_input'
+      | 'image_input'
+      | 'mixed_input'
+      | undefined,
+    query_image: datasetParam.find(item => item.name === 'queryImage')?.input
+      .value.content as
+      | { image_base64?: string; image_ref?: string }
+      | undefined,
+    target_chunk_types: datasetParam.find(
+      item => item.name === 'targetChunkTypes',
+    )?.input.value.content as Array<'text_chunk' | 'image_chunk'> | undefined,
+    filters: datasetParam.find(item => item.name === 'filters')?.input.value
+      .content as Record<string, unknown> | undefined,
+    retrievers: datasetParam.find(item => item.name === 'retrievers')?.input
+      .value.content as Array<'dense' | 'bm25' | 'image_vector'> | undefined,
+    fusion_policy: datasetParam.find(item => item.name === 'fusionPolicy')
+      ?.input.value.content as Record<string, unknown> | undefined,
+    retriever_params: datasetParam.find(item => item.name === 'retrieverParams')
+      ?.input.value.content as Record<string, unknown> | undefined,
   };
 
   return formData;
@@ -140,56 +156,125 @@ export function transformOnSubmit(value) {
         },
       },
     },
-    BlockInput.createBoolean('useRerank', datasetSetting?.use_rerank),
-    BlockInput.createBoolean('useRewrite', datasetSetting?.use_rewrite),
-    BlockInput.createBoolean(
-      'isPersonalOnly',
-      datasetSetting?.is_personal_only,
-    ),
   ]);
 
-  // No fields are passed without a table knowledge base use_nl2sql
-  if (!isNil(datasetSetting?.use_nl2sql)) {
-    actualData.inputs.datasetParam.push(
-      BlockInput.createBoolean('useNl2sql', datasetSetting?.use_nl2sql),
-    );
-  }
+  // 4-boolean query_strategy. Always emitted so the field is present in JSON
+  // even when false (consistency with the surviving topK entry above).
+  actualData.inputs.datasetParam.push(
+    BlockInput.createBoolean('rewrite', datasetSetting?.rewrite),
+    BlockInput.createBoolean('expansion', datasetSetting?.expansion),
+    BlockInput.createBoolean('multiQuery', datasetSetting?.multi_query),
+    BlockInput.createBoolean('enableRerank', datasetSetting?.enable_rerank),
+  );
 
-  // Strategy may be fulltext
-  if (datasetSetting?.min_score) {
+  // New top-level rag fields. Only emitted when non-empty so old workflow
+  // JSON without these keys doesn't grow on save.
+  if (datasetSetting?.query_mode) {
     actualData.inputs.datasetParam.push({
-      name: 'minScore',
+      name: 'queryMode',
       input: {
-        type: 'float',
+        type: 'string',
         value: {
           type: 'literal',
-          content: datasetSetting?.min_score,
+          content: datasetSetting.query_mode,
         },
       },
     });
   }
 
-  // R2-I: documentIDs filter. Backend reads this as RetrieveRequest.DocumentIDs
-  // (top-level, NOT on RetrievalStrategy) and forwards to rag /retrieval. An
-  // empty / missing list means "no filter": forward nothing so rag returns
-  // chunks across the entire KB.
   if (
-    Array.isArray(datasetSetting?.document_ids) &&
-    datasetSetting.document_ids.length > 0
+    datasetSetting?.query_image &&
+    (datasetSetting.query_image.image_base64 ||
+      datasetSetting.query_image.image_ref)
+  ) {
+    actualData.inputs.datasetParam.push({
+      name: 'queryImage',
+      input: {
+        type: 'object',
+        value: {
+          type: 'literal',
+          content: datasetSetting.query_image,
+        },
+      },
+    });
+  }
+
+  if (
+    Array.isArray(datasetSetting?.target_chunk_types) &&
+    datasetSetting.target_chunk_types.length > 0
   ) {
     actualData.inputs.datasetParam.push(
-      // Carry ids as strings. Coze int64 ids > 2^53 lose precision through
-      // JS Number, which silently breaks the coze→rag mapping lookup. The
-      // backend (knowledge_retrieve.go) parses with cast.ToInt64E which
-      // accepts strings.
-      BlockInput.createArray('documentIDs', datasetSetting.document_ids, {
+      BlockInput.createArray(
+        'targetChunkTypes',
+        datasetSetting.target_chunk_types,
+        {
+          type: 'string',
+        },
+      ),
+    );
+  }
+
+  if (
+    datasetSetting?.filters &&
+    Object.keys(datasetSetting.filters).length > 0
+  ) {
+    actualData.inputs.datasetParam.push({
+      name: 'filters',
+      input: {
+        type: 'object',
+        value: {
+          type: 'literal',
+          content: datasetSetting.filters,
+        },
+      },
+    });
+  }
+
+  if (
+    Array.isArray(datasetSetting?.retrievers) &&
+    datasetSetting.retrievers.length > 0
+  ) {
+    actualData.inputs.datasetParam.push(
+      BlockInput.createArray('retrievers', datasetSetting.retrievers, {
         type: 'string',
       }),
     );
   }
 
+  if (
+    datasetSetting?.fusion_policy &&
+    Object.keys(datasetSetting.fusion_policy).length > 0
+  ) {
+    actualData.inputs.datasetParam.push({
+      name: 'fusionPolicy',
+      input: {
+        type: 'object',
+        value: {
+          type: 'literal',
+          content: datasetSetting.fusion_policy,
+        },
+      },
+    });
+  }
+
+  if (
+    datasetSetting?.retriever_params &&
+    Object.keys(datasetSetting.retriever_params).length > 0
+  ) {
+    actualData.inputs.datasetParam.push({
+      name: 'retrieverParams',
+      input: {
+        type: 'object',
+        value: {
+          type: 'literal',
+          content: datasetSetting.retriever_params,
+        },
+      },
+    });
+  }
+
   // Added search policy configuration, there may be no strategy data not in grey release
-  // Strategy may be 0
+  // Strategy may be 0, hence the explicit isNil check.
   if (!isNil(datasetSetting?.strategy)) {
     actualData.inputs.datasetParam.push({
       name: 'strategy',
