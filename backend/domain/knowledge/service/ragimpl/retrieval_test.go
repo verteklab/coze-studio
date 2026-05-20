@@ -63,7 +63,7 @@ func TestRetrieve_HappyPath(t *testing.T) {
 	}
 	i := newTestImpl(t, fc, 8800) // single id for the lazy backfill
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 	require.NoError(t, i.mapping.InsertDoc(ctx, 555, "rag-doc-X", 100, 7, "task-1", 0, 0))
 
 	resp, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
@@ -102,7 +102,7 @@ func TestRetrieve_ChunkIDBackfill_StableAcrossCalls(t *testing.T) {
 	}
 	i := newTestImpl(t, fc, 9001) // only ONE id; second call must NOT need a fresh allocation
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 	require.NoError(t, i.mapping.InsertDoc(ctx, 555, "rag-doc-X", 100, 7, "task-1", 0, 0))
 
 	resp1, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{Query: "x", KnowledgeIDs: []int64{100}})
@@ -129,7 +129,7 @@ func TestRetrieve_EnableQueryRewrite_WithLLMModelID(t *testing.T) {
 	i := newTestImpl(t, fc)
 	i.defaultLLMModelID = "model-openai-gpt-4o-mini"
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
 		Query:        "hi",
@@ -160,7 +160,7 @@ func TestRetrieve_EnableQueryRewrite_NoLLMModelID_DropsEnhancement(t *testing.T)
 	i := newTestImpl(t, fc)
 	i.defaultLLMModelID = ""
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
 		Query:        "hi",
@@ -187,7 +187,7 @@ func TestRetrieve_DocumentIDs_Translated(t *testing.T) {
 	}
 	i := newTestImpl(t, fc)
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 	require.NoError(t, i.mapping.InsertDoc(ctx, 1, "uuid-1", 100, 0, "", 0, 0))
 	require.NoError(t, i.mapping.InsertDoc(ctx, 2, "uuid-2", 100, 0, "", 0, 0))
 
@@ -215,7 +215,7 @@ func TestRetrieve_DocumentIDs_AllUnmapped(t *testing.T) {
 	}
 	i := newTestImpl(t, fc)
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 	// No InsertDoc for ids 1 and 2.
 
 	resp, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
@@ -242,7 +242,7 @@ func TestRetrieve_DocumentIDs_PartiallyMapped(t *testing.T) {
 	}
 	i := newTestImpl(t, fc)
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 	require.NoError(t, i.mapping.InsertDoc(ctx, 1, "uuid-1", 100, 0, "", 0, 0))
 	// id=2 intentionally not inserted.
 
@@ -269,7 +269,7 @@ func TestRetrieve_DocumentIDs_Over200(t *testing.T) {
 	}
 	i := newTestImpl(t, fc)
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	ids := make([]int64, 201)
 	for k := range ids {
@@ -297,7 +297,7 @@ func TestRetrieve_DocumentIDs_Empty_FallsThrough(t *testing.T) {
 	}
 	i := newTestImpl(t, fc)
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
 		Query:        "hi",
@@ -322,7 +322,7 @@ func TestRetrieve_MinScore_Set(t *testing.T) {
 	}
 	i := newTestImpl(t, fc)
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	ms := 0.7
 	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
@@ -349,7 +349,7 @@ func TestRetrieve_MinScore_Nil(t *testing.T) {
 	}
 	i := newTestImpl(t, fc)
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
 		Query:        "hi",
@@ -374,7 +374,7 @@ func TestRetrieve_MaxTokens_Set(t *testing.T) {
 	}
 	i := newTestImpl(t, fc)
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	mt := int64(2048)
 	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
@@ -400,7 +400,7 @@ func TestRetrieve_MaxTokens_Nil(t *testing.T) {
 	}
 	i := newTestImpl(t, fc)
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
 		Query:        "hi",
@@ -425,7 +425,7 @@ func TestRetrieve_MaxTokens_Zero_Rejected(t *testing.T) {
 	}
 	i := newTestImpl(t, fc)
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	mt := int64(0)
 	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
@@ -449,7 +449,7 @@ func TestRetrieve_MaxTokens_Negative_Rejected(t *testing.T) {
 	}
 	i := newTestImpl(t, fc)
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	mt := int64(-1)
 	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
@@ -476,7 +476,7 @@ func TestRetrieve_EnableRerank_WithModelID(t *testing.T) {
 	i.defaultLLMModelID = ""
 	i.defaultRerankModelID = "model-rerank-x"
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
 		Query:        "hi",
@@ -507,7 +507,7 @@ func TestRetrieve_EnableRerank_NoModelID_Drops(t *testing.T) {
 	i.defaultLLMModelID = ""
 	i.defaultRerankModelID = ""
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
 		Query:        "hi",
@@ -540,7 +540,7 @@ func TestRetrieve_EnableRerank_WithRewrite_Coexist(t *testing.T) {
 	i.defaultLLMModelID = "model-openai-gpt-4o-mini"
 	i.defaultRerankModelID = "model-rerank-x"
 	ctx := context.Background()
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
 		Query:        "hi",

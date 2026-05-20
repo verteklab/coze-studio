@@ -28,19 +28,22 @@ import (
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+
+	knowledgeModel "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
 )
 
 // kbRow / docRow mirror the slim mapping tables. SQLite is permissive about
 // column types, so we model `deleted_at` as a nullable string for simplicity
 // (production schema is datetime(3)).
 type kbRow struct {
-	CozeKBID  int64   `gorm:"column:coze_kb_id;primaryKey"`
-	RagKBID   string  `gorm:"column:rag_kb_id"`
-	IconURI   string  `gorm:"column:icon_uri"`
-	AppID     int64   `gorm:"column:app_id"`
-	CreatorID int64   `gorm:"column:creator_id"`
-	CreatedAt int64   `gorm:"column:created_at"`
-	DeletedAt *string `gorm:"column:deleted_at"`
+	CozeKBID   int64   `gorm:"column:coze_kb_id;primaryKey"`
+	RagKBID    string  `gorm:"column:rag_kb_id"`
+	IconURI    string  `gorm:"column:icon_uri"`
+	AppID      int64   `gorm:"column:app_id"`
+	CreatorID  int64   `gorm:"column:creator_id"`
+	CreatedAt  int64   `gorm:"column:created_at"`
+	DeletedAt  *string `gorm:"column:deleted_at"`
+	FormatType int64   `gorm:"column:format_type"`
 }
 
 func (kbRow) TableName() string { return "rag_kb_mapping" }
@@ -189,18 +192,21 @@ func TestMapping_DocByRagID(t *testing.T) {
 func TestMapping_InsertKB(t *testing.T) {
 	db := setupDB(t)
 	m := NewMappingRepo(db)
-	require.NoError(t, m.InsertKB(context.Background(), 300, "uuid-300", "icon-uri", 42, 7, 1234567890))
+	require.NoError(t, m.InsertKB(context.Background(), 300, "uuid-300", "icon-uri", 42, 7, 1234567890, knowledgeModel.DocumentTypeImage))
 	got, err := m.KBByCozeID(context.Background(), 300)
 	require.NoError(t, err)
 	require.Equal(t, "uuid-300", got.RagKBID)
 	require.Equal(t, "icon-uri", got.IconURI)
 	require.Equal(t, int64(42), got.AppID)
+	// format_type must round-trip so hydrateKnowledge can label the KB
+	// correctly on detail-page entry (rag's KB metadata can't distinguish).
+	require.Equal(t, knowledgeModel.DocumentTypeImage, got.FormatType)
 }
 
 func TestMapping_SoftDeleteAndRestore(t *testing.T) {
 	db := setupDB(t)
 	m := NewMappingRepo(db)
-	require.NoError(t, m.InsertKB(context.Background(), 400, "uuid-400", "", 0, 0, 0))
+	require.NoError(t, m.InsertKB(context.Background(), 400, "uuid-400", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 	require.NoError(t, m.SoftDeleteKB(context.Background(), 400))
 	_, err := m.KBByCozeID(context.Background(), 400)
 	require.Error(t, err) // deleted -> not found
@@ -249,7 +255,7 @@ func TestRagKBMapping_Exists(t *testing.T) {
 	require.False(t, exists)
 
 	// mapped id -> (true, nil)
-	require.NoError(t, m.InsertKB(context.Background(), 100, "uuid-100", "", 0, 0, 0))
+	require.NoError(t, m.InsertKB(context.Background(), 100, "uuid-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 	exists, err = m.Exists(context.Background(), 100)
 	require.NoError(t, err)
 	require.True(t, exists)
@@ -277,9 +283,9 @@ func TestRagKBMapping_ExistsBatch(t *testing.T) {
 	require.Empty(t, got)
 
 	// mixed: two mapped + one unmapped + a soft-deleted one
-	require.NoError(t, m.InsertKB(context.Background(), 1, "uuid-1", "", 0, 0, 0))
-	require.NoError(t, m.InsertKB(context.Background(), 2, "uuid-2", "", 0, 0, 0))
-	require.NoError(t, m.InsertKB(context.Background(), 3, "uuid-3", "", 0, 0, 0))
+	require.NoError(t, m.InsertKB(context.Background(), 1, "uuid-1", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
+	require.NoError(t, m.InsertKB(context.Background(), 2, "uuid-2", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
+	require.NoError(t, m.InsertKB(context.Background(), 3, "uuid-3", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 	require.NoError(t, m.SoftDeleteKB(context.Background(), 3))
 
 	got, err = m.ExistsBatch(context.Background(), []int64{1, 2, 3, 999})

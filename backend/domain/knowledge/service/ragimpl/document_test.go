@@ -44,7 +44,7 @@ func TestCreateDocument_InsertsMapping(t *testing.T) {
 	}
 	i := newTestImpl(t, fc, 7777)
 	// Seed a KB mapping so KBByCozeID succeeds.
-	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-100", "icon", 0, 5, 0))
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-100", "icon", 0, 5, 0, knowledgeModel.DocumentTypeText))
 
 	resp, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
 		Documents: []*entity.Document{{
@@ -97,7 +97,7 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 			},
 		}
 		i := newTestImpl(t, fc, 8001)
-		require.NoError(t, i.mapping.InsertKB(context.Background(), 200, "rag-kb-200", "icon", 0, 5, 0))
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 200, "rag-kb-200", "icon", 0, 5, 0, knowledgeModel.DocumentTypeText))
 
 		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
 			Documents: []*entity.Document{{
@@ -135,7 +135,7 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 			},
 		}
 		i := newTestImpl(t, fc, 8000)
-		require.NoError(t, i.mapping.InsertKB(context.Background(), 199, "rag-kb-199", "icon", 0, 5, 0))
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 199, "rag-kb-199", "icon", 0, 5, 0, knowledgeModel.DocumentTypeText))
 
 		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
 			Documents: []*entity.Document{{
@@ -167,7 +167,7 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 			},
 		}
 		i := newTestImpl(t, fc, 8002)
-		require.NoError(t, i.mapping.InsertKB(context.Background(), 201, "rag-kb-201", "icon", 0, 5, 0))
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 201, "rag-kb-201", "icon", 0, 5, 0, knowledgeModel.DocumentTypeText))
 
 		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
 			Documents: []*entity.Document{{
@@ -198,7 +198,7 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 			},
 		}
 		i := newTestImpl(t, fc, 8003)
-		require.NoError(t, i.mapping.InsertKB(context.Background(), 202, "rag-kb-202", "icon", 0, 5, 0))
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 202, "rag-kb-202", "icon", 0, 5, 0, knowledgeModel.DocumentTypeText))
 
 		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
 			Documents: []*entity.Document{{
@@ -228,7 +228,7 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 			},
 		}
 		i := newTestImpl(t, fc, 8004)
-		require.NoError(t, i.mapping.InsertKB(context.Background(), 203, "rag-kb-203", "icon", 0, 5, 0))
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 203, "rag-kb-203", "icon", 0, 5, 0, knowledgeModel.DocumentTypeText))
 
 		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
 			Documents: []*entity.Document{{
@@ -259,7 +259,7 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 			},
 		}
 		i := newTestImpl(t, fc, 8005)
-		require.NoError(t, i.mapping.InsertKB(context.Background(), 204, "rag-kb-204", "icon", 0, 5, 0))
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 204, "rag-kb-204", "icon", 0, 5, 0, knowledgeModel.DocumentTypeText))
 
 		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
 			Documents: []*entity.Document{{
@@ -291,7 +291,7 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 			},
 		}
 		i := newTestImpl(t, fc, 8100)
-		require.NoError(t, i.mapping.InsertKB(context.Background(), 250, "rag-kb-250", "icon", 0, 5, 0))
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 250, "rag-kb-250", "icon", 0, 5, 0, knowledgeModel.DocumentTypeText))
 
 		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
 			Documents: []*entity.Document{{
@@ -326,7 +326,7 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 			},
 		}
 		i := newTestImpl(t, fc, 8101)
-		require.NoError(t, i.mapping.InsertKB(context.Background(), 251, "rag-kb-251", "icon", 0, 5, 0))
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 251, "rag-kb-251", "icon", 0, 5, 0, knowledgeModel.DocumentTypeText))
 
 		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
 			Documents: []*entity.Document{{
@@ -351,7 +351,7 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 			},
 		}
 		i := newTestImpl(t, fc, 8102)
-		require.NoError(t, i.mapping.InsertKB(context.Background(), 252, "rag-kb-252", "icon", 0, 5, 0))
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 252, "rag-kb-252", "icon", 0, 5, 0, knowledgeModel.DocumentTypeText))
 
 		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
 			Documents: []*entity.Document{{
@@ -373,7 +373,7 @@ func TestCreateDocument_StrategyPassthrough(t *testing.T) {
 			},
 		}
 		i := newTestImpl(t, fc, 8006)
-		require.NoError(t, i.mapping.InsertKB(context.Background(), 205, "rag-kb-205", "icon", 0, 5, 0))
+		require.NoError(t, i.mapping.InsertKB(context.Background(), 205, "rag-kb-205", "icon", 0, 5, 0, knowledgeModel.DocumentTypeText))
 
 		_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
 			Documents: []*entity.Document{{
@@ -512,7 +512,7 @@ func TestUpdateDocument_HappyPath_RenameOnly(t *testing.T) {
 		},
 	}
 	i := newTestImpl(t, fc)
-	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000))
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000, knowledgeModel.DocumentTypeText))
 	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-1", 1700000000, 0))
 
 	newName := "new.pdf"
@@ -546,7 +546,7 @@ func TestUpdateDocument_TableInfo_Rejected(t *testing.T) {
 		},
 	}
 	i := newTestImpl(t, fc)
-	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000))
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000, knowledgeModel.DocumentTypeText))
 	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-1", 1700000000, 0))
 
 	newName := "new.pdf"
@@ -595,7 +595,7 @@ func TestUpdateDocument_RagError_Propagated(t *testing.T) {
 		},
 	}
 	i := newTestImpl(t, fc)
-	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000))
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000, knowledgeModel.DocumentTypeText))
 	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-1", 1700000000, 0))
 
 	newName := "new.pdf"
@@ -624,7 +624,7 @@ func TestRagimpl_RetryDocument(t *testing.T) {
 
 	// Wire mapping rows: coze KB 100 → rag UUID "rag-kb-X";
 	// coze doc 500 → rag UUID "rag-doc-Y" in KB 100 with last_task_id="task-old-1".
-	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000))
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 100, "rag-kb-X", "icon", 0, 0, 1700000000, knowledgeModel.DocumentTypeText))
 	require.NoError(t, i.mapping.InsertDoc(context.Background(), 500, "rag-doc-Y", 100, 7, "task-old-1", 1700000000, 0))
 
 	resp, err := i.RetryDocument(context.Background(), &service.RetryDocumentRequest{DocumentID: 500})

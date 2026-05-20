@@ -116,6 +116,7 @@ func hydrateKnowledge(kb *contract.KB, m *KBMapping) *knowledgeModel.Knowledge {
 			CreatedAtMs: kb.CreatedAt.UnixMilli(),
 			UpdatedAtMs: kb.UpdatedAt.UnixMilli(),
 		},
+		Type:   m.FormatType,
 		Status: statusFromRag(kb.Status),
 	}
 	return out
@@ -165,7 +166,7 @@ func (i *Impl) CreateKnowledge(ctx context.Context, req *service.CreateKnowledge
 	}
 
 	nowMs := time.Now().UnixMilli()
-	if err := i.mapping.InsertKB(ctx, cozeID, kb.KBID, req.IconUri, req.AppID, req.CreatorID, nowMs); err != nil {
+	if err := i.mapping.InsertKB(ctx, cozeID, kb.KBID, req.IconUri, req.AppID, req.CreatorID, nowMs, req.FormatType); err != nil {
 		// Roll back the rag KB so we don't leak a tenant-side KB with no coze handle.
 		if delErr := i.rag.DeleteKB(ctx, tenant, kb.KBID); delErr != nil {
 			logs.CtxWarnf(ctx, "ragimpl: rollback DeleteKB after InsertKB failure: %v", delErr)

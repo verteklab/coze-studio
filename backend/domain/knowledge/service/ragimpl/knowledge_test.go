@@ -473,7 +473,7 @@ func TestDeleteKnowledge_RollbackOnRagFailure(t *testing.T) {
 		deleteKBFunc: func(_, _ string) error { return errors.New("rag down") },
 	}
 	i := newTestImpl(t, fc)
-	require.NoError(t, i.mapping.InsertKB(context.Background(), 500, "rag-kb-500", "icon", 1, 2, 0))
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 500, "rag-kb-500", "icon", 1, 2, 0, knowledgeModel.DocumentTypeText))
 
 	err := i.DeleteKnowledge(context.Background(), &service.DeleteKnowledgeRequest{KnowledgeID: 500})
 	require.Error(t, err)
@@ -499,7 +499,7 @@ func TestRagimpl_GetCapabilities(t *testing.T) {
 		},
 	}
 	i := newTestImpl(t, fc)
-	require.NoError(t, i.mapping.InsertKB(context.Background(), 200, "rag-kb-Z", "icon", 0, 0, 1700000000))
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 200, "rag-kb-Z", "icon", 0, 0, 1700000000, knowledgeModel.DocumentTypeText))
 
 	got, err := i.GetCapabilities(context.Background(), 200)
 	require.NoError(t, err)
@@ -552,8 +552,8 @@ func TestListKnowledge_ByIDs_OwnerCheckIntegrity(t *testing.T) {
 
 	// Seed two mappings owned by different users. The pre-fix code would have
 	// surfaced one of them at [0] regardless of which ID was requested.
-	require.NoError(t, i.mapping.InsertKB(context.Background(), 1001, "rag-uuid-a", "icon-a", 0, 11, 0))
-	require.NoError(t, i.mapping.InsertKB(context.Background(), 1002, "rag-uuid-b", "icon-b", 0, 22, 0))
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 1001, "rag-uuid-a", "icon-a", 0, 11, 0, knowledgeModel.DocumentTypeText))
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 1002, "rag-uuid-b", "icon-b", 0, 22, 0, knowledgeModel.DocumentTypeText))
 
 	resp, err := i.ListKnowledge(context.Background(), &service.ListKnowledgeRequest{IDs: []int64{1001}})
 	require.NoError(t, err)
@@ -577,7 +577,7 @@ func TestListKnowledge_ByIDs_UnknownIDsSkipped(t *testing.T) {
 		},
 	}
 	i := newTestImpl(t, fc)
-	require.NoError(t, i.mapping.InsertKB(context.Background(), 2001, "rag-uuid-x", "icon", 0, 7, 0))
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 2001, "rag-uuid-x", "icon", 0, 7, 0, knowledgeModel.DocumentTypeText))
 
 	resp, err := i.ListKnowledge(context.Background(), &service.ListKnowledgeRequest{IDs: []int64{2001, 9999}})
 	require.NoError(t, err)
@@ -617,3 +617,4 @@ func TestRagimpl_ListDocumentParameterSchemas(t *testing.T) {
 	require.Len(t, got[0].Parameters, 1)
 	require.Equal(t, "chunk_size", got[0].Parameters[0].Name)
 }
+

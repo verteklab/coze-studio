@@ -32,7 +32,7 @@ import (
 // the same skeleton (one KB, one Doc under it) so this keeps them readable.
 func seedKBAndDoc(t *testing.T, i *Impl, cozeKBID int64, ragKBID string, cozeDocID int64, ragDocID string) {
 	t.Helper()
-	require.NoError(t, i.mapping.InsertKB(context.Background(), cozeKBID, ragKBID, "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(context.Background(), cozeKBID, ragKBID, "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 	require.NoError(t, i.mapping.InsertDoc(context.Background(), cozeDocID, ragDocID, cozeKBID, 0, "", 0, 0))
 }
 
@@ -169,7 +169,7 @@ func TestCreateSlice_DocMappingMissing(t *testing.T) {
 	i := newTestImpl(t, fc, 9001)
 	ctx := context.Background()
 	// KB exists, doc doesn't.
-	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-1", "", 0, 0, 0))
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-1", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 
 	_, err := i.CreateSlice(ctx, &service.CreateSliceRequest{
 		DocumentID: 999,

@@ -1820,7 +1820,7 @@ table "knowledge_document_slice" {
 }
 table "rag_kb_mapping" {
   schema  = schema.opencoze
-  comment = "Map coze int64 KB id to rag UUID + coze-only display fields (icon, audit). Name/description/status live in rag."
+  comment = "Map coze int64 KB id to rag UUID + coze-only display fields (icon, audit, format_type). Name/description/status live in rag."
   column "coze_kb_id" {
     null     = false
     type     = bigint
@@ -1862,6 +1862,13 @@ table "rag_kb_mapping" {
     null    = true
     type    = datetime(3)
     comment = "Delete Time"
+  }
+  column "format_type" {
+    null     = false
+    type     = tinyint
+    default  = 0
+    unsigned = true
+    comment  = "coze DocumentType: 0=text, 1=table, 2=image"
   }
   primary_key {
     columns = [column.coze_kb_id]

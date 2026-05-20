@@ -23,6 +23,8 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
+
+	knowledgeModel "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
 )
 
 var (
@@ -32,12 +34,19 @@ var (
 // KBMapping carries the int64 <-> UUID pair plus coze-only display/audit fields.
 // Authoritative business data (name, description, status) lives in rag and is
 // fetched live; do NOT add those fields here.
+//
+// FormatType is the one piece of "what kind of KB is this" state coze must
+// remember locally: rag's KnowledgeBaseDetail returns the union of every
+// modality its embedding-model bindings support (always includes image_source),
+// so we can't reconstruct text/table/image from rag's response. Persist what
+// the caller asked for at create time and trust this column on read.
 type KBMapping struct {
-	CozeID    int64
-	RagKBID   string
-	IconURI   string
-	AppID     int64 // informational only -- never used for isolation
-	CreatorID int64 // informational only
+	CozeID     int64
+	RagKBID    string
+	IconURI    string
+	AppID      int64 // informational only -- never used for isolation
+	CreatorID  int64 // informational only
+	FormatType knowledgeModel.DocumentType
 }
 
 type DocMapping struct {
@@ -78,15 +87,16 @@ func NewMappingRepo(db *gorm.DB) *MappingRepo {
 
 func (m *MappingRepo) KBByCozeID(ctx context.Context, cozeID int64) (*KBMapping, error) {
 	var row struct {
-		CozeKBID  int64  `gorm:"column:coze_kb_id"`
-		RagKBID   string `gorm:"column:rag_kb_id"`
-		IconURI   string `gorm:"column:icon_uri"`
-		AppID     int64  `gorm:"column:app_id"`
-		CreatorID int64  `gorm:"column:creator_id"`
+		CozeKBID   int64 `gorm:"column:coze_kb_id"`
+		RagKBID    string `gorm:"column:rag_kb_id"`
+		IconURI    string `gorm:"column:icon_uri"`
+		AppID      int64  `gorm:"column:app_id"`
+		CreatorID  int64  `gorm:"column:creator_id"`
+		FormatType int64  `gorm:"column:format_type"`
 	}
 	err := m.db.WithContext(ctx).
 		Table("rag_kb_mapping").
-		Select("coze_kb_id, rag_kb_id, icon_uri, app_id, creator_id").
+		Select("coze_kb_id, rag_kb_id, icon_uri, app_id, creator_id, format_type").
 		Where("coze_kb_id = ? AND (deleted_at IS NULL)", cozeID).
 		Take(&row).Error
 	if err != nil {
@@ -98,6 +108,7 @@ func (m *MappingRepo) KBByCozeID(ctx context.Context, cozeID int64) (*KBMapping,
 	return &KBMapping{
 		CozeID: row.CozeKBID, RagKBID: row.RagKBID, IconURI: row.IconURI,
 		AppID: row.AppID, CreatorID: row.CreatorID,
+		FormatType: knowledgeModel.DocumentType(row.FormatType),
 	}, nil
 }
 
@@ -109,15 +120,16 @@ func (m *MappingRepo) KBsByCozeIDs(ctx context.Context, ids []int64) ([]*KBMappi
 		return nil, nil
 	}
 	var rows []struct {
-		CozeKBID  int64  `gorm:"column:coze_kb_id"`
-		RagKBID   string `gorm:"column:rag_kb_id"`
-		IconURI   string `gorm:"column:icon_uri"`
-		AppID     int64  `gorm:"column:app_id"`
-		CreatorID int64  `gorm:"column:creator_id"`
+		CozeKBID   int64  `gorm:"column:coze_kb_id"`
+		RagKBID    string `gorm:"column:rag_kb_id"`
+		IconURI    string `gorm:"column:icon_uri"`
+		AppID      int64  `gorm:"column:app_id"`
+		CreatorID  int64  `gorm:"column:creator_id"`
+		FormatType int64  `gorm:"column:format_type"`
 	}
 	err := m.db.WithContext(ctx).
 		Table("rag_kb_mapping").
-		Select("coze_kb_id, rag_kb_id, icon_uri, app_id, creator_id").
+		Select("coze_kb_id, rag_kb_id, icon_uri, app_id, creator_id, format_type").
 		Where("coze_kb_id IN ? AND (deleted_at IS NULL)", ids).
 		Scan(&rows).Error
 	if err != nil {
@@ -130,6 +142,7 @@ func (m *MappingRepo) KBsByCozeIDs(ctx context.Context, ids []int64) ([]*KBMappi
 		out = append(out, &KBMapping{
 			CozeID: r.CozeKBID, RagKBID: r.RagKBID, IconURI: r.IconURI,
 			AppID: r.AppID, CreatorID: r.CreatorID,
+			FormatType: knowledgeModel.DocumentType(r.FormatType),
 		})
 	}
 	return out, nil
@@ -181,15 +194,16 @@ func (m *MappingRepo) ExistsBatch(ctx context.Context, cozeKBIDs []int64) (map[i
 // Lowercase: internal to the package, used by KB List/MGet hydration paths.
 func (m *MappingRepo) kbByRagID(ctx context.Context, ragKBID string) (*KBMapping, error) {
 	var row struct {
-		CozeKBID  int64  `gorm:"column:coze_kb_id"`
-		RagKBID   string `gorm:"column:rag_kb_id"`
-		IconURI   string `gorm:"column:icon_uri"`
-		AppID     int64  `gorm:"column:app_id"`
-		CreatorID int64  `gorm:"column:creator_id"`
+		CozeKBID   int64  `gorm:"column:coze_kb_id"`
+		RagKBID    string `gorm:"column:rag_kb_id"`
+		IconURI    string `gorm:"column:icon_uri"`
+		AppID      int64  `gorm:"column:app_id"`
+		CreatorID  int64  `gorm:"column:creator_id"`
+		FormatType int64  `gorm:"column:format_type"`
 	}
 	err := m.db.WithContext(ctx).
 		Table("rag_kb_mapping").
-		Select("coze_kb_id, rag_kb_id, icon_uri, app_id, creator_id").
+		Select("coze_kb_id, rag_kb_id, icon_uri, app_id, creator_id, format_type").
 		Where("rag_kb_id = ? AND (deleted_at IS NULL)", ragKBID).
 		Take(&row).Error
 	if err != nil {
@@ -201,6 +215,7 @@ func (m *MappingRepo) kbByRagID(ctx context.Context, ragKBID string) (*KBMapping
 	return &KBMapping{
 		CozeID: row.CozeKBID, RagKBID: row.RagKBID, IconURI: row.IconURI,
 		AppID: row.AppID, CreatorID: row.CreatorID,
+		FormatType: knowledgeModel.DocumentType(row.FormatType),
 	}, nil
 }
 
@@ -291,15 +306,18 @@ func (m *MappingRepo) docByRagID(ctx context.Context, ragDocID string) (*DocMapp
 // to match coze's project-wide convention. `deleted_at` is a datetime(3) -- soft delete
 // is signaled by NOW(3); restore is signaled by NULL.
 //
-// Note the slim signatures: name / description / status / format_type / space_id
-// are deliberately absent -- those live in rag, not in the mapping table.
+// Slim signatures: name / description / status / space_id are deliberately
+// absent -- those live in rag, not in the mapping table. format_type is the
+// exception: rag's KB metadata can't distinguish text/table/image (every KB
+// reports the union of capabilities its embedding bindings support), so coze
+// must remember what the caller asked for at create time.
 
-func (m *MappingRepo) InsertKB(ctx context.Context, cozeID int64, ragKBID, iconURI string, appID, creatorID, nowMs int64) error {
+func (m *MappingRepo) InsertKB(ctx context.Context, cozeID int64, ragKBID, iconURI string, appID, creatorID, nowMs int64, formatType knowledgeModel.DocumentType) error {
 	return m.db.WithContext(ctx).Exec(
 		`INSERT INTO rag_kb_mapping
-		 (coze_kb_id, rag_kb_id, icon_uri, app_id, creator_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?)`,
-		cozeID, ragKBID, iconURI, appID, creatorID, nowMs,
+		 (coze_kb_id, rag_kb_id, icon_uri, app_id, creator_id, created_at, format_type)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		cozeID, ragKBID, iconURI, appID, creatorID, nowMs, int64(formatType),
 	).Error
 }
 
