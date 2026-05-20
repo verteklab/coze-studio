@@ -14,6 +14,7 @@
  * limitations under the License.
  */
 
+import { FORCED_PARAMS_BY_SCHEMA } from './use-schemas';
 import {
   type DocumentOptionsValue,
   type DocumentParameter,
@@ -93,6 +94,34 @@ export function filterParamsByDependencies(
     }
     return p.group !== 'ocr' && p.group !== 'ocr_text';
   });
+}
+
+/**
+ * Overwrites keys in `value` whose forced override is declared in
+ * `FORCED_PARAMS_BY_SCHEMA[schemaId]`. Returns a new object — does not mutate
+ * the input. When `schemaId` is unknown or has no forced params, returns the
+ * input map unchanged (same reference is fine; callers treat the return as
+ * read-only).
+ *
+ * Force order vs the inverse-OCR mutex in `mergeSchemaDefaults`: must be
+ * called BEFORE the mutex. A stale form value with `enable_ocr=false` would
+ * otherwise let the mutex strip `ocr_model_id`, and only then would the force
+ * flip `enable_ocr` back to true — sending `{enable_ocr:true, ⌀ ocr_model_id}`
+ * trips rag's 40001 "ocr_model_id is required when enable_ocr is true".
+ */
+export function applyForcedParams<T extends Record<string, unknown>>(
+  schemaId: string | undefined,
+  value: T,
+): T {
+  const forced = FORCED_PARAMS_BY_SCHEMA[schemaId ?? ''];
+  if (!forced) {
+    return value;
+  }
+  const next = { ...value };
+  for (const [k, { value: v }] of Object.entries(forced)) {
+    next[k] = v;
+  }
+  return next as T;
 }
 
 export function mergeSchemaDefaults(

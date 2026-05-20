@@ -17,6 +17,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  applyForcedParams,
   filterParamsByDependencies,
   findMissingRequired,
   mergeSchemaDefaults,
@@ -245,5 +246,56 @@ describe('filterParamsByDependencies', () => {
       p => p.name,
     );
     expect(names).toEqual(['chunk_size', 'chunk_overlap']);
+  });
+});
+
+describe('applyForcedParams', () => {
+  it('returns the input map unchanged when schemaId is not in the forced map', () => {
+    const value = { enable_ocr: false, foo: 'bar' };
+    expect(applyForcedParams('text_document', value)).toEqual(value);
+    expect(applyForcedParams('markdown_document', value)).toEqual(value);
+    expect(applyForcedParams('totally_unknown', value)).toEqual(value);
+    expect(applyForcedParams(undefined, value)).toEqual(value);
+  });
+
+  it('overrides value.enable_ocr=false to true for image_document', () => {
+    expect(applyForcedParams('image_document', { enable_ocr: false })).toEqual({
+      enable_ocr: true,
+    });
+  });
+
+  it('overrides value.enable_ocr=false to true for scanned_document', () => {
+    expect(
+      applyForcedParams('scanned_document', { enable_ocr: false }),
+    ).toEqual({ enable_ocr: true });
+  });
+
+  it('preserves other keys when overriding forced params', () => {
+    expect(
+      applyForcedParams('image_document', {
+        enable_ocr: false,
+        ocr_model_id: 'paddle',
+        enable_image_embedding: true,
+      }),
+    ).toEqual({
+      enable_ocr: true,
+      ocr_model_id: 'paddle',
+      enable_image_embedding: true,
+    });
+  });
+
+  it('does not mutate the input map', () => {
+    const input = { enable_ocr: false };
+    applyForcedParams('image_document', input);
+    expect(input).toEqual({ enable_ocr: false });
+  });
+
+  it('returns enable_ocr=true unchanged when value already has it true (idempotent)', () => {
+    expect(applyForcedParams('image_document', { enable_ocr: true })).toEqual({
+      enable_ocr: true,
+    });
+    expect(applyForcedParams('scanned_document', { enable_ocr: true })).toEqual(
+      { enable_ocr: true },
+    );
   });
 });

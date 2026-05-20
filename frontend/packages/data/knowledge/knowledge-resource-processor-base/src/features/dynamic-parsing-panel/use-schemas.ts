@@ -48,6 +48,36 @@ const FRONTEND_PARAM_DEFAULTS: Readonly<Record<string, unknown>> = {
   ocr_model_id: 'model-ocr-paddle-infer-text',
 };
 
+// Params whose value is locked, regardless of user input or schema default.
+// Keyed by rag schema_id, then by param.name.
+//
+// Why: rag's image_document schema declares enable_ocr default=false, but
+// coze's workflow knowledge-retrieve node only does text-in/text-out, so an
+// OCR-off image upload silently produces a KB the node cannot retrieve from.
+// Force OCR on at the frontend so the natural upload UX produces text_chunks.
+//
+// `reason` is an i18n key used for the disabled-control tooltip in
+// dynamic-parsing-panel.tsx.
+export const FORCED_PARAMS_BY_SCHEMA: Readonly<
+  Record<
+    string,
+    Readonly<Record<string, Readonly<{ value: unknown; reason: string }>>>
+  >
+> = {
+  image_document: {
+    enable_ocr: {
+      value: true,
+      reason: 'datasets_createFileModel_rag_forced_ocr_hint',
+    },
+  },
+  scanned_document: {
+    enable_ocr: {
+      value: true,
+      reason: 'datasets_createFileModel_rag_forced_ocr_hint',
+    },
+  },
+};
+
 // Mutates `schemas` in place to fill in frontend defaults for parameters
 // rag didn't supply one for. Safe to call on the cached array because the
 // catalog is read-only after first fetch — the synthesised value lives
