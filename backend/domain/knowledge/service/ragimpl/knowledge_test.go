@@ -350,8 +350,6 @@ func newTestImpl(t *testing.T, fc *fakeClient, ids ...int64) *Impl {
 		storage:                      &stubStorage{},
 		defaultTextEmbeddingModelID:  "text-model-default",
 		defaultImageEmbeddingModelID: "image-model-default",
-		defaultLLMModelID:            "llm-model-default",
-		defaultRerankModelID:         "rerank-model-default",
 	}
 }
 
