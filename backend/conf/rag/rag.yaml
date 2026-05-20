@@ -7,6 +7,14 @@ rag:
   retry_backoff_ms: 200
   default_text_embedding_model_id: "${RAG_DEFAULT_TEXT_EMBEDDING_MODEL_ID}"
   default_image_embedding_model_id: "${RAG_DEFAULT_IMAGE_EMBEDDING_MODEL_ID}"
+  # LLM model id sent in query_strategy.llm_model_id when the caller enables
+  # rewrite / expansion / multi_query. REQUIRED by the deployed rag-web
+  # container's validator when any of those booleans are true.
+  default_llm_model_id: "${RAG_DEFAULT_LLM_MODEL_ID}"
+  # Rerank model id sent in query_strategy.rerank_model_id when the caller
+  # enables enable_rerank. REQUIRED by the deployed rag-web container's
+  # validator when enable_rerank is true.
+  default_rerank_model_id: "${RAG_DEFAULT_RERANK_MODEL_ID}"
 
 # NOTE: no auth_token field. rag has no service-to-service auth; coze relies on
 # network isolation (rag bound to internal Docker network). See spec §11 risk #1.

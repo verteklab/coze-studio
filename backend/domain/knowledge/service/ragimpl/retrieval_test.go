@@ -100,12 +100,12 @@ func TestRetrieve_ChunkIDBackfill_StableAcrossCalls(t *testing.T) {
 	require.Equal(t, int64(9001), resp2.RetrieveSlices[0].Slice.Info.ID, "same chunk_id must resolve to same coze id; idgen was already exhausted")
 }
 
-// TestRetrieve_QueryStrategy_FourBooleanSubset_NoModelIDs verifies that
-// when Strategy sets some subset of the 4 booleans (Rewrite / Expansion /
-// MultiQuery / EnableRerank), ragimpl emits exactly those keys in
-// query_strategy — no llm_model_id / rerank_model_id, no min_score /
-// document_ids / max_tokens anywhere on the wire.
-func TestRetrieve_QueryStrategy_FourBooleanSubset_NoModelIDs(t *testing.T) {
+// TestRetrieve_QueryStrategy_AllFourBooleansAndModelIDs verifies that
+// when Strategy sets all 4 booleans (Rewrite / Expansion / MultiQuery /
+// EnableRerank), ragimpl emits those keys PLUS the env-configured
+// llm_model_id and rerank_model_id required by the deployed rag-web
+// validator. document_ids / min_score / max_tokens stay off the wire.
+func TestRetrieve_QueryStrategy_AllFourBooleansAndModelIDs(t *testing.T) {
 	var capturedReq *contract.RetrieveRequest
 	fc := &fakeClient{
 		retrieveFunc: func(_ string, req *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
@@ -131,19 +131,66 @@ func TestRetrieve_QueryStrategy_FourBooleanSubset_NoModelIDs(t *testing.T) {
 
 	require.NotNil(t, capturedReq.QueryStrategy)
 	require.Equal(t, map[string]any{
-		"rewrite":       true,
-		"expansion":     true,
-		"multi_query":   true,
-		"enable_rerank": true,
+		"rewrite":         true,
+		"expansion":       true,
+		"multi_query":     true,
+		"enable_rerank":   true,
+		"llm_model_id":    "llm-model-default",
+		"rerank_model_id": "rerank-model-default",
 	}, capturedReq.QueryStrategy)
 
 	body, err := json.Marshal(capturedReq)
 	require.NoError(t, err)
-	require.NotContains(t, string(body), "llm_model_id")
-	require.NotContains(t, string(body), "rerank_model_id")
 	require.NotContains(t, string(body), "min_score")
 	require.NotContains(t, string(body), "document_ids")
 	require.NotContains(t, string(body), "max_tokens")
+}
+
+// TestRetrieve_QueryStrategy_EnhancementWithoutEnv_Errors verifies that
+// when the caller toggles query enhancement but defaultLLMModelID is
+// unset, ragimpl returns a clear error instead of forwarding a payload
+// rag would reject with a generic 40004.
+func TestRetrieve_QueryStrategy_EnhancementWithoutEnv_Errors(t *testing.T) {
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, _ *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			t.Fatalf("rag client should not be called when env is unset")
+			return nil, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	i.defaultLLMModelID = "" // simulate unconfigured env
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-1", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
+
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "hello",
+		KnowledgeIDs: []int64{100},
+		Strategy:     &knowledgeModel.RetrievalStrategy{Rewrite: true},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "RAG_DEFAULT_LLM_MODEL_ID is unset")
+}
+
+// TestRetrieve_EmptyQuery_Errors verifies that ragimpl rejects calls
+// where both Query and QueryImage are empty before they hit rag.
+func TestRetrieve_EmptyQuery_Errors(t *testing.T) {
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, _ *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			t.Fatalf("rag client should not be called when query is empty")
+			return nil, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-1", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
+
+	_, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{
+		Query:        "",
+		KnowledgeIDs: []int64{100},
+		Strategy:     &knowledgeModel.RetrievalStrategy{},
+	})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "query is empty")
 }
 
 // TestRetrieve_QueryStrategy_AllFalse_Omitted verifies that when the

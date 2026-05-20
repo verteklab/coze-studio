@@ -43,6 +43,20 @@ type Config struct {
 	RetryBackoffMs               int           `yaml:"retry_backoff_ms"`
 	DefaultTextEmbeddingModelID  string        `yaml:"default_text_embedding_model_id"`
 	DefaultImageEmbeddingModelID string        `yaml:"default_image_embedding_model_id"`
+	// DefaultLLMModelID is the rag model id sent in query_strategy.llm_model_id
+	// when the caller enables any of rewrite/expansion/multi_query. The
+	// rag-web container's retrieval validator REQUIRES this key when those
+	// booleans are true (see app/policy/validators/retrieval_validator.py
+	// inside the running rag image; the open-source source on this server
+	// differs but the deployed image is the source of truth). Empty value
+	// makes ragimpl reject the request with a clear error rather than send
+	// to rag and let it 40004.
+	DefaultLLMModelID string `yaml:"default_llm_model_id"`
+	// DefaultRerankModelID is the rag model id sent in
+	// query_strategy.rerank_model_id when the caller sets EnableRerank=true.
+	// Same rationale as DefaultLLMModelID — required by the deployed rag
+	// validator when enable_rerank is true.
+	DefaultRerankModelID string `yaml:"default_rerank_model_id"`
 }
 
 // FileConfig is the on-disk shape of backend/conf/rag/rag.yaml.

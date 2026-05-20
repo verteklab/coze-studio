@@ -45,6 +45,16 @@ type Impl struct {
 
 	defaultTextEmbeddingModelID  string
 	defaultImageEmbeddingModelID string
+	// defaultLLMModelID is sent in query_strategy.llm_model_id when the
+	// caller enables any of rewrite/expansion/multi_query. The deployed
+	// rag-web container's validator rejects requests that toggle any of
+	// those booleans without an llm_model_id present (40004). Empty value
+	// causes ragimpl.Retrieve to reject the call early with a clear error.
+	defaultLLMModelID string
+	// defaultRerankModelID is sent in query_strategy.rerank_model_id when
+	// the caller enables EnableRerank. Same enforcement story as
+	// defaultLLMModelID.
+	defaultRerankModelID string
 }
 
 func New(
@@ -53,7 +63,7 @@ func New(
 	idgen idgen.IDGenerator,
 	resolver TenantResolver,
 	storage storage.Storage,
-	defaultTextModel, defaultImageModel string,
+	defaultTextModel, defaultImageModel, defaultLLMModel, defaultRerankModel string,
 ) *Impl {
 	return &Impl{
 		rag:                          rag,
@@ -63,6 +73,8 @@ func New(
 		storage:                      storage,
 		defaultTextEmbeddingModelID:  defaultTextModel,
 		defaultImageEmbeddingModelID: defaultImageModel,
+		defaultLLMModelID:            defaultLLMModel,
+		defaultRerankModelID:         defaultRerankModel,
 	}
 }
 

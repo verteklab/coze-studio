@@ -19,6 +19,7 @@ package ragimpl
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	knowledgeModel "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
@@ -33,6 +34,19 @@ import (
 func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*knowledgeModel.RetrieveResponse, error) {
 	if len(req.KnowledgeIDs) == 0 {
 		return nil, errors.New("ragimpl.Retrieve: at least one knowledge_id required")
+	}
+
+	// Empty-query guard. The deployed rag-web container's pydantic schema
+	// rejects requests where query_mode=text_input but no query is present,
+	// AND rejects requests where neither query nor query_image is provided.
+	// Catch this early with a clear coze-side message instead of letting it
+	// surface as a generic 40004 "either query or query_image must be
+	// provided" from rag.
+	hasQuery := req.Query != ""
+	hasImage := req.Strategy != nil && req.Strategy.QueryImage != nil &&
+		(req.Strategy.QueryImage.ImageBase64 != "" || req.Strategy.QueryImage.ImageRef != "")
+	if !hasQuery && !hasImage {
+		return nil, errors.New("ragimpl.Retrieve: query is empty (and no query_image provided); cannot retrieve without a query")
 	}
 
 	kbs, err := i.mapping.KBsByCozeIDs(ctx, req.KnowledgeIDs)
@@ -78,9 +92,15 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 			ragReq.SearchType = "dense"
 		}
 
-		// query_strategy 4-boolean. Omit the dict entirely when all four are
-		// false (matches the "no enhancement requested" wire shape).
+		// query_strategy. The deployed rag-web container's validator accepts
+		// 6 keys total: rewrite / expansion / multi_query / enable_rerank
+		// (booleans) + llm_model_id / rerank_model_id (non-empty strings).
+		// Any of the first 3 booleans true requires llm_model_id; rerank
+		// requires rerank_model_id. We inject the env-configured defaults
+		// and fail-fast if env is empty so the caller gets a clearer error
+		// than rag's generic 40004.
 		qs := map[string]any{}
+		needsLLM := s.Rewrite || s.Expansion || s.MultiQuery
 		if s.Rewrite {
 			qs["rewrite"] = true
 		}
@@ -92,6 +112,18 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 		}
 		if s.EnableRerank {
 			qs["enable_rerank"] = true
+		}
+		if needsLLM {
+			if i.defaultLLMModelID == "" {
+				return nil, fmt.Errorf("ragimpl.Retrieve: query enhancement requested (rewrite/expansion/multi_query) but RAG_DEFAULT_LLM_MODEL_ID is unset; either configure the env or disable enhancement on the node")
+			}
+			qs["llm_model_id"] = i.defaultLLMModelID
+		}
+		if s.EnableRerank {
+			if i.defaultRerankModelID == "" {
+				return nil, fmt.Errorf("ragimpl.Retrieve: rerank requested but RAG_DEFAULT_RERANK_MODEL_ID is unset; either configure the env or disable rerank on the node")
+			}
+			qs["rerank_model_id"] = i.defaultRerankModelID
 		}
 		if len(qs) > 0 {
 			ragReq.QueryStrategy = qs
