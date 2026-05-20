@@ -2,7 +2,12 @@ rag:
   base_url: "${RAG_BASE_URL:http://rag-web:8000}"
   timeout_ms: 10000
   upload_timeout_ms: 60000
-  retrieval_timeout_ms: 15000
+  # 60s default covers worst-case hybrid retrieval with all 4 query_strategy
+  # enhancements on: rewrite + expansion + multi_query each cost 1 LLM call
+  # (serial, ~3-6s each), then dense + bm25 ES searches per variant, plus
+  # rerank. Override via RAG_RETRIEVAL_TIMEOUT_MS for deployments with
+  # slower LLM/rerank backends.
+  retrieval_timeout_ms: ${RAG_RETRIEVAL_TIMEOUT_MS:60000}
   max_retries: 2
   retry_backoff_ms: 200
   default_text_embedding_model_id: "${RAG_DEFAULT_TEXT_EMBEDDING_MODEL_ID}"
