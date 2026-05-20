@@ -16,7 +16,11 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { findMissingRequired, mergeSchemaDefaults } from './validate';
+import {
+  filterParamsByDependencies,
+  findMissingRequired,
+  mergeSchemaDefaults,
+} from './validate';
 import { type DocumentParameter, type DocumentParameterSchema } from './types';
 
 const param = (over: Partial<DocumentParameter>): DocumentParameter => ({
@@ -123,5 +127,123 @@ describe('mergeSchemaDefaults', () => {
     expect(mergeSchemaDefaults(s, { enable_ocr: false })).toEqual({
       enable_ocr: false,
     });
+  });
+
+  // Rag's ingestion validator rejects {ocr_model_id, enable_ocr:false} with
+  // 40001 ("ocr_model_id requires enable_ocr=true"). image_document declares
+  // ocr_model_id with default=null + required=false and enable_ocr default=false,
+  // so without this mutex the synthesised FRONTEND_PARAM_DEFAULTS leak onto
+  // the wire on every image-KB upload that leaves OCR off.
+  it('drops ocr_model_id when enable_ocr defaults to false', () => {
+    const s = schema([
+      param({ name: 'enable_ocr', ui_component: 'switch', default: false }),
+      param({
+        name: 'ocr_model_id',
+        ui_component: 'text',
+        default: 'model-ocr-paddle-infer-text',
+      }),
+      param({
+        name: 'enable_image_embedding',
+        ui_component: 'switch',
+        default: true,
+      }),
+    ]);
+    expect(mergeSchemaDefaults(s, {})).toEqual({
+      enable_ocr: false,
+      enable_image_embedding: true,
+    });
+  });
+
+  it('drops user-supplied ocr_model_id when enable_ocr is toggled off', () => {
+    const s = schema([
+      param({ name: 'enable_ocr', ui_component: 'switch', default: true }),
+      param({ name: 'ocr_model_id', ui_component: 'text', default: 'paddle' }),
+    ]);
+    expect(
+      mergeSchemaDefaults(s, { enable_ocr: false, ocr_model_id: 'custom' }),
+    ).toEqual({ enable_ocr: false });
+  });
+
+  it('keeps ocr_model_id when enable_ocr is true', () => {
+    const s = schema([
+      param({ name: 'enable_ocr', ui_component: 'switch', default: false }),
+      param({ name: 'ocr_model_id', ui_component: 'text', default: 'paddle' }),
+    ]);
+    expect(mergeSchemaDefaults(s, { enable_ocr: true })).toEqual({
+      enable_ocr: true,
+      ocr_model_id: 'paddle',
+    });
+  });
+});
+
+describe('filterParamsByDependencies', () => {
+  // Mirrors rag's ingestion-validator dependency chain: with enable_ocr off,
+  // the entire ocr / ocr_text param groups are inert (mergeSchemaDefaults
+  // already strips ocr_model_id from the wire). Hiding the widgets keeps the
+  // form honest — the user can't tweak knobs that have no effect.
+  const ocr = (over: Partial<DocumentParameter>): DocumentParameter =>
+    param({ group: 'ocr', ...over });
+  const ocrText = (over: Partial<DocumentParameter>): DocumentParameter =>
+    param({ group: 'ocr_text', ...over });
+
+  it('hides ocr / ocr_text params when enable_ocr is false (schema default)', () => {
+    const s = schema([
+      ocr({ name: 'enable_ocr', ui_component: 'switch', default: false }),
+      ocr({ name: 'ocr_model_id', default: 'paddle' }),
+      ocr({ name: 'ocr_languages' }),
+      ocrText({ name: 'chunk_size_ocr_text' }),
+      param({
+        name: 'enable_image_embedding',
+        group: 'image_chunking',
+        default: true,
+      }),
+    ]);
+    const names = filterParamsByDependencies(s.parameters, {}, s).map(
+      p => p.name,
+    );
+    expect(names).toEqual(['enable_ocr', 'enable_image_embedding']);
+  });
+
+  it('hides ocr params when enable_ocr is explicitly toggled off', () => {
+    const s = schema([
+      ocr({ name: 'enable_ocr', ui_component: 'switch', default: true }),
+      ocr({ name: 'ocr_model_id', default: 'paddle' }),
+      ocrText({ name: 'chunk_size_ocr_text' }),
+    ]);
+    const names = filterParamsByDependencies(
+      s.parameters,
+      { enable_ocr: false },
+      s,
+    ).map(p => p.name);
+    expect(names).toEqual(['enable_ocr']);
+  });
+
+  it('shows all params when enable_ocr is true', () => {
+    const s = schema([
+      ocr({ name: 'enable_ocr', ui_component: 'switch', default: false }),
+      ocr({ name: 'ocr_model_id', default: 'paddle' }),
+      ocrText({ name: 'chunk_size_ocr_text' }),
+    ]);
+    const names = filterParamsByDependencies(
+      s.parameters,
+      { enable_ocr: true },
+      s,
+    ).map(p => p.name);
+    expect(names).toEqual([
+      'enable_ocr',
+      'ocr_model_id',
+      'chunk_size_ocr_text',
+    ]);
+  });
+
+  it('shows all params on schemas without an enable_ocr param (text/markdown)', () => {
+    const s = schema([
+      param({ name: 'chunk_size', group: 'chunking' }),
+      param({ name: 'chunk_overlap', group: 'chunking' }),
+    ]);
+    const names = filterParamsByDependencies(s.parameters, {}, s).map(
+      p => p.name,
+    );
+    expect(names).toEqual(['chunk_size', 'chunk_overlap']);
   });
 });

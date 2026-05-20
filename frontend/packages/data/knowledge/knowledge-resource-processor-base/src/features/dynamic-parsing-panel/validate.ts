@@ -56,6 +56,45 @@ export function findMissingRequired(
  * and rag's pydantic would 422 a literal null on a required string field.
  * User-supplied `value` always wins on key collision.
  */
+/**
+ * Returns the params that should actually render given the current form
+ * `value`. Hides widgets whose values would be inert under rag's ingestion
+ * validator — today only the OCR dependency chain: when `enable_ocr` is off,
+ * everything in the `ocr` and `ocr_text` groups (model id, languages, OCR-
+ * text chunking knobs) becomes a no-op (mergeSchemaDefaults strips
+ * ocr_model_id from the wire; the rest would either be ignored or 40001).
+ * The `enable_ocr` toggle itself stays visible so the user can turn it back
+ * on. Schemas without an `enable_ocr` param (text / markdown / docx) are
+ * unaffected.
+ *
+ * Falls back to the schema's declared default when the user hasn't touched
+ * `enable_ocr` yet — image_document declares false, scanned_document true,
+ * matching their natural defaults.
+ */
+export function filterParamsByDependencies(
+  params: DocumentParameter[],
+  value: DocumentOptionsValue,
+  schema: DocumentParameterSchema,
+): DocumentParameter[] {
+  const enableOcrParam = schema.parameters.find(p => p.name === 'enable_ocr');
+  if (!enableOcrParam) {
+    return params;
+  }
+  const enableOcr =
+    typeof value.enable_ocr === 'boolean'
+      ? value.enable_ocr
+      : Boolean(enableOcrParam.default);
+  if (enableOcr) {
+    return params;
+  }
+  return params.filter(p => {
+    if (p.name === 'enable_ocr') {
+      return true;
+    }
+    return p.group !== 'ocr' && p.group !== 'ocr_text';
+  });
+}
+
 export function mergeSchemaDefaults(
   schema: DocumentParameterSchema,
   value: DocumentOptionsValue,
@@ -66,7 +105,19 @@ export function mergeSchemaDefaults(
       defaults[p.name] = p.default;
     }
   }
-  return { ...defaults, ...value };
+  const merged: DocumentOptionsValue = { ...defaults, ...value };
+
+  // Rag's ingestion validator enforces a mutex: ocr_model_id may only travel
+  // when enable_ocr is true. Sending both `{enable_ocr: false, ocr_model_id}`
+  // fires 40001 "ocr_model_id requires enable_ocr=true". image_document
+  // declares enable_ocr default=false with a non-required ocr_model_id, and
+  // FRONTEND_PARAM_DEFAULTS synthesises a model-id default — without this
+  // prune every image-KB upload that left OCR off would hit 40001.
+  if (merged.enable_ocr !== true && 'ocr_model_id' in merged) {
+    delete merged.ocr_model_id;
+  }
+
+  return merged;
 }
 
 function isEmpty(v: unknown, p: DocumentParameter): boolean {

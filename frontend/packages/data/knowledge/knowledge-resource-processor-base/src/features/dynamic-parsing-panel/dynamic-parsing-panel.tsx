@@ -27,6 +27,7 @@ import {
 
 import { CollapsePanel } from '@/components';
 
+import { filterParamsByDependencies } from './validate';
 import {
   type DocumentParameter,
   type DocumentParameterSchema,
@@ -63,13 +64,21 @@ export const DynamicParsingPanel: FC<DynamicParsingPanelProps> = ({
   onChange,
 }) => {
   const { visible, advanced } = useMemo(() => {
+    // Drop params whose dependencies aren't satisfied (e.g. OCR knobs when
+    // enable_ocr is off) before splitting into open/advanced — keeps the
+    // form honest about which knobs actually affect the upload.
+    const filtered = filterParamsByDependencies(
+      schema.parameters,
+      value,
+      schema,
+    );
     const visibleList: DocumentParameter[] = [];
     const advancedList: DocumentParameter[] = [];
-    for (const p of schema.parameters) {
+    for (const p of filtered) {
       (p.advanced ? advancedList : visibleList).push(p);
     }
     return { visible: visibleList, advanced: advancedList };
-  }, [schema.parameters]);
+  }, [schema, value.enable_ocr]);
 
   const handleFieldChange = (paramName: string, fieldValue: unknown): void => {
     onChange({ ...value, [paramName]: fieldValue });
