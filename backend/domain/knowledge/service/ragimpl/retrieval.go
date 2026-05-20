@@ -18,6 +18,7 @@ package ragimpl
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 
@@ -156,6 +157,15 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 		if len(s.RetrieverParams) > 0 {
 			ragReq.RetrieverParams = s.RetrieverParams
 		}
+	}
+
+	// Debug log of the outgoing rag retrieval body. Marshals defensively —
+	// json.Marshal on a request struct only fails on cyclic / unsupported
+	// types, which can't happen here. Cheap (one alloc per call) and the
+	// log is the fastest path to debugging "what did coze send to rag?"
+	// without tcpdump or rag-side logging tricks.
+	if body, mErr := json.Marshal(ragReq); mErr == nil {
+		logs.CtxInfof(ctx, "ragimpl.Retrieve: tenant=%s body=%s", tenant, string(body))
 	}
 
 	resp, err := i.rag.Retrieve(ctx, tenant, ragReq)
