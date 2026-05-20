@@ -47,12 +47,7 @@ type contextKey string
 const chatHistoryKey contextKey = "chatHistory"
 
 type RetrieveConfig struct {
-	KnowledgeIDs []int64
-	// DocumentIDs is an optional filter applied at the top-level RetrieveRequest
-	// (NOT on RetrievalStrategy). When empty, rag returns chunks across the
-	// entire KB; when set, results are limited to the listed documents. Sourced
-	// from the `documentIDs` datasetParam emitted by the workflow UI (R2-I).
-	DocumentIDs        []int64
+	KnowledgeIDs       []int64
 	RetrievalStrategy  *knowledge.RetrievalStrategy
 	ChatHistorySetting *vo.ChatHistorySetting
 }
@@ -98,76 +93,41 @@ func (r *RetrieveConfig) Adapt(_ context.Context, n *vo.Node, _ ...nodes.AdaptOp
 		if err != nil {
 			return nil, err
 		}
-		// Drop non-positive values. The UI emits the topK param with no Content
-		// key when the input is left blank; cast.ToInt64E(nil) returns (0, nil),
-		// which previously propagated as `top_k: 0` and 40004'd at rag's
-		// retrieval validator (top_k must be > 0). An explicit 0 from the user
-		// is treated the same way -- "let rag pick a default" is the only sane
-		// fallback when the value rag would reject is what we'd send.
 		if topK > 0 {
 			retrievalStrategy.TopK = &topK
 		}
 	}
 
-	if content, ok := getDesignatedParamContent("useRerank"); ok {
-		useRerank, err := cast.ToBoolE(content)
+	// 4-boolean query_strategy (rag wire-level keys: rewrite / expansion /
+	// multi_query / enable_rerank). Frontend param names use camelCase:
+	// rewrite / expansion / multiQuery / enableRerank.
+	if content, ok := getDesignatedParamContent("rewrite"); ok {
+		v, err := cast.ToBoolE(content)
 		if err != nil {
 			return nil, err
 		}
-		retrievalStrategy.EnableRerank = useRerank
+		retrievalStrategy.Rewrite = v
 	}
-
-	if content, ok := getDesignatedParamContent("useRewrite"); ok {
-		useRewrite, err := cast.ToBoolE(content)
+	if content, ok := getDesignatedParamContent("expansion"); ok {
+		v, err := cast.ToBoolE(content)
 		if err != nil {
 			return nil, err
 		}
-		retrievalStrategy.EnableQueryRewrite = useRewrite
+		retrievalStrategy.Expansion = v
 	}
-
-	if content, ok := getDesignatedParamContent("isPersonalOnly"); ok {
-		isPersonalOnly, err := cast.ToBoolE(content)
+	if content, ok := getDesignatedParamContent("multiQuery"); ok {
+		v, err := cast.ToBoolE(content)
 		if err != nil {
 			return nil, err
 		}
-		retrievalStrategy.IsPersonalOnly = isPersonalOnly
+		retrievalStrategy.MultiQuery = v
 	}
-
-	if content, ok := getDesignatedParamContent("useNl2sql"); ok {
-		useNl2sql, err := cast.ToBoolE(content)
+	if content, ok := getDesignatedParamContent("enableRerank"); ok {
+		v, err := cast.ToBoolE(content)
 		if err != nil {
 			return nil, err
 		}
-		retrievalStrategy.EnableNL2SQL = useNl2sql
-	}
-
-	if content, ok := getDesignatedParamContent("minScore"); ok {
-		minScore, err := cast.ToFloat64E(content)
-		if err != nil {
-			return nil, err
-		}
-		retrievalStrategy.MinScore = &minScore
-	}
-
-	if content, ok := getDesignatedParamContent("documentIDs"); ok {
-		raw, ok := content.([]any)
-		if !ok {
-			return nil, errors.New("documentIDs param must be a list")
-		}
-		docIDs := make([]int64, 0, len(raw))
-		for _, id := range raw {
-			v, err := cast.ToInt64E(id)
-			if err != nil {
-				return nil, err
-			}
-			docIDs = append(docIDs, v)
-		}
-		// Leave nil when the UI sent an explicitly empty list -- that means
-		// "no filter", same as the param being absent. Forwarding [] to rag
-		// would otherwise zero-out the result set.
-		if len(docIDs) > 0 {
-			r.DocumentIDs = docIDs
-		}
+		retrievalStrategy.EnableRerank = v
 	}
 
 	if content, ok := getDesignatedParamContent("strategy"); ok {
@@ -180,6 +140,110 @@ func (r *RetrieveConfig) Adapt(_ context.Context, n *vo.Node, _ ...nodes.AdaptOp
 			return nil, err
 		}
 		retrievalStrategy.SearchType = searchType
+	}
+
+	if content, ok := getDesignatedParamContent("queryMode"); ok && content != nil {
+		mode, err := cast.ToStringE(content)
+		if err != nil {
+			return nil, err
+		}
+		switch mode {
+		case "", "text_input", "image_input", "mixed_input":
+			retrievalStrategy.QueryMode = mode
+		default:
+			return nil, errors.New("queryMode must be one of text_input / image_input / mixed_input")
+		}
+	}
+
+	if content, ok := getDesignatedParamContent("queryImage"); ok && content != nil {
+		m, ok := content.(map[string]any)
+		if !ok {
+			return nil, errors.New("queryImage param must be an object")
+		}
+		qi := &knowledge.QueryImage{}
+		if v, present := m["image_base64"]; present {
+			s, err := cast.ToStringE(v)
+			if err != nil {
+				return nil, err
+			}
+			qi.ImageBase64 = s
+		}
+		if v, present := m["image_ref"]; present {
+			s, err := cast.ToStringE(v)
+			if err != nil {
+				return nil, err
+			}
+			qi.ImageRef = s
+		}
+		if qi.ImageBase64 != "" || qi.ImageRef != "" {
+			retrievalStrategy.QueryImage = qi
+		}
+	}
+
+	if content, ok := getDesignatedParamContent("targetChunkTypes"); ok && content != nil {
+		raw, ok := content.([]any)
+		if !ok {
+			return nil, errors.New("targetChunkTypes param must be a list")
+		}
+		out := make([]string, 0, len(raw))
+		for _, v := range raw {
+			s, err := cast.ToStringE(v)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, s)
+		}
+		if len(out) > 0 {
+			retrievalStrategy.TargetChunkTypes = out
+		}
+	}
+
+	if content, ok := getDesignatedParamContent("filters"); ok && content != nil {
+		m, ok := content.(map[string]any)
+		if !ok {
+			return nil, errors.New("filters param must be an object")
+		}
+		if len(m) > 0 {
+			retrievalStrategy.Filters = m
+		}
+	}
+
+	if content, ok := getDesignatedParamContent("retrievers"); ok && content != nil {
+		raw, ok := content.([]any)
+		if !ok {
+			return nil, errors.New("retrievers param must be a list")
+		}
+		out := make([]string, 0, len(raw))
+		for _, v := range raw {
+			s, err := cast.ToStringE(v)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, s)
+		}
+		if len(out) > 0 {
+			retrievalStrategy.Retrievers = out
+		}
+	}
+
+	if content, ok := getDesignatedParamContent("fusionPolicy"); ok && content != nil {
+		m, ok := content.(map[string]any)
+		if !ok {
+			return nil, errors.New("fusionPolicy param must be an object")
+		}
+		if len(m) > 0 {
+			retrievalStrategy.FusionPolicy = m
+		}
+	}
+
+	if content, ok := getDesignatedParamContent("retrieverParams"); ok && content != nil {
+		m, ok := content.(map[string]any)
+		if !ok {
+			return nil, errors.New("retrieverParams param must be an object")
+		}
+		if len(m) > 0 {
+			retrievalStrategy.RetrieverParams = m
+		}
 	}
 
 	r.RetrievalStrategy = retrievalStrategy
@@ -206,7 +270,6 @@ func (r *RetrieveConfig) Build(_ context.Context, _ *schema.NodeSchema, _ ...sch
 
 	return &Retrieve{
 		knowledgeIDs:       r.KnowledgeIDs,
-		documentIDs:        r.DocumentIDs,
 		retrievalStrategy:  r.RetrievalStrategy,
 		ChatHistorySetting: r.ChatHistorySetting,
 	}, nil
@@ -224,11 +287,7 @@ func (c *RetrieveConfig) ChatHistoryRounds() int64 {
 }
 
 type Retrieve struct {
-	knowledgeIDs []int64
-	// documentIDs is the optional list of rag document IDs the user picked in the
-	// node config. Forwarded as RetrieveRequest.DocumentIDs (top-level, not
-	// RetrievalStrategy) per crossdomain/knowledge/model.RetrieveRequest.
-	documentIDs        []int64
+	knowledgeIDs       []int64
 	retrievalStrategy  *knowledge.RetrievalStrategy
 	ChatHistorySetting *vo.ChatHistorySetting
 }
@@ -242,7 +301,6 @@ func (kr *Retrieve) Invoke(ctx context.Context, input map[string]any) (map[strin
 	req := &knowledge.RetrieveRequest{
 		Query:        query,
 		KnowledgeIDs: kr.knowledgeIDs,
-		DocumentIDs:  kr.documentIDs,
 		ChatHistory:  kr.GetChatHistoryOrNil(ctx, kr.ChatHistorySetting),
 		Strategy:     kr.retrievalStrategy,
 	}
