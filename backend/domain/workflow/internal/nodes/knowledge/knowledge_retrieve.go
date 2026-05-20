@@ -93,6 +93,8 @@ func (r *RetrieveConfig) Adapt(_ context.Context, n *vo.Node, _ ...nodes.AdaptOp
 		if err != nil {
 			return nil, err
 		}
+		// Drop non-positive values: rag 40004's on top_k=0 / blank UI input.
+		// Letting rag pick its own default is the only sane fallback here.
 		if topK > 0 {
 			retrievalStrategy.TopK = &topK
 		}
@@ -101,28 +103,28 @@ func (r *RetrieveConfig) Adapt(_ context.Context, n *vo.Node, _ ...nodes.AdaptOp
 	// 4-boolean query_strategy (rag wire-level keys: rewrite / expansion /
 	// multi_query / enable_rerank). Frontend param names use camelCase:
 	// rewrite / expansion / multiQuery / enableRerank.
-	if content, ok := getDesignatedParamContent("rewrite"); ok {
+	if content, ok := getDesignatedParamContent("rewrite"); ok && content != nil {
 		v, err := cast.ToBoolE(content)
 		if err != nil {
 			return nil, err
 		}
 		retrievalStrategy.Rewrite = v
 	}
-	if content, ok := getDesignatedParamContent("expansion"); ok {
+	if content, ok := getDesignatedParamContent("expansion"); ok && content != nil {
 		v, err := cast.ToBoolE(content)
 		if err != nil {
 			return nil, err
 		}
 		retrievalStrategy.Expansion = v
 	}
-	if content, ok := getDesignatedParamContent("multiQuery"); ok {
+	if content, ok := getDesignatedParamContent("multiQuery"); ok && content != nil {
 		v, err := cast.ToBoolE(content)
 		if err != nil {
 			return nil, err
 		}
 		retrievalStrategy.MultiQuery = v
 	}
-	if content, ok := getDesignatedParamContent("enableRerank"); ok {
+	if content, ok := getDesignatedParamContent("enableRerank"); ok && content != nil {
 		v, err := cast.ToBoolE(content)
 		if err != nil {
 			return nil, err
@@ -155,6 +157,10 @@ func (r *RetrieveConfig) Adapt(_ context.Context, n *vo.Node, _ ...nodes.AdaptOp
 		}
 	}
 
+	// queryImage's inner keys are snake_case (image_base64 / image_ref) to
+	// match rag's ImageQueryDTO wire shape. The frontend QueryInputSection
+	// emits matching keys; do not switch to camelCase here without
+	// coordinating with the frontend contract.
 	if content, ok := getDesignatedParamContent("queryImage"); ok && content != nil {
 		m, ok := content.(map[string]any)
 		if !ok {
@@ -198,6 +204,11 @@ func (r *RetrieveConfig) Adapt(_ context.Context, n *vo.Node, _ ...nodes.AdaptOp
 		}
 	}
 
+	// filters / fusionPolicy / retrieverParams forward inner keys to rag
+	// verbatim. Inner keys must match rag's expected shape (snake_case for
+	// rag's metadata filter keys; see rag's RetrievalRequest pydantic model).
+	// Mismatched keys are silently dropped by rag's pydantic extra=ignore;
+	// no validation happens at this layer.
 	if content, ok := getDesignatedParamContent("filters"); ok && content != nil {
 		m, ok := content.(map[string]any)
 		if !ok {
