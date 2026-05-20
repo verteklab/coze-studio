@@ -165,3 +165,81 @@ Panel rendering tests (if the existing component test setup covers this):
 - `coze-rag-ocr-validator-mutex` (memory): the original 40001 fix that established the inverse-OCR mutex this design extends
 - `coze-rag-kb-type-persisted-locally` (memory): why `format_type=2` lives in `rag_kb_mapping` (so coze knows which KBs are "image KBs" — relevant if a future iteration wants to gate this UX by KB type)
 - `coze-rag-retrieval-param-mismatch` (memory): same contract-drift family — frontend takes responsibility for a policy that rag's per-schema default doesn't express
+
+---
+
+# Follow-up: Hide image_chunk config (2026-05-20)
+
+## Problem
+
+After locking `enable_ocr=true`, the upload form still exposes two image-chunk-related toggles for `image_document` and `scanned_document`:
+- `enable_image_embedding` (group: `image_chunking`) — runs the image through a CLIP-style embedding model
+- `produce_image_chunk` (group: `chunk_outputs`) — outputs the resulting vector as an `image_chunk`
+
+The workflow knowledge-retrieve node is text-in/text-out — it cannot consume `image_chunk` (would need `query_image` + `target_chunk_types=["image_chunk"]` override, neither exposed by the node UI). Currently `image_document` defaults `enable_image_embedding=true`, so every uploaded image gets a CLIP vector produced and stored in Milvus — pure waste in this UX.
+
+## Goal
+
+Hide both image-chunk toggles from the upload UI and force them off on the wire for both `image_document` and `scanned_document`. No `image_chunk` produced; CLIP inference and vector storage saved.
+
+## Non-Goals
+
+- Existing image_chunks in the live stack — not touched.
+- Multi-modal retrieval future work — when/if that lands, the hide can be reverted; the architecture supports it.
+- Other groups (`ocr_layout.include_image_ref`) — keeps OCR text-chunk image references, unrelated to image_chunks.
+
+## Design
+
+### Extend `FORCED_PARAMS_BY_SCHEMA` entry shape
+
+Change the entry type from single-form to a discriminated union:
+
+```ts
+type ForcedParamEntry =
+  | { value: unknown; reason: string; hidden?: false }  // visible: disabled+Tooltip+warning
+  | { value: unknown; hidden: true };                    // hidden: skip rendering, still force wire value
+```
+
+Semantics:
+- **Visible (`hidden: false` or omitted)**: control renders disabled, with Tooltip and inline warning Typography — current behavior for `enable_ocr`.
+- **Hidden (`hidden: true`)**: param skipped entirely in `GroupedFields`; `applyForcedParams` still pins the wire value.
+
+### New forced entries
+
+`image_document` and `scanned_document` each gain two hidden forced entries:
+
+```ts
+enable_image_embedding: { value: false, hidden: true },
+produce_image_chunk:    { value: false, hidden: true },
+```
+
+For `scanned_document` these align with rag's schema defaults (false), but the lock is kept symmetric + defensive (stale state, future drift).
+
+### Panel rendering
+
+`GroupedFields` filters out hidden entries before mapping params to controls. Hidden entries don't render: no control, no description, no warning Typography line.
+
+`applyForcedParams` doesn't change — it processes all entries identically. The `hidden` flag is a render-time concern only.
+
+### Why no i18n key for hidden entries
+
+Hidden entries don't surface text to the user, so no `reason` field is needed. The discriminated union enforces this at the type level.
+
+## Tests
+
+In `validate.test.ts`:
+- `applyForcedParams forces enable_image_embedding=false on image_document`
+- `applyForcedParams forces produce_image_chunk=false on image_document`
+- Same two for `scanned_document`
+- `mergeSchemaDefaults for image_document outputs neither true image-chunk flag` (integration)
+
+In `dynamic-parsing-panel.test.tsx`:
+- `does not render enable_image_embedding control on image_document`
+- `does not render produce_image_chunk control on image_document`
+- Same two for `scanned_document`
+- `still renders these params on schemas not in the forced map` (negative — these schemas don't actually have these params, so trivially satisfied; skip if redundant)
+
+## Out of Scope
+
+- The `include_image_ref` param (ocr_layout group) — unrelated to image_chunks.
+- Existing `image_chunk`s in rag-side Milvus — they remain but become orphan data with no consumer in the workflow path.

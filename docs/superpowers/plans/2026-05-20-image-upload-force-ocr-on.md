@@ -1234,3 +1234,336 @@ Step 5 is verification, not code change. If you noticed any issue in the running
   2. `feat(knowledge-rag): wire forced enable_ocr=true into mergeSchemaDefaults`
   3. `feat(i18n): add datasets_createFileModel_rag_forced_ocr_hint`
   4. `feat(knowledge-rag): render forced params as disabled + tooltip`
+
+---
+
+## Task 6: Hide image_chunk config (extend forced map with hidden flag)
+
+Extends `FORCED_PARAMS_BY_SCHEMA` entry type from a single shape into a discriminated union: visible entries still get rendered disabled with Tooltip+warning (Task 4 behavior); hidden entries skip rendering entirely while still forcing the wire value via `applyForcedParams`. Adds `enable_image_embedding=false` and `produce_image_chunk=false` to both image-bearing schemas — kills image_chunk production since the workflow knowledge-retrieve node can't consume them.
+
+**Files:**
+- Modify: `frontend/packages/data/knowledge/knowledge-resource-processor-base/src/features/dynamic-parsing-panel/use-schemas.ts`
+- Modify: `frontend/packages/data/knowledge/knowledge-resource-processor-base/src/features/dynamic-parsing-panel/validate.test.ts`
+- Modify: `frontend/packages/data/knowledge/knowledge-resource-processor-base/src/features/dynamic-parsing-panel/dynamic-parsing-panel.tsx`
+- Modify: `frontend/packages/data/knowledge/knowledge-resource-processor-base/src/features/dynamic-parsing-panel/dynamic-parsing-panel.test.tsx`
+
+(No changes to `validate.ts` — `applyForcedParams` already handles hidden entries identically. No new i18n keys — hidden entries don't render text.)
+
+---
+
+- [ ] **Step 1: Write failing tests for `applyForcedParams` with new hidden entries**
+
+In `validate.test.ts`, inside the existing `describe('applyForcedParams', ...)` block, append before the closing `});`:
+
+```ts
+  it('forces enable_image_embedding=false on image_document', () => {
+    expect(
+      applyForcedParams('image_document', { enable_image_embedding: true }),
+    ).toEqual({
+      enable_image_embedding: false,
+      enable_ocr: true,
+    });
+  });
+
+  it('forces produce_image_chunk=false on image_document', () => {
+    expect(
+      applyForcedParams('image_document', { produce_image_chunk: true }),
+    ).toEqual({
+      produce_image_chunk: false,
+      enable_ocr: true,
+    });
+  });
+
+  it('forces enable_image_embedding=false and produce_image_chunk=false on scanned_document', () => {
+    expect(
+      applyForcedParams('scanned_document', {
+        enable_image_embedding: true,
+        produce_image_chunk: true,
+      }),
+    ).toEqual({
+      enable_image_embedding: false,
+      produce_image_chunk: false,
+      enable_ocr: true,
+    });
+  });
+```
+
+Then inside the `describe('mergeSchemaDefaults', ...)` block, append before the closing `});`:
+
+```ts
+  it('strips all image_chunk-related defaults on image_document', () => {
+    // image_document's rag-side defaults: enable_image_embedding=true,
+    // produce_image_chunk=true. Without the hidden forced entries those
+    // would propagate to the wire and produce useless image_chunks. With
+    // the lock, both end up false.
+    const s = imageSchema([
+      param({ name: 'enable_ocr', ui_component: 'switch', default: false }),
+      param({
+        name: 'ocr_model_id',
+        ui_component: 'text',
+        default: 'paddle',
+      }),
+      param({
+        name: 'enable_image_embedding',
+        ui_component: 'switch',
+        default: true,
+      }),
+      param({
+        name: 'produce_image_chunk',
+        ui_component: 'switch',
+        default: true,
+      }),
+    ]);
+    expect(mergeSchemaDefaults(s, {})).toEqual({
+      enable_ocr: true,
+      ocr_model_id: 'paddle',
+      enable_image_embedding: false,
+      produce_image_chunk: false,
+    });
+  });
+```
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+From the package dir:
+```bash
+npm run test -- validate.test.ts
+```
+Expected: 4 new tests fail (the forced map doesn't have these entries yet). Existing tests pass.
+
+- [ ] **Step 3: Extend the forced map type and add the new entries**
+
+In `use-schemas.ts`, replace the existing `FORCED_PARAMS_BY_SCHEMA` declaration with the discriminated union form plus the new entries:
+
+```ts
+// Params whose value is locked, regardless of user input or schema default.
+// Keyed by rag schema_id, then by param.name.
+//
+// Why: rag's image_document schema declares enable_ocr default=false, but
+// coze's workflow knowledge-retrieve node only does text-in/text-out, so an
+// OCR-off image upload silently produces a KB the node cannot retrieve from.
+// Force OCR on at the frontend so the natural upload UX produces text_chunks.
+//
+// Two entry forms:
+//   - visible (omits hidden, requires reason): control renders disabled with
+//     a Tooltip + inline warning showing I18n.t(reason)
+//   - hidden (hidden: true, no reason): control is not rendered at all; the
+//     wire value is still pinned via applyForcedParams
+//
+// image_chunk-related entries (enable_image_embedding, produce_image_chunk)
+// are hidden because the workflow knowledge-retrieve node can't consume
+// image_chunks — producing them is pure waste in this UX.
+type ForcedParamEntry =
+  | { value: unknown; reason: string; hidden?: false }
+  | { value: unknown; hidden: true };
+
+export const FORCED_PARAMS_BY_SCHEMA: Readonly<
+  Record<string, Readonly<Record<string, Readonly<ForcedParamEntry>>>>
+> = {
+  image_document: {
+    enable_ocr: {
+      value: true,
+      reason: 'datasets_createFileModel_rag_forced_ocr_hint',
+    },
+    enable_image_embedding: { value: false, hidden: true },
+    produce_image_chunk: { value: false, hidden: true },
+  },
+  scanned_document: {
+    enable_ocr: {
+      value: true,
+      reason: 'datasets_createFileModel_rag_forced_ocr_hint',
+    },
+    enable_image_embedding: { value: false, hidden: true },
+    produce_image_chunk: { value: false, hidden: true },
+  },
+};
+```
+
+- [ ] **Step 4: Run tests — wire-level tests should now pass**
+
+```bash
+npm run test -- validate.test.ts
+```
+Expected: all tests pass (the 3 new applyForcedParams tests + the new mergeSchemaDefaults test go green). `applyForcedParams` is generic over entry shape — it ignores the `reason` / `hidden` fields and only uses `value`, so no code change needed there.
+
+If any existing test now fails, stop and report — the type widening may have broken something.
+
+- [ ] **Step 5: Write failing tests for panel hide behavior**
+
+In `dynamic-parsing-panel.test.tsx`, inside the existing `describe('DynamicParsingPanel forced params', ...)` block, append:
+
+```ts
+  it('hides enable_image_embedding control on image_document', () => {
+    const s = schemaOf('image_document', [
+      param({
+        name: 'enable_image_embedding',
+        ui_component: 'switch',
+        group: 'image_chunking',
+        default: true,
+      }),
+    ]);
+    render(
+      <DynamicParsingPanel schema={s} value={{}} onChange={vi.fn()} />,
+    );
+    // The mock Switch renders an <input type="checkbox" id="dpp-...">.
+    // For a hidden forced param, no such input should exist.
+    expect(document.getElementById('dpp-enable_image_embedding')).toBeNull();
+  });
+
+  it('hides produce_image_chunk control on image_document', () => {
+    const s = schemaOf('image_document', [
+      param({
+        name: 'produce_image_chunk',
+        ui_component: 'switch',
+        group: 'chunk_outputs',
+        default: true,
+      }),
+    ]);
+    render(
+      <DynamicParsingPanel schema={s} value={{}} onChange={vi.fn()} />,
+    );
+    expect(document.getElementById('dpp-produce_image_chunk')).toBeNull();
+  });
+
+  it('hides both image-chunk controls on scanned_document', () => {
+    const s = schemaOf('scanned_document', [
+      param({
+        name: 'enable_image_embedding',
+        ui_component: 'switch',
+        group: 'image_chunking',
+        default: false,
+      }),
+      param({
+        name: 'produce_image_chunk',
+        ui_component: 'switch',
+        group: 'chunk_outputs',
+        default: false,
+      }),
+    ]);
+    render(
+      <DynamicParsingPanel schema={s} value={{}} onChange={vi.fn()} />,
+    );
+    expect(document.getElementById('dpp-enable_image_embedding')).toBeNull();
+    expect(document.getElementById('dpp-produce_image_chunk')).toBeNull();
+  });
+
+  it('does NOT hide enable_image_embedding on unforced schemas', () => {
+    // Regression guard: hide policy must be schema-keyed. A future text
+    // schema with the same param name should not be affected.
+    const s = schemaOf('text_document', [
+      param({
+        name: 'enable_image_embedding',
+        ui_component: 'switch',
+        default: false,
+      }),
+    ]);
+    render(
+      <DynamicParsingPanel schema={s} value={{}} onChange={vi.fn()} />,
+    );
+    expect(
+      document.getElementById('dpp-enable_image_embedding'),
+    ).not.toBeNull();
+  });
+```
+
+- [ ] **Step 6: Run panel tests to verify they fail**
+
+```bash
+npm run test -- dynamic-parsing-panel.test.tsx
+```
+Expected: the 4 new tests fail (panel currently renders all forced entries; doesn't know about `hidden`). Existing panel tests still pass.
+
+- [ ] **Step 7: Modify the panel to skip hidden forced entries**
+
+In `dynamic-parsing-panel.tsx`, find `GroupedFields` (the component that iterates params and renders controls). In the `.map(p => ...)` callback, immediately after the existing `const forced = forcedMap[p.name];` line, add a hidden-check that returns early:
+
+```tsx
+const forced = forcedMap[p.name];
+// Hidden forced params are skipped entirely — no control, no description,
+// no warning Typography. applyForcedParams still pins their wire value.
+if (forced && 'hidden' in forced && forced.hidden) {
+  return null;
+}
+```
+
+Then update the `forcedMap` prop's type on `GroupedFields` to match the new union (so the type narrows correctly downstream). Replace the prop type from:
+
+```tsx
+forcedMap: Readonly<Record<string, { value: unknown; reason: string }>>;
+```
+
+to:
+
+```tsx
+forcedMap: Readonly<
+  Record<
+    string,
+    | { value: unknown; reason: string; hidden?: false }
+    | { value: unknown; hidden: true }
+  >
+>;
+```
+
+And update `FieldControl`'s `forced?` prop the same way:
+
+```tsx
+forced?:
+  | { value: unknown; reason: string; hidden?: false }
+  | { value: unknown; hidden: true };
+```
+
+(Since hidden entries are filtered out in `GroupedFields` before reaching `FieldControl`, the `wrap()` helper will only see the visible shape — but the type allows either.)
+
+Inside `FieldControl`, the `wrap()` function currently reads `forced.reason`. With the union, `forced.reason` is only present on the visible variant. Guard the access:
+
+```tsx
+const wrap = (node: ReactNode): ReactNode =>
+  forced && !('hidden' in forced && forced.hidden) && 'reason' in forced
+    ? <Tooltip content={I18n.t(forced.reason)}>{node}</Tooltip>
+    : node;
+```
+
+(Simpler: `FieldControl` only ever receives visible forced entries since `GroupedFields` filters; the guard is defensive but correct.)
+
+In `GroupedFields`, the warning Typography line currently reads `I18n.t(forced.reason)`. Add the same guard there — but since hidden entries already returned early, the access is safe:
+
+```tsx
+{forced && 'reason' in forced ? (
+  <Typography.Text type="warning" size="small" style={{ display: 'block' }}>
+    {I18n.t(forced.reason)}
+  </Typography.Text>
+) : null}
+```
+
+- [ ] **Step 8: Run all tests — everything should pass**
+
+```bash
+npm run test
+```
+Expected: all tests pass (was 49, now ~57 = 49 + 4 panel + 4 wire-level — adjust based on actual count). 0 failures.
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add frontend/packages/data/knowledge/knowledge-resource-processor-base/src/features/dynamic-parsing-panel/use-schemas.ts \
+        frontend/packages/data/knowledge/knowledge-resource-processor-base/src/features/dynamic-parsing-panel/validate.test.ts \
+        frontend/packages/data/knowledge/knowledge-resource-processor-base/src/features/dynamic-parsing-panel/dynamic-parsing-panel.tsx \
+        frontend/packages/data/knowledge/knowledge-resource-processor-base/src/features/dynamic-parsing-panel/dynamic-parsing-panel.test.tsx
+git commit -m "$(cat <<'EOF'
+feat(knowledge-rag): hide image_chunk config + force off
+
+image_document and scanned_document uploads no longer expose
+enable_image_embedding / produce_image_chunk in the form, and the wire
+payload pins both to false. The workflow knowledge-retrieve node is
+text-in/text-out and can't consume image_chunks; producing them is
+waste (CLIP inference + Milvus vector storage).
+
+Architecture: extends FORCED_PARAMS_BY_SCHEMA entry type into a
+discriminated union. Visible entries (existing enable_ocr) render
+disabled with Tooltip; hidden entries skip rendering entirely while
+applyForcedParams still pins the wire value.
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+EOF
+)"
+```
