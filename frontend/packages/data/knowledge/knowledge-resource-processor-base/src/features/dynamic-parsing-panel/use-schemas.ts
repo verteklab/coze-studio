@@ -65,6 +65,14 @@ const FRONTEND_PARAM_DEFAULTS: Readonly<Record<string, unknown>> = {
 // image_chunk-related entries (enable_image_embedding, produce_image_chunk)
 // are hidden because the workflow knowledge-retrieve node can't consume
 // image_chunks — producing them is pure waste in this UX.
+//
+// ocr_model_id and ocr_languages are hidden as of 2026-05-22 because
+// coze's backend now auto-injects the OCR model id (RAG_DEFAULT_OCR_MODEL_ID)
+// for any PDF upload where document_options doesn't already carry it
+// (see ragimpl.CreateDocument), and `auto` language detection covers the
+// documented test corpus. Exposing them to upload users created two
+// overlapping sources of truth for the model id and a free-text input
+// the user shouldn't need to think about.
 type ForcedParamEntry =
   | { value: unknown; reason: string; hidden?: false }
   | { value: unknown; hidden: true };
@@ -78,6 +86,8 @@ export const FORCED_PARAMS_BY_SCHEMA: Readonly<
       reason: 'datasets_createFileModel_rag_forced_ocr_hint',
     },
     enable_image_embedding: { value: false, hidden: true },
+    ocr_languages: { value: ['auto'], hidden: true },
+    ocr_model_id: { value: 'model-ocr-paddle-infer-text', hidden: true },
     produce_image_chunk: { value: false, hidden: true },
     produce_text_chunk: { value: true, hidden: true },
   },
@@ -87,6 +97,8 @@ export const FORCED_PARAMS_BY_SCHEMA: Readonly<
       reason: 'datasets_createFileModel_rag_forced_ocr_hint',
     },
     enable_image_embedding: { value: false, hidden: true },
+    ocr_languages: { value: ['auto'], hidden: true },
+    ocr_model_id: { value: 'model-ocr-paddle-infer-text', hidden: true },
     produce_image_chunk: { value: false, hidden: true },
     produce_text_chunk: { value: true, hidden: true },
   },

@@ -813,6 +813,30 @@ func TestCreateDocument_OCRDefault_EmptyEnv_NoAttach(t *testing.T) {
 	}
 }
 
+func TestCreateDocument_ExtraMetadata_NotSent(t *testing.T) {
+	t.Parallel()
+	fc := &fakeClient{}
+	i := newTestImpl(t, fc, 8810)
+	seedKBMapping(t, i.mapping, 7100, "kb-uuid")
+
+	_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
+		Documents: []*entity.Document{{
+			Info:          knowledgeModel.Info{Name: "any.pdf", CreatorID: 99},
+			KnowledgeID:   7100,
+			FileExtension: parser.FileExtensionPDF,
+			URI:           "any",
+		}},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, fc.createDocReq)
+	// After the 2026-05-22 cleanup, coze stops sending extra_metadata
+	// entirely — buildDocMetadata returns an empty map. The field must be
+	// an empty string on the wire so client.go skips the multipart write.
+	if fc.createDocReq.ExtraMetadata != "" {
+		t.Errorf("ExtraMetadata = %q, want empty string (extra_metadata must not be sent until KB metadata_schema declares the keys)", fc.createDocReq.ExtraMetadata)
+	}
+}
+
 func TestDocumentOptionsHasOCRModelID(t *testing.T) {
 	t.Parallel()
 	cases := []struct {

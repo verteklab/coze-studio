@@ -221,6 +221,7 @@ describe('mergeSchemaDefaults', () => {
     expect(mergeSchemaDefaults(s, {})).toEqual({
       enable_ocr: true,
       ocr_model_id: 'model-ocr-paddle-infer-text',
+      ocr_languages: ['auto'],
       enable_image_embedding: false,
       produce_image_chunk: false,
       produce_text_chunk: true,
@@ -239,6 +240,7 @@ describe('mergeSchemaDefaults', () => {
     expect(mergeSchemaDefaults(s, {})).toEqual({
       enable_ocr: true,
       ocr_model_id: 'model-ocr-paddle-infer-text',
+      ocr_languages: ['auto'],
       enable_image_embedding: false,
       produce_image_chunk: false,
       produce_text_chunk: true,
@@ -260,6 +262,7 @@ describe('mergeSchemaDefaults', () => {
     expect(mergeSchemaDefaults(s, { enable_ocr: false })).toEqual({
       enable_ocr: true,
       ocr_model_id: 'model-ocr-paddle-infer-text',
+      ocr_languages: ['auto'],
       enable_image_embedding: false,
       produce_image_chunk: false,
       produce_text_chunk: true,
@@ -270,13 +273,16 @@ describe('mergeSchemaDefaults', () => {
     // Regression test for the ordering bug: if applyForcedParams ran AFTER
     // the mutex, this would strip ocr_model_id and then re-enable ocr → rag
     // 40001 "ocr_model_id is required when enable_ocr is true".
+    // Note: the forced map's value ('model-ocr-paddle-infer-text') wins over
+    // the schema default ('paddle') — applyForcedParams always overrides.
     const s = imageSchema([
       param({ name: 'enable_ocr', ui_component: 'switch', default: false }),
       param({ name: 'ocr_model_id', ui_component: 'text', default: 'paddle' }),
     ]);
     const out = mergeSchemaDefaults(s, { enable_ocr: false });
     expect(out.enable_ocr).toBe(true);
-    expect(out.ocr_model_id).toBe('paddle');
+    // Forced map's pinned value overrides the schema default.
+    expect(out.ocr_model_id).toBe('model-ocr-paddle-infer-text');
   });
 
   it('does not force on schemas not listed in FORCED_PARAMS_BY_SCHEMA', () => {
@@ -312,9 +318,12 @@ describe('mergeSchemaDefaults', () => {
         default: true,
       }),
     ]);
+    // Note: forced map pins ocr_model_id to 'model-ocr-paddle-infer-text',
+    // overriding the schema default 'paddle'.
     expect(mergeSchemaDefaults(s, {})).toEqual({
       enable_ocr: true,
-      ocr_model_id: 'paddle',
+      ocr_model_id: 'model-ocr-paddle-infer-text',
+      ocr_languages: ['auto'],
       enable_image_embedding: false,
       produce_image_chunk: false,
       produce_text_chunk: true,
@@ -349,9 +358,12 @@ describe('mergeSchemaDefaults', () => {
         default: true,
       }),
     ]);
+    // Note: forced map pins ocr_model_id to 'model-ocr-paddle-infer-text',
+    // overriding the schema default 'paddle'.
     expect(mergeSchemaDefaults(s, {})).toEqual({
       enable_ocr: true,
-      ocr_model_id: 'paddle',
+      ocr_model_id: 'model-ocr-paddle-infer-text',
+      ocr_languages: ['auto'],
       produce_text_chunk: true,
       enable_image_embedding: false,
       produce_image_chunk: false,
@@ -444,6 +456,8 @@ describe('applyForcedParams', () => {
     expect(applyForcedParams('image_document', { enable_ocr: false })).toEqual({
       enable_ocr: true,
       enable_image_embedding: false,
+      ocr_languages: ['auto'],
+      ocr_model_id: 'model-ocr-paddle-infer-text',
       produce_image_chunk: false,
       produce_text_chunk: true,
     });
@@ -455,12 +469,15 @@ describe('applyForcedParams', () => {
     ).toEqual({
       enable_ocr: true,
       enable_image_embedding: false,
+      ocr_languages: ['auto'],
+      ocr_model_id: 'model-ocr-paddle-infer-text',
       produce_image_chunk: false,
       produce_text_chunk: true,
     });
   });
 
   it('preserves other keys when overriding forced params', () => {
+    // Note: ocr_model_id in the input is overridden by the forced map value.
     expect(
       applyForcedParams('image_document', {
         enable_ocr: false,
@@ -469,7 +486,8 @@ describe('applyForcedParams', () => {
       }),
     ).toEqual({
       enable_ocr: true,
-      ocr_model_id: 'paddle',
+      ocr_model_id: 'model-ocr-paddle-infer-text',
+      ocr_languages: ['auto'],
       enable_image_embedding: false,
       produce_image_chunk: false,
       produce_text_chunk: true,
@@ -486,6 +504,8 @@ describe('applyForcedParams', () => {
     expect(applyForcedParams('image_document', { enable_ocr: true })).toEqual({
       enable_ocr: true,
       enable_image_embedding: false,
+      ocr_languages: ['auto'],
+      ocr_model_id: 'model-ocr-paddle-infer-text',
       produce_image_chunk: false,
       produce_text_chunk: true,
     });
@@ -493,6 +513,8 @@ describe('applyForcedParams', () => {
       {
         enable_ocr: true,
         enable_image_embedding: false,
+        ocr_languages: ['auto'],
+        ocr_model_id: 'model-ocr-paddle-infer-text',
         produce_image_chunk: false,
         produce_text_chunk: true,
       },
@@ -505,6 +527,8 @@ describe('applyForcedParams', () => {
     ).toEqual({
       enable_image_embedding: false,
       enable_ocr: true,
+      ocr_languages: ['auto'],
+      ocr_model_id: 'model-ocr-paddle-infer-text',
       produce_image_chunk: false,
       produce_text_chunk: true,
     });
@@ -517,6 +541,8 @@ describe('applyForcedParams', () => {
       produce_image_chunk: false,
       enable_ocr: true,
       enable_image_embedding: false,
+      ocr_languages: ['auto'],
+      ocr_model_id: 'model-ocr-paddle-infer-text',
       produce_text_chunk: true,
     });
   });
@@ -531,6 +557,8 @@ describe('applyForcedParams', () => {
       enable_image_embedding: false,
       produce_image_chunk: false,
       enable_ocr: true,
+      ocr_languages: ['auto'],
+      ocr_model_id: 'model-ocr-paddle-infer-text',
       produce_text_chunk: true,
     });
   });
@@ -541,6 +569,8 @@ describe('applyForcedParams', () => {
     ).toEqual({
       enable_ocr: true,
       enable_image_embedding: false,
+      ocr_languages: ['auto'],
+      ocr_model_id: 'model-ocr-paddle-infer-text',
       produce_image_chunk: false,
       produce_text_chunk: true,
     });
@@ -552,8 +582,31 @@ describe('applyForcedParams', () => {
     ).toEqual({
       enable_ocr: true,
       enable_image_embedding: false,
+      ocr_languages: ['auto'],
+      ocr_model_id: 'model-ocr-paddle-infer-text',
       produce_image_chunk: false,
       produce_text_chunk: true,
     });
+  });
+
+  it('hides ocr_model_id for image_document via the forced map', () => {
+    const result = applyForcedParams('image_document', {});
+    // Forced values still flow on the wire; hidden just means "do not render".
+    expect(result.ocr_model_id).toBe('model-ocr-paddle-infer-text');
+  });
+
+  it('hides ocr_languages for image_document via the forced map', () => {
+    const result = applyForcedParams('image_document', {});
+    expect(result.ocr_languages).toEqual(['auto']);
+  });
+
+  it('hides ocr_model_id for scanned_document via the forced map', () => {
+    const result = applyForcedParams('scanned_document', {});
+    expect(result.ocr_model_id).toBe('model-ocr-paddle-infer-text');
+  });
+
+  it('hides ocr_languages for scanned_document via the forced map', () => {
+    const result = applyForcedParams('scanned_document', {});
+    expect(result.ocr_languages).toEqual(['auto']);
   });
 });

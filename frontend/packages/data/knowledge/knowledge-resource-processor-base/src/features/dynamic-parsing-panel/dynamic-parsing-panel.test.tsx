@@ -259,12 +259,10 @@ describe('DynamicParsingPanel forced params', () => {
     );
   });
 
-  it('keeps OCR-dependent params visible on image_document even when value.enable_ocr=false', () => {
-    // Regression: filterParamsByDependencies sees the patched effective
-    // value, so ocr_model_id (group="ocr") stays visible alongside the
-    // forced-on enable_ocr toggle. Without the effectiveValue fix, this
-    // would have filtered ocr_model_id out and made the panel internally
-    // inconsistent.
+  it('hides ocr_model_id control on image_document (forced hidden)', () => {
+    // As of 2026-05-22, ocr_model_id is in the forced map with hidden:true.
+    // The panel must not render it even though filterParamsByDependencies
+    // would show it when enable_ocr is on — the hidden flag takes precedence.
     const s = schemaOf('image_document', [
       param({
         name: 'enable_ocr',
@@ -286,10 +284,8 @@ describe('DynamicParsingPanel forced params', () => {
         onChange={vi.fn()}
       />,
     );
-    // The text input for ocr_model_id is a mocked <input type="text">.
-    // There should be exactly one such input rendered (for ocr_model_id).
-    const textInputs = document.querySelectorAll('input[type="text"]');
-    expect(textInputs.length).toBeGreaterThan(0);
+    // ocr_model_id is hidden — no text input should be rendered for it.
+    expect(document.getElementById('dpp-ocr_model_id')).toBeNull();
   });
 
   it('hides enable_image_embedding control on image_document', () => {

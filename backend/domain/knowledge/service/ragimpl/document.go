@@ -190,21 +190,27 @@ func strategyToRagFields(d *entity.Document) (
 	return sourceModality, enableOCR, enableImageEmbedding, documentOptions
 }
 
-// buildDocMetadata injects the coze-side identifiers we want rag to round-trip
-// back to us in retrieval hits (rag stores this as opaque JSON on the doc).
-// Keep keys snake_case to match rag's convention.
+// buildDocMetadata is intentionally a no-op stub as of 2026-05-22.
+//
+// Why: rag-side IngestionPolicyResolver.resolve() enforces strict
+// validate_extra_metadata since the 2026-05-21 22:00 (local) image
+// rebuild — any key not declared in the KB's metadata_schema raises
+// 40004. Coze's CreateKnowledge never sets MetadataSchema, so every
+// KB ships with an empty schema and rejects every key we previously
+// sent here (creator_id, coze_document_name).
+//
+// Both keys were write-only in coze for the 9 days they shipped (since
+// commit 2ef8ca7e on 2026-05-12). The retrieval path consumes only
+// h.Content + h.Score from rag hits; CreatorID comes from the
+// local rag_doc_mapping table and the document name comes from rag's
+// own Filename field. Round-trip via extra_metadata was unused.
+//
+// To re-enable round-trip metadata, declare the keys on the KB's
+// metadata_schema at CreateKnowledge time first, then restore the
+// payload here.
 func buildDocMetadata(d *entity.Document) map[string]any {
-	md := map[string]any{}
-	if d == nil {
-		return md
-	}
-	if d.CreatorID != 0 {
-		md["creator_id"] = d.CreatorID
-	}
-	if d.Name != "" {
-		md["coze_document_name"] = d.Name
-	}
-	return md
+	_ = d // intentionally unused; see comment above
+	return map[string]any{}
 }
 
 // isImageBearing reports whether the document's file should be persisted to
