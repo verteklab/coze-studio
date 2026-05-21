@@ -27,3 +27,4 @@ export type {
   DocumentOptionsValue,
   ListRagDocumentParameterSchemasResponse,
 } from './types';
+export { useRagParameterI18n, useRagGroupI18n } from './use-param-i18n';
