@@ -76,6 +76,29 @@ func applyDocumentOptionsOverrides(rawJSON string) (modalityOverride, cleaned st
 	return modalityOverride, string(b), nil
 }
 
+// documentOptionsHasOCRModelID reports whether a non-empty `ocr_model_id`
+// string key is present in the JSON object. Empty options, parse failure,
+// non-string value, and whitespace-only values all return false. Used by
+// CreateDocument to decide whether to inject the env-driven OCR model id
+// default at the multipart top level — if the upload form already passed
+// one inside document_options, rag's flat_options fallback handles it and
+// we leave the top level empty so the form value wins.
+func documentOptionsHasOCRModelID(rawJSON string) bool {
+	if rawJSON == "" {
+		return false
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(rawJSON), &m); err != nil {
+		return false
+	}
+	v, ok := m["ocr_model_id"]
+	if !ok {
+		return false
+	}
+	s, ok := v.(string)
+	return ok && strings.TrimSpace(s) != ""
+}
+
 // baseSourceModality picks the rag source_modality from the document type
 // alone, before the parsing-strategy overrides considered in
 // strategyToRagFields. Image-typed docs always use "image_source"; everything
@@ -339,6 +362,26 @@ func (i *Impl) CreateDocument(ctx context.Context, req *service.CreateDocumentRe
 			}
 		}
 
+		// documentOptions below is the POST-clean value (after applyDocumentOptionsOverrides);
+		// the OCR-injection guard relies on this — do not reorder above the cleaned-assignment.
+
+		// PDF uploads: rag's auto-detector (services/document_service.py
+		// inspect_pdf_source_modality) silently promotes no-text-layer PDFs from
+		// text_source to scanned_document_source, after which the scanned-schema
+		// validator requires `ocr_model_id`. If the upload form already supplied
+		// one inside document_options, rag's flat_options fallback handles it and
+		// we leave the top level nil so the form value wins (per
+		// models/value_objects/ingestion_request.py to_resolver_payload). Else,
+		// when a config default is configured, inject it at the top level so the
+		// promoted-to-scanned path validates.
+		var ocrModelID *string
+		if d.FileExtension == parser.FileExtensionPDF &&
+			i.defaultOCRModelID != "" &&
+			!documentOptionsHasOCRModelID(documentOptions) {
+			v := i.defaultOCRModelID
+			ocrModelID = &v
+		}
+
 		ragReq := &contract.CreateDocumentRequest{
 			FileBytes:            fileBytes,
 			Filename:             d.Name,
@@ -350,6 +393,7 @@ func (i *Impl) CreateDocument(ctx context.Context, req *service.CreateDocumentRe
 			EnableOCR:            enableOCR,
 			EnableImageEmbedding: enableImageEmbedding,
 			DocumentOptions:      documentOptions,
+			OcrModelID:           ocrModelID,
 		}
 		ragResp, err := i.rag.CreateDocument(ctx, tenant, m.RagKBID, ragReq)
 		if err != nil {

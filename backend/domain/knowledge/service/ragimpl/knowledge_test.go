@@ -619,3 +619,17 @@ func TestRagimpl_ListDocumentParameterSchemas(t *testing.T) {
 	require.Equal(t, "chunk_size", got[0].Parameters[0].Name)
 }
 
+// seedKBMapping inserts a minimal KB mapping row keyed by cozeID → ragKBID for
+// tests that need a pre-existing mapping. The format_type is hardcoded to
+// knowledgeModel.DocumentTypeText — fine for current callers (CreateDocument
+// doesn't filter mapping rows by type), but if a future test needs a different
+// KB type, extend this helper with an explicit parameter rather than hardcoding
+// the new value here.
+//
+// The icon/creator/space/app fields are intentionally zeroed — tests that care
+// about those values should call InsertKB directly.
+func seedKBMapping(t *testing.T, m *MappingRepo, cozeID int64, ragKBID string) {
+	t.Helper()
+	require.NoError(t, m.InsertKB(context.Background(), cozeID, ragKBID, "", 0, 0, 0, knowledgeModel.DocumentTypeText))
+}
+

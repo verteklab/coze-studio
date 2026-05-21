@@ -28,6 +28,7 @@ import (
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/entity"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
 	contract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
+	"github.com/coze-dev/coze-studio/backend/infra/document/parser"
 	"github.com/coze-dev/coze-studio/backend/pkg/errorx"
 	"github.com/coze-dev/coze-studio/backend/types/errno"
 )
@@ -706,4 +707,134 @@ func TestBuildDocumentEntity_LeavesURLEmptyWhenMappingImageURLEmpty(t *testing.T
 	got := buildDocumentEntity(dm, rd)
 	require.Equal(t, "", got.URL,
 		"entity.Document.URL must be empty when DocMapping.ImageURL is empty")
+}
+
+// --- OcrModelID default injection -----------------------------------------------
+
+// TestCreateDocument_OCRDefault_PDFNoFormOCR_AttachesEnvDefault verifies that
+// when a PDF is uploaded with no ocr_model_id in document_options, the env
+// default ("ocr-model-default", set by newTestImpl) is injected at the top
+// level of the rag request. This ensures rag's auto-promoted scanned_document
+// path can validate successfully without requiring the caller to supply a model.
+func TestCreateDocument_OCRDefault_PDFNoFormOCR_AttachesEnvDefault(t *testing.T) {
+	t.Parallel()
+	fc := &fakeClient{}
+	i := newTestImpl(t, fc, 8801)
+	seedKBMapping(t, i.mapping, 7000, "kb-uuid")
+
+	_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
+		Documents: []*entity.Document{{
+			Info:          knowledgeModel.Info{Name: "windowSticker.pdf"},
+			KnowledgeID:   7000,
+			FileExtension: parser.FileExtensionPDF,
+			URI:           "any",
+		}},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, fc.createDocReq, "fakeClient must capture last CreateDocument request")
+	require.NotNil(t, fc.createDocReq.OcrModelID)
+	if got := *fc.createDocReq.OcrModelID; got != "ocr-model-default" {
+		t.Errorf("OcrModelID = %q, want %q", got, "ocr-model-default")
+	}
+}
+
+// TestCreateDocument_OCRDefault_PDFFormSuppliedOCR_NoTopLevelAttach verifies
+// that when document_options already carries an ocr_model_id, the top-level
+// OcrModelID field is left nil so the form-supplied value wins via rag's
+// flat_options fallback (not clobbered by the env default).
+func TestCreateDocument_OCRDefault_PDFFormSuppliedOCR_NoTopLevelAttach(t *testing.T) {
+	t.Parallel()
+	fc := &fakeClient{}
+	i := newTestImpl(t, fc, 8802)
+	seedKBMapping(t, i.mapping, 7000, "kb-uuid")
+
+	_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
+		Documents: []*entity.Document{{
+			Info:          knowledgeModel.Info{Name: "doc.pdf"},
+			KnowledgeID:   7000,
+			FileExtension: parser.FileExtensionPDF,
+			URI:           "any",
+		}},
+		DocumentOptions: `{"ocr_model_id":"user-picked-model"}`,
+	})
+	require.NoError(t, err)
+	require.NotNil(t, fc.createDocReq)
+	if fc.createDocReq.OcrModelID != nil {
+		t.Errorf("OcrModelID = %v, want nil (form-supplied value in document_options must win)", *fc.createDocReq.OcrModelID)
+	}
+}
+
+// TestCreateDocument_OCRDefault_NonPDF_NoAttach verifies that non-PDF uploads
+// (e.g. docx) never receive an OcrModelID injection, because rag's text_source
+// schema has no ocr_model_id field and would reject the request.
+func TestCreateDocument_OCRDefault_NonPDF_NoAttach(t *testing.T) {
+	t.Parallel()
+	fc := &fakeClient{}
+	i := newTestImpl(t, fc, 8803)
+	seedKBMapping(t, i.mapping, 7000, "kb-uuid")
+
+	_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
+		Documents: []*entity.Document{{
+			Info:          knowledgeModel.Info{Name: "notes.docx"},
+			KnowledgeID:   7000,
+			FileExtension: parser.FileExtensionDocx,
+			URI:           "any",
+		}},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, fc.createDocReq)
+	if fc.createDocReq.OcrModelID != nil {
+		t.Errorf("OcrModelID = %v, want nil (non-PDF must not attach — text_source schema rejects ocr_model_id)", *fc.createDocReq.OcrModelID)
+	}
+}
+
+// TestCreateDocument_OCRDefault_EmptyEnv_NoAttach verifies that when the env
+// default is empty (OCR model not configured), OcrModelID is left nil even for
+// PDFs. Callers must configure the env var to opt-in to the injection.
+func TestCreateDocument_OCRDefault_EmptyEnv_NoAttach(t *testing.T) {
+	t.Parallel()
+	fc := &fakeClient{}
+	i := newTestImpl(t, fc, 8804)
+	i.defaultOCRModelID = "" // simulate unconfigured env
+	seedKBMapping(t, i.mapping, 7000, "kb-uuid")
+
+	_, err := i.CreateDocument(context.Background(), &service.CreateDocumentRequest{
+		Documents: []*entity.Document{{
+			Info:          knowledgeModel.Info{Name: "x.pdf"},
+			KnowledgeID:   7000,
+			FileExtension: parser.FileExtensionPDF,
+			URI:           "any",
+		}},
+	})
+	require.NoError(t, err)
+	require.NotNil(t, fc.createDocReq)
+	if fc.createDocReq.OcrModelID != nil {
+		t.Errorf("OcrModelID = %v, want nil (empty env default disables attachment)", *fc.createDocReq.OcrModelID)
+	}
+}
+
+func TestDocumentOptionsHasOCRModelID(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		raw  string
+		want bool
+	}{
+		{"empty string", "", false},
+		{"empty object", `{}`, false},
+		{"unrelated keys only", `{"chunk_size": 800}`, false},
+		{"key present non-empty", `{"ocr_model_id": "model-x"}`, true},
+		{"key present empty string", `{"ocr_model_id": ""}`, false},
+		{"key present whitespace only", `{"ocr_model_id": "   "}`, false},
+		{"key present wrong type", `{"ocr_model_id": 42}`, false},
+		{"malformed json", `{not json`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := documentOptionsHasOCRModelID(tc.raw)
+			if got != tc.want {
+				t.Errorf("documentOptionsHasOCRModelID(%q) = %v, want %v", tc.raw, got, tc.want)
+			}
+		})
+	}
 }
