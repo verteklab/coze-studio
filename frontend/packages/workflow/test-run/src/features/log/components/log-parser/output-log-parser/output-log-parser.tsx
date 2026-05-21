@@ -18,9 +18,9 @@ import { isObject } from 'lodash-es';
 import { type FlowNodeEntity } from '@flowgram-adapter/free-layout-editor';
 import { StandardNodeType } from '@coze-workflow/base/types';
 import { I18n } from '@coze-arch/i18n';
-import { NodeExeStatus } from '@coze-arch/bot-api/workflow_api';
 import { IconCozWarningCircle } from '@coze-arch/coze-design/icons';
 import { SegmentTab, Tag, Typography, Tooltip } from '@coze-arch/coze-design';
+import { NodeExeStatus } from '@coze-arch/bot-api/workflow_api';
 
 import { LogWrap } from '../log-wrap';
 import { DataViewer } from '../../data-viewer';
@@ -77,6 +77,7 @@ export const OutputLogParser: React.FC<{
   const { showRawOutput, tab, data, options, setTab } = useOutputLog(log);
 
   const isLLM = log.nodeType === 'LLM';
+  const isOCR = log.nodeType === 'OCR';
 
   const showCodeSync =
     node?.flowNodeType === StandardNodeType.Code &&
@@ -127,6 +128,7 @@ export const OutputLogParser: React.FC<{
         <DataViewer
           data={data}
           mdPreview={isFinished}
+          previewPaths={isOCR ? ['text', 'raw_response.preview'] : []}
           onPreview={onPreview}
           className="!min-h-[100px]"
         />

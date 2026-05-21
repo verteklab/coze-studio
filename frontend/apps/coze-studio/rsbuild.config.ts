@@ -19,23 +19,28 @@ import path from 'path';
 import { defineConfig } from '@coze-arch/rsbuild-config';
 import { GLOBAL_ENVS } from '@coze-arch/bot-env';
 
-const API_PROXY_TARGET = 'http://117.59.171.81:8890/';
+const API_PROXY_TARGET =
+  process.env.COZE_API_PROXY_TARGET ?? 'http://127.0.0.1:8888/';
+
+// Default 8090: 8080 is often taken (e.g. cAdvisor). Override with COZE_DEV_SERVER_PORT.
+const devPort = Number.parseInt(process.env.COZE_DEV_SERVER_PORT ?? '8090', 10);
 
 const mergedConfig = defineConfig({
+  dev: {
+    client: {
+      port: devPort,
+    },
+  },
   server: {
-    strictPort: true,
+    port: devPort,
+    strictPort: false,
     proxy: [
       {
-        context: ['/api'],
+        context: ['/api', '/v1', '/v2', '/v3', '/admin', '/open_api'],
         target: API_PROXY_TARGET,
         secure: false,
-        changeOrigin: true,
-      },
-      {
-        context: ['/v1'],
-        target: API_PROXY_TARGET,
-        secure: false,
-        changeOrigin: true,
+        // Keep the browser Host (e.g. 127.0.0.1:8090) so upload URLs stay same-origin.
+        changeOrigin: false,
       },
     ],
   },
@@ -47,7 +52,7 @@ const mergedConfig = defineConfig({
   },
   tools: {
     postcss: (opts, { addPlugins }) => {
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      // eslint-disable-next-line @typescript-eslint/no-require-imports -- rsbuild postcss hook expects a runtime plugin instance
       addPlugins([require('tailwindcss')('./tailwind.config.ts')]);
     },
     rspack(config, { appendPlugins, addRules, mergeConfig }) {

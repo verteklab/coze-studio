@@ -19,16 +19,20 @@ package ocr
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/coze-dev/coze-studio/backend/domain/workflow/plugin"
 	"github.com/coze-dev/coze-studio/backend/pkg/urltobase64url"
+	"github.com/coze-dev/coze-studio/backend/types/consts"
 )
 
 // extractJSONPath extracts a nested value from a map using variadic keys.
@@ -240,6 +244,126 @@ func isPublicIP(ip net.IP) bool {
 		!ip.IsLinkLocalUnicast() && !ip.IsLinkLocalMulticast() && !ip.IsMulticast()
 }
 
+var errNotPlatformStorageURL = errors.New("not a platform storage URL")
+
+// fetchFile loads workflow file input: platform storage (uploaded files), data URIs,
+// or external URLs with SSRF protection.
+func fetchFile(ctx context.Context, fileURL string, client *http.Client) (*urltobase64url.FileData, error) {
+	if strings.HasPrefix(fileURL, "data:") {
+		return fileDataFromDataURI(fileURL)
+	}
+
+	if data, err := fetchFromPlatformStorage(ctx, fileURL); err == nil {
+		return data, nil
+	} else if !errors.Is(err, errNotPlatformStorageURL) {
+		return nil, err
+	}
+
+	return fetchFileSecure(ctx, fileURL, client)
+}
+
+func fileDataFromDataURI(dataURI string) (*urltobase64url.FileData, error) {
+	content, err := decodeBase64DataURI(dataURI)
+	if err != nil {
+		return nil, fmt.Errorf("invalid data URI: %w", err)
+	}
+	if int64(len(content)) > maxFileSize {
+		return nil, fmt.Errorf("file exceeds maximum size of %dMB", maxFileSize/(1024*1024))
+	}
+
+	mimeType := "application/octet-stream"
+	if idx := strings.Index(dataURI, "data:"); idx >= 0 {
+		meta := dataURI[idx+5:]
+		if semi := strings.Index(meta, ";"); semi > 0 {
+			mimeType = meta[:semi]
+		}
+	}
+	if mimeType == "" || mimeType == "application/octet-stream" {
+		mimeType = http.DetectContentType(content)
+	}
+
+	return buildFileDataFromBytes(content, mimeType, "")
+}
+
+func fetchFromPlatformStorage(ctx context.Context, fileURL string) (*urltobase64url.FileData, error) {
+	objectKey, ok := parseStorageObjectKey(fileURL)
+	if !ok {
+		return nil, errNotPlatformStorageURL
+	}
+
+	stor := plugin.GetOSS()
+	if stor == nil {
+		return nil, errNotPlatformStorageURL
+	}
+
+	content, err := stor.GetObject(ctx, objectKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file from storage: %w", err)
+	}
+	if int64(len(content)) > maxFileSize {
+		return nil, fmt.Errorf("file exceeds maximum size of %dMB", maxFileSize/(1024*1024))
+	}
+
+	mimeType := http.DetectContentType(content)
+	if mimeType == "" || mimeType == "application/octet-stream" {
+		if ext := filepath.Ext(objectKey); ext != "" {
+			mimeType = mime.TypeByExtension(ext)
+		}
+	}
+
+	return buildFileDataFromBytes(content, mimeType, objectKey)
+}
+
+// parseStorageObjectKey extracts the object key from Coze Studio upload URLs
+// (MinIO presigned, /local_storage/ proxy, or /{bucket}/key paths).
+func parseStorageObjectKey(fileURL string) (string, bool) {
+	u, err := url.Parse(fileURL)
+	if err != nil || u.Path == "" {
+		return "", false
+	}
+
+	path := strings.TrimPrefix(u.Path, "/")
+	if strings.HasPrefix(path, "local_storage/") {
+		path = strings.TrimPrefix(path, "local_storage/")
+	}
+
+	bucket := os.Getenv(consts.StorageBucket)
+	if bucket == "" {
+		bucket = "opencoze"
+	}
+
+	prefix := bucket + "/"
+	if !strings.HasPrefix(path, prefix) {
+		return "", false
+	}
+
+	objectKey := strings.TrimPrefix(path, prefix)
+	if objectKey == "" {
+		return "", false
+	}
+
+	return objectKey, true
+}
+
+func buildFileDataFromBytes(content []byte, mimeType, nameHint string) (*urltobase64url.FileData, error) {
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+	if mimeType == "application/octet-stream" && nameHint != "" {
+		if ext := filepath.Ext(nameHint); ext != "" {
+			if mt := mime.TypeByExtension(ext); mt != "" {
+				mimeType = mt
+			}
+		}
+	}
+
+	b64 := base64.StdEncoding.EncodeToString(content)
+	return &urltobase64url.FileData{
+		Base64Url: fmt.Sprintf("data:%s;base64,%s", mimeType, b64),
+		MimeType:  mimeType,
+	}, nil
+}
+
 // validateURLScheme checks that the URL uses http or https scheme only.
 func validateURLScheme(rawURL string) error {
 	u, err := url.Parse(rawURL)
@@ -334,7 +458,7 @@ func fetchFileSecure(ctx context.Context, fileURL string, client *http.Client) (
 		return nil, fmt.Errorf("file exceeds maximum size of %dMB", maxFileSize/(1024*1024))
 	}
 
-	var mimeType string
+	mimeType := ""
 	if ct := resp.Header.Get("Content-Type"); ct != "" {
 		if mt, _, err := mime.ParseMediaType(ct); err == nil && mt != "" {
 			mimeType = mt
@@ -349,11 +473,5 @@ func fetchFileSecure(ctx context.Context, fileURL string, client *http.Client) (
 		}
 	}
 
-	b64 := base64.StdEncoding.EncodeToString(fileContent)
-	dataURI := fmt.Sprintf("data:%s;base64,%s", mimeType, b64)
-
-	return &urltobase64url.FileData{
-		Base64Url: dataURI,
-		MimeType:  mimeType,
-	}, nil
+	return buildFileDataFromBytes(fileContent, mimeType, fileURL)
 }

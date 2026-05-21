@@ -71,8 +71,9 @@ const FieldValue: React.FC<{
 const JsonField: React.FC<{
   field: Field;
   mdPreview: boolean;
+  previewPaths: string[];
   onPreview: (value: string, path: string[]) => void;
-}> = ({ field, mdPreview, onPreview }) => {
+}> = ({ field, mdPreview, previewPaths, onPreview }) => {
   const reporter = useTestRunReporterService();
   const { lines, children, path, isObj } = field;
   const echoLines = useMemo(() => lines.slice(1), [lines]);
@@ -97,8 +98,12 @@ const JsonField: React.FC<{
   }, [key, isError, isWarning]);
 
   const isCanRenderMarkdown = useMemo(
-    () => !isObj && !isError && !isWarning && isPreviewMarkdown(field.value),
-    [isObj, isError, isWarning, field.value],
+    () =>
+      !isObj &&
+      !isError &&
+      !isWarning &&
+      (isPreviewMarkdown(field.value) || previewPaths.includes(pathStr)),
+    [isObj, isError, isWarning, field.value, pathStr, previewPaths],
   );
 
   const isRenderMarkdown = useMemo(
@@ -119,7 +124,7 @@ const JsonField: React.FC<{
     if (isRenderMarkdown) {
       reporter.logOutputMarkdown({ action_type: 'render' });
     }
-  }, [isRenderMarkdown]);
+  }, [isRenderMarkdown, reporter]);
 
   return (
     <>
@@ -173,6 +178,7 @@ const JsonField: React.FC<{
         ? children.map(i => (
             <JsonField
               mdPreview={mdPreview}
+              previewPaths={previewPaths}
               onPreview={onPreview}
               field={i}
               key={i.path.join('.')}

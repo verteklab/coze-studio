@@ -1510,6 +1510,35 @@ func (mr *MockRepositoryMockRecorder) GetNodeOfCodeConfig() *gomock.Call {
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetNodeOfCodeConfig", reflect.TypeOf((*MockRepository)(nil).GetNodeOfCodeConfig))
 }
 
+// GetOCRProviderByID mocks base method.
+func (m *MockRepository) GetOCRProviderByID(id string) (*config.OCRProvider, error) {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOCRProviderByID", id)
+	ret0, _ := ret[0].(*config.OCRProvider)
+	ret1, _ := ret[1].(error)
+	return ret0, ret1
+}
+
+// GetOCRProviderByID indicates an expected call of GetOCRProviderByID.
+func (mr *MockRepositoryMockRecorder) GetOCRProviderByID(id any) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOCRProviderByID", reflect.TypeOf((*MockRepository)(nil).GetOCRProviderByID), id)
+}
+
+// GetOCRProviders mocks base method.
+func (m *MockRepository) GetOCRProviders() []*config.OCRProvider {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetOCRProviders")
+	ret0, _ := ret[0].([]*config.OCRProvider)
+	return ret0
+}
+
+// GetOCRProviders indicates an expected call of GetOCRProviders.
+func (mr *MockRepositoryMockRecorder) GetOCRProviders() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetOCRProviders", reflect.TypeOf((*MockRepository)(nil).GetOCRProviders))
+}
+
 // GetObjectUrl mocks base method.
 func (m *MockRepository) GetObjectUrl(ctx context.Context, objectKey string, opts ...storage.GetOptFn) (string, error) {
 	m.ctrl.T.Helper()

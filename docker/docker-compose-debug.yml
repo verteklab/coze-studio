@@ -95,7 +95,7 @@ services:
       - REDIS_IO_THREADS=${REDIS_IO_THREADS:-4}
       - ALLOW_EMPTY_PASSWORD=${ALLOW_EMPTY_PASSWORD:-yes}
     ports:
-      - '127.0.0.1:6379:6379'
+      - '127.0.0.1:${REDIS_HOST_PORT:-6379}:6379'
     volumes:
       - ./data/bitnami/redis:/bitnami/redis/data:rw,Z
     command: >

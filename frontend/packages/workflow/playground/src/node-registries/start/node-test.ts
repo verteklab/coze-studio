@@ -20,6 +20,7 @@ import {
   ViewVariableType,
 } from '@coze-workflow/variable';
 import { getSortedInputParameters } from '@coze-workflow/nodes';
+import { CONVERSATION_NAME, isPresetStartParams } from '@coze-workflow/base';
 
 import {
   generateField,
@@ -57,8 +58,18 @@ export const test: NodeTestMeta = {
     const formData = node
       .getData(FlowNodeFormData)
       .formModel.getFormItemValueByPath('/');
-    const inputParameters = (formData?.outputs || [])
-      .filter(i => !i.isPreset)
+    const outputs = formData?.outputs || [];
+    const isChatflow = outputs.some(item => item.name === CONVERSATION_NAME);
+    const inputParameters = outputs
+      .filter(item => {
+        if (isChatflow) {
+          return !isPresetStartParams(item.name);
+        }
+        if (item.isPreset && !item.enabled) {
+          return false;
+        }
+        return true;
+      })
       .map(item => {
         const variable =
           node.context.variableService.getWorkflowVariableByKeyPath([
@@ -81,10 +92,9 @@ export const test: NodeTestMeta = {
         };
       });
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const properties: IFormSchema['properties'] = getSortedInputParameters<any>(
-      inputParameters,
-    ).reduce((value, item) => {
+    const properties = getSortedInputParameters(inputParameters).reduce<
+      NonNullable<IFormSchema['properties']>
+    >((value, item) => {
       if (item.name) {
         value[item.name] = generateField(item);
       }

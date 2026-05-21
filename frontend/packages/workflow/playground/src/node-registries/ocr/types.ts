@@ -22,11 +22,16 @@ export enum OCRProviderType {
 }
 
 export interface OpenAIVisionConfig {
-  endpoint: string;
+  provider_id?: string;
+  endpoint?: string;
   api_key?: string;
-  model: string;
+  model?: string;
   prompt?: string;
   max_tokens?: number;
+  /** paddleocr | image_native | parts | pdf_data_url_string */
+  message_format?: string;
+  /** PaddleOCR wrapper: passed as paddleocr.output_format (default text) */
+  paddleocr_output_format?: string;
 }
 
 export interface MinerUConfig {

@@ -208,10 +208,10 @@ services:
           'CMD-SHELL',
           'curl -f http://localhost:9200 && [ -f /tmp/es_plugins_ready ] && [ -f /tmp/es_init_complete ]',
         ]
-      interval: 5s
-      timeout: 10s
-      retries: 10
-      start_period: 10s
+      interval: 10s
+      timeout: 30s
+      retries: 30
+      start_period: 300s
     networks:
       - coze-network
     # Install smartcn analyzer plugin and initialize ES

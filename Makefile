@@ -1,4 +1,4 @@
-.PHONY: debug fe server sync_db dump_db middleware web down clean python help
+.PHONY: debug fe server sync_db dump_db middleware web down clean python help dev-hint
 
 # 定义脚本路径
 SCRIPTS_DIR := ./scripts
@@ -128,10 +128,18 @@ oceanbase_server_debug:
 	@echo "Building and run OceanBase debug server..."
 	@APP_ENV=debug bash $(BUILD_SERVER_SCRIPT) -start
 
+dev-hint:
+	@echo "Full-stack local development:"
+	@echo "  Terminal 1: make middleware && make server"
+	@echo "  Terminal 2: cd frontend/apps/coze-studio && rushx dev"
+	@echo "  Open: http://localhost:8090 (or set COZE_DEV_SERVER_PORT)"
+	@echo "  Do not run 'make web' while using local Go on :8888."
+
 help:
 	@echo "Usage: make [target]"
 	@echo ""
 	@echo "Targets:"
+	@echo "  dev-hint         - Print full-stack local dev startup steps."
 	@echo "  debug            - Start the debug environment."
 	@echo "  env              - Setup env file."
 	@echo "  fe               - Build the frontend."

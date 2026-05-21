@@ -27,6 +27,7 @@ import (
 	"github.com/cloudwego/hertz/pkg/app"
 	"github.com/cloudwego/hertz/pkg/app/server"
 
+	handlercoze "github.com/coze-dev/coze-studio/backend/api/handler/coze"
 	coze "github.com/coze-dev/coze-studio/backend/api/router/coze"
 	"github.com/coze-dev/coze-studio/backend/pkg/logs"
 )
@@ -35,6 +36,7 @@ import (
 func GeneratedRegister(r *server.Hertz) {
 	// INSERT_POINT: DO NOT DELETE THIS LINE!
 	coze.Register(r)
+	r.GET("/api/workflow_api/ocr_providers", handlercoze.ListOCRProviders)
 	staticFileRegister(r)
 }
 

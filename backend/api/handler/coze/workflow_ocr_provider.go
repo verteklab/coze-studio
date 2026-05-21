@@ -14,29 +14,17 @@
  * limitations under the License.
  */
 
-package middleware
+package coze
 
 import (
 	"context"
 
 	"github.com/cloudwego/hertz/pkg/app"
+	"github.com/cloudwego/hertz/pkg/protocol/consts"
 
-	"github.com/coze-dev/coze-studio/backend/pkg/ctxcache"
-	"github.com/coze-dev/coze-studio/backend/types/consts"
+	appworkflow "github.com/coze-dev/coze-studio/backend/application/workflow"
 )
 
-func SetHostMW() app.HandlerFunc {
-	return func(c context.Context, ctx *app.RequestContext) {
-		host := string(ctx.Request.Header.Peek("X-Forwarded-Host"))
-		if host == "" {
-			host = string(ctx.Host())
-		}
-		scheme := string(ctx.Request.Header.Peek("X-Forwarded-Proto"))
-		if scheme == "" {
-			scheme = string(ctx.GetRequest().Scheme())
-		}
-		ctxcache.Store(c, consts.HostKeyInCtx, host)
-		ctxcache.Store(c, consts.RequestSchemeKeyInCtx, scheme)
-		ctx.Next(c)
-	}
+func ListOCRProviders(ctx context.Context, c *app.RequestContext) {
+	c.JSON(consts.StatusOK, appworkflow.SVC.ListOCRProviders(ctx))
 }

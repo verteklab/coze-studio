@@ -148,6 +148,8 @@ type ConversationRepository interface {
 }
 type WorkflowConfig interface {
 	GetNodeOfCodeConfig() *config.NodeOfCodeConfig
+	GetOCRProviders() []*config.OCRProvider
+	GetOCRProviderByID(id string) (*config.OCRProvider, error)
 }
 
 type Suggester interface {

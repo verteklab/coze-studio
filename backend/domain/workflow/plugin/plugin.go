@@ -51,6 +51,11 @@ func SetOSS(s storage.Storage) {
 	oss = s
 }
 
+// GetOSS returns the workflow storage client (MinIO/TOS/S3) for reading uploaded files.
+func GetOSS() storage.Storage {
+	return oss
+}
+
 type pluginInfo struct {
 	*model.PluginInfo
 	LatestVersion *string

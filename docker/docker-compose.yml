@@ -125,7 +125,7 @@ services:
       - ./volumes/elasticsearch/es_index_schema:/es_index_schema
     healthcheck:
       test: [ 'CMD-SHELL', 'curl -f http://localhost:9200 && [ -f /tmp/es_plugins_ready ] && [ -f /tmp/es_init_complete ]' ]
-      interval: 5s
+      interval: 100s
       timeout: 100s
       retries: 10
       start_period: 300s

@@ -24,10 +24,14 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
+	domainWorkflow "github.com/coze-dev/coze-studio/backend/domain/workflow"
+	workflowConfig "github.com/coze-dev/coze-studio/backend/domain/workflow/config"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/entity"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/entity/vo"
 	"github.com/coze-dev/coze-studio/backend/domain/workflow/internal/canvas/convert"
@@ -47,17 +51,29 @@ const (
 )
 
 const (
-	defaultOCRPrompt = "请对这张图片进行OCR文字识别。提取图片中的所有文字内容，保持原始排版格式。仅输出识别到的文字，不要添加任何额外说明。"
-	defaultMaxTokens = 8192
+	defaultOCRPrompt              = "请对这张图片进行OCR文字识别。提取图片中的所有文字内容，保持原始排版格式。仅输出识别到的文字，不要添加任何额外说明。"
+	defaultMaxTokens              = 8192
+	minerUAsyncPollInterval       = 2 * time.Second
+	defaultMinerUAsyncPollTimeout = 10 * time.Minute
 )
 
 // OpenAIVisionConfig holds configuration for the OpenAI Vision provider.
 type OpenAIVisionConfig struct {
-	Endpoint  string `json:"endpoint"`
-	APIKey    string `json:"api_key,omitempty"`
-	Model     string `json:"model"`
-	Prompt    string `json:"prompt,omitempty"`
-	MaxTokens int    `json:"max_tokens,omitempty"`
+	ProviderID   string `json:"provider_id,omitempty"`
+	Endpoint     string `json:"endpoint"`
+	APIKey       string `json:"api_key,omitempty"`
+	Model        string `json:"model"`
+	Prompt       string `json:"prompt,omitempty"`
+	MaxTokens    int    `json:"max_tokens,omitempty"`
+	ResponsePath string `json:"response_path,omitempty"`
+	SupportsPDF  bool   `json:"-"`
+	// MessageFormat controls request shape:
+	//   - "" or "parts": PDF payload as text+file parts (images converted to single-page PDF)
+	//   - "pdf_data_url_string" or "string": messages[].content is the file data URL string only
+	//   - "image_native" or "image": image_url+file parts, images not converted to PDF (EasyOCR-style APIs)
+	//   - "paddleocr": PaddleOCR Docker wrapper — content is data:application/pdf;base64,... string, plus paddleocr.output_format
+	MessageFormat         string `json:"message_format,omitempty"`
+	PaddleOCROutputFormat string `json:"paddleocr_output_format,omitempty"`
 }
 
 // MinerUConfig holds configuration for the MinerU provider.
@@ -195,22 +211,17 @@ func (c *Config) Build(_ context.Context, _ *schema.NodeSchema, _ ...schema.Buil
 		if c.OpenAIVision == nil {
 			return nil, fmt.Errorf("OpenAI Vision config is required")
 		}
-		executor.openaiVision = c.OpenAIVision
+		cfg, err := resolveOpenAIVisionProvider(c.OpenAIVision)
+		if err != nil {
+			return nil, err
+		}
+		executor.openaiVision = cfg
 	case ProviderMinerU:
-		if c.MinerU == nil {
-			return nil, fmt.Errorf("MinerU config is required")
-		}
-		executor.minerU = c.MinerU
+		return nil, fmt.Errorf("legacy OCR provider config is no longer supported; please reselect an OCR Provider")
 	case ProviderPaddleOCR:
-		if c.PaddleOCR == nil {
-			return nil, fmt.Errorf("PaddleOCR config is required")
-		}
-		executor.paddleOCR = c.PaddleOCR
+		return nil, fmt.Errorf("legacy OCR provider config is no longer supported; please reselect an OCR Provider")
 	case ProviderCustomHTTP:
-		if c.CustomHTTP == nil {
-			return nil, fmt.Errorf("Custom HTTP config is required")
-		}
-		executor.customHTTP = c.CustomHTTP
+		return nil, fmt.Errorf("legacy OCR provider config is no longer supported; please reselect an OCR Provider")
 	}
 
 	return executor, nil
@@ -274,15 +285,14 @@ func (e *OCRExecutor) Invoke(ctx context.Context, input map[string]any) (map[str
 	}
 
 	// Fetch file with context, timeout, and size limit to prevent SSRF/resource exhaustion
-	fileData, err := fetchFileSecure(ctx, fileURLStr, e.client)
+	fileData, err := fetchFile(ctx, fileURLStr, e.client)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch and convert file: %w", err)
 	}
 
-	// Validate MIME type — OpenAI Vision only supports images (not PDF via image_url)
 	if e.provider == ProviderOpenAIVision {
-		if !imageMimeTypes[fileData.MimeType] {
-			return nil, fmt.Errorf("OpenAI Vision provider only supports image files (PNG, JPG), got: %s. For PDF, use MinerU, PaddleOCR, or Custom HTTP provider", fileData.MimeType)
+		if !allSupportedMimeTypes[fileData.MimeType] && !isPDFFileData(fileData) {
+			return nil, fmt.Errorf("unsupported file format for OpenAI Vision: %s. Supported: PDF, PNG, JPG", fileData.MimeType)
 		}
 	} else if !allSupportedMimeTypes[fileData.MimeType] {
 		return nil, fmt.Errorf("unsupported file format: %s. Supported formats: PDF, PNG, JPG", fileData.MimeType)
@@ -294,7 +304,7 @@ func (e *OCRExecutor) Invoke(ctx context.Context, input map[string]any) (map[str
 
 	switch e.provider {
 	case ProviderOpenAIVision:
-		text, rawResponse, err = e.invokeOpenAIVision(ctx, fileData)
+		text, rawResponse, err = e.invokeOpenAIVision(ctx, fileData, pageStart, pageEnd)
 	case ProviderMinerU:
 		text, rawResponse, err = e.invokeMinerU(ctx, fileURLStr, fileData, pageStart, pageEnd)
 	case ProviderPaddleOCR:
@@ -308,6 +318,11 @@ func (e *OCRExecutor) Invoke(ctx context.Context, input map[string]any) (map[str
 	if err != nil {
 		return nil, err
 	}
+
+	if rawResponse == nil {
+		rawResponse = map[string]any{}
+	}
+	rawResponse["preview"] = text
 
 	result := map[string]any{
 		"text":         text,
@@ -346,40 +361,22 @@ func (e *OCRExecutor) doWithRetry(newReq func() (*http.Request, error)) (*http.R
 }
 
 // invokeOpenAIVision calls an OpenAI Vision-compatible API.
-func (e *OCRExecutor) invokeOpenAIVision(ctx context.Context, fileData *urltobase64url.FileData) (string, map[string]any, error) {
+func (e *OCRExecutor) invokeOpenAIVision(ctx context.Context, fileData *urltobase64url.FileData, pageStart, pageEnd int64) (string, map[string]any, error) {
 	cfg := e.openaiVision
 
-	prompt := cfg.Prompt
-	if prompt == "" {
-		prompt = defaultOCRPrompt
+	if resolveOpenAIVisionMessageFormat(cfg) == "mineru_async_task" {
+		return e.invokeMinerUAsyncTask(ctx, cfg, fileData)
 	}
-	maxTokens := cfg.MaxTokens
-	if maxTokens <= 0 {
-		maxTokens = defaultMaxTokens
+	if resolveOpenAIVisionMessageFormat(cfg) == "deepseek_ocr2_pdf_parse" {
+		return e.invokeDeepSeekOCR2PDFParse(ctx, cfg, fileData, pageStart, pageEnd)
 	}
 
-	endpoint := strings.TrimRight(cfg.Endpoint, "/")
+	endpoint := normalizeOpenAIVisionEndpoint(cfg.Endpoint)
 	url := endpoint + "/v1/chat/completions"
 
-	reqBody := map[string]any{
-		"model": cfg.Model,
-		"messages": []map[string]any{
-			{
-				"role": "user",
-				"content": []map[string]any{
-					{
-						"type":      "image_url",
-						"image_url": map[string]string{"url": fileData.Base64Url},
-					},
-					{
-						"type": "text",
-						"text": prompt,
-					},
-				},
-			},
-		},
-		"max_tokens":  maxTokens,
-		"temperature": 0.0,
+	reqBody, err := buildOpenAIVisionRequestBody(cfg, fileData)
+	if err != nil {
+		return "", nil, err
 	}
 
 	bodyBytes, err := json.Marshal(reqBody)
@@ -411,7 +408,7 @@ func (e *OCRExecutor) invokeOpenAIVision(ctx context.Context, fileData *urltobas
 	}
 
 	if resp.StatusCode >= 400 {
-		return "", nil, fmt.Errorf("OpenAI Vision API error (status %d): %s", resp.StatusCode, string(respBody))
+		return "", nil, formatOpenAIVisionAPIError(cfg, resp.StatusCode, respBody)
 	}
 
 	var result map[string]any
@@ -420,9 +417,464 @@ func (e *OCRExecutor) invokeOpenAIVision(ctx context.Context, fileData *urltobas
 	}
 
 	// Extract text from $.choices[0].message.content
-	text := extractJSONPath(result, "choices", 0, "message", "content")
+	text := extractOpenAIVisionText(result, cfg.ResponsePath)
 
-	return text, result, nil
+	return text, sanitizeOpenAIVisionResponse(result), nil
+}
+
+func (e *OCRExecutor) invokeDeepSeekOCR2PDFParse(ctx context.Context, cfg *OpenAIVisionConfig, fileData *urltobase64url.FileData, _, pageEnd int64) (string, map[string]any, error) {
+	pdfFileData, err := prepareOpenAIVisionFileData(fileData)
+	if err != nil {
+		return "", nil, err
+	}
+	reqBody := map[string]any{
+		"model": cfg.Model,
+		"pdf":   pdfFileData.Base64Url,
+	}
+	if pageEnd > 0 {
+		reqBody["max_pages"] = pageEnd
+	}
+	bodyBytes, err := json.Marshal(reqBody)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to marshal DeepSeek OCR2 PDF parse request body: %w", err)
+	}
+
+	endpoint := normalizeOpenAIVisionEndpoint(cfg.Endpoint)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"/v1/parse/pdf", bytes.NewReader(bodyBytes))
+	if err != nil {
+		return "", nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	if cfg.APIKey != "" {
+		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	}
+
+	resp, err := e.client.Do(req)
+	if err != nil || resp == nil {
+		return "", nil, fmt.Errorf("DeepSeek OCR2 PDF parse request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to read DeepSeek OCR2 PDF parse response: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return "", nil, formatOpenAIVisionAPIError(cfg, resp.StatusCode, respBody)
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return "", nil, fmt.Errorf("failed to parse DeepSeek OCR2 PDF parse response JSON: %w", err)
+	}
+	text := extractDeepSeekOCR2PDFText(result)
+	return text, sanitizeDeepSeekOCR2PDFResponse(result), nil
+}
+
+func buildOpenAIVisionRequestBody(cfg *OpenAIVisionConfig, fileData *urltobase64url.FileData) (map[string]any, error) {
+	prompt := cfg.Prompt
+	if prompt == "" {
+		prompt = defaultOCRPrompt
+	}
+	maxTokens := cfg.MaxTokens
+	if maxTokens <= 0 {
+		maxTokens = defaultMaxTokens
+	}
+
+	format := resolveOpenAIVisionMessageFormat(cfg)
+	switch format {
+	case "paddleocr", "paddleocr_chat":
+		pdfFileData, err := prepareOpenAIVisionFileData(fileData)
+		if err != nil {
+			return nil, err
+		}
+		return buildPaddleOCRChatRequest(cfg, pdfFileData.Base64Url), nil
+	case "deepseek_ocr2_image", "image_native", "image":
+		if isPDFFileData(fileData) && !cfg.SupportsPDF {
+			return nil, fmt.Errorf("OCR provider %q does not support PDF input; please use paddle-ocr or mineru for PDF files", cfg.ProviderID)
+		}
+		nativeFileData, err := prepareOpenAIVisionNativeFileData(fileData)
+		if err != nil {
+			return nil, err
+		}
+		messageContent := buildOpenAIVisionImageMessageContent(nativeFileData.Base64Url, prompt)
+		return map[string]any{
+			"model": cfg.Model,
+			"messages": []map[string]any{
+				{"role": "user", "content": messageContent},
+			},
+			"max_tokens":  maxTokens,
+			"stream":      false,
+			"temperature": 0.0,
+		}, nil
+	case "pdf_data_url_string", "string":
+		pdfFileData, err := prepareOpenAIVisionFileData(fileData)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{
+			"model": cfg.Model,
+			"messages": []map[string]any{
+				{"role": "user", "content": pdfFileData.Base64Url},
+			},
+			"max_tokens":  maxTokens,
+			"stream":      false,
+			"temperature": 0.0,
+		}, nil
+	case "file_part", "single_file":
+		pdfFileData, err := prepareOpenAIVisionFileData(fileData)
+		if err != nil {
+			return nil, err
+		}
+		messageContent := buildOpenAIVisionFileMessageContent(pdfFileData.Base64Url, prompt)
+		return map[string]any{
+			"model": cfg.Model,
+			"messages": []map[string]any{
+				{"role": "user", "content": messageContent},
+			},
+			"max_tokens":  maxTokens,
+			"stream":      false,
+			"temperature": 0.0,
+		}, nil
+	default:
+		pdfFileData, err := prepareOpenAIVisionFileData(fileData)
+		if err != nil {
+			return nil, err
+		}
+		messageContent := buildOpenAIVisionMessageContent(pdfFileData.Base64Url, prompt)
+		return map[string]any{
+			"model": cfg.Model,
+			"messages": []map[string]any{
+				{"role": "user", "content": messageContent},
+			},
+			"max_tokens":  maxTokens,
+			"stream":      false,
+			"temperature": 0.0,
+		}, nil
+	}
+}
+
+func resolveOpenAIVisionProvider(nodeCfg *OpenAIVisionConfig) (*OpenAIVisionConfig, error) {
+	providerID := strings.TrimSpace(nodeCfg.ProviderID)
+	if providerID == "" {
+		return nil, fmt.Errorf("legacy OCR endpoint config is no longer supported; please reselect an OCR Provider")
+	}
+
+	provider, err := domainWorkflow.GetRepository().GetOCRProviderByID(providerID)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateOCRProviderEndpoint(provider); err != nil {
+		return nil, err
+	}
+
+	cfg := &OpenAIVisionConfig{
+		ProviderID:            provider.ID,
+		Endpoint:              provider.Endpoint,
+		APIKey:                provider.APIKey,
+		Model:                 provider.Model,
+		Prompt:                nodeCfg.Prompt,
+		MaxTokens:             nodeCfg.MaxTokens,
+		MessageFormat:         provider.Format,
+		PaddleOCROutputFormat: nodeCfg.PaddleOCROutputFormat,
+		ResponsePath:          provider.ResponsePath,
+		SupportsPDF:           provider.Capabilities != nil && provider.Capabilities.SupportsPDF,
+	}
+	if cfg.PaddleOCROutputFormat == "" {
+		cfg.PaddleOCROutputFormat = "text"
+	}
+	return cfg, nil
+}
+
+func validateOCRProviderEndpoint(provider *workflowConfig.OCRProvider) error {
+	endpoint, err := url.Parse(strings.TrimSpace(provider.Endpoint))
+	if err != nil || endpoint.Scheme == "" || endpoint.Hostname() == "" {
+		return fmt.Errorf("invalid OCR provider endpoint for %s", provider.ID)
+	}
+	if len(provider.AllowedHosts) == 0 {
+		return nil
+	}
+	host := endpoint.Hostname()
+	for _, allowed := range provider.AllowedHosts {
+		if strings.EqualFold(strings.TrimSpace(allowed), host) {
+			return nil
+		}
+	}
+	return fmt.Errorf("OCR provider %s endpoint host is not allowed", provider.ID)
+}
+
+func extractOpenAIVisionText(result map[string]any, responsePath string) string {
+	if strings.TrimSpace(responsePath) != "" {
+		if text := extractBySimpleJSONPath(result, responsePath); text != "" {
+			return text
+		}
+	}
+	return extractJSONPath(result, "choices", 0, "message", "content")
+}
+
+func sanitizeOpenAIVisionResponse(result map[string]any) map[string]any {
+	safe := map[string]any{}
+	for _, key := range []string{"id", "object", "created", "model", "usage"} {
+		if value, ok := result[key]; ok {
+			safe[key] = value
+		}
+	}
+	if choices, ok := result["choices"]; ok {
+		safe["choices"] = choices
+	}
+	return safe
+}
+
+func extractDeepSeekOCR2PDFText(result map[string]any) string {
+	if text := extractBySimpleJSONPath(result, "markdown"); strings.TrimSpace(text) != "" {
+		return text
+	}
+	if text := extractBySimpleJSONPath(result, "pages.0.content"); strings.TrimSpace(text) != "" {
+		return text
+	}
+	return findStringByKeys(result, map[string]bool{
+		"markdown": true,
+		"content":  true,
+		"text":     true,
+	})
+}
+
+func sanitizeDeepSeekOCR2PDFResponse(result map[string]any) map[string]any {
+	safe := map[string]any{}
+	for _, key := range []string{"model", "object", "page_count", "pages", "markdown"} {
+		if value, ok := result[key]; ok {
+			safe[key] = value
+		}
+	}
+	return safe
+}
+
+func formatOpenAIVisionAPIError(cfg *OpenAIVisionConfig, statusCode int, respBody []byte) error {
+	msg := sanitizeUserVisibleOCRMessage(string(respBody))
+	format := resolveOpenAIVisionMessageFormat(cfg)
+	if strings.Contains(msg, "Device string must not be empty") {
+		msg += " (MinerU backend device config is empty; set a valid device such as cuda/cpu in the MinerU service configuration)"
+	} else if (format == "paddleocr" || format == "paddleocr_chat") &&
+		(strings.Contains(msg, "hybrid-auto-engine") || strings.Contains(msg, `"task_id"`)) {
+		msg += " (Endpoint may point to MinerU instead of PaddleOCR chat — use the PaddleOCR port, e.g. :17007, model paddleocr-pdf)"
+	}
+	return fmt.Errorf("OCR API error (provider %s, format %s, status %d): %s", cfg.ProviderID, format, statusCode, msg)
+}
+
+var sensitiveOCRValuePatterns = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)https?://[^\s"']+`),
+	regexp.MustCompile(`(?i)bearer\s+[^,\s"']+`),
+	regexp.MustCompile(`(?i)(api[_-]?key|authorization|bearer)\s*[:=]\s*[^,\s"']+`),
+}
+
+func sanitizeUserVisibleOCRMessage(msg string) string {
+	for _, pattern := range sensitiveOCRValuePatterns {
+		msg = pattern.ReplaceAllString(msg, "[redacted]")
+	}
+	return msg
+}
+
+func resolveOpenAIVisionMessageFormat(cfg *OpenAIVisionConfig) string {
+	format := strings.ToLower(strings.TrimSpace(cfg.MessageFormat))
+	if isDeepSeekOCR2Model(cfg.Model) {
+		switch format {
+		case "", "parts", "paddleocr", "paddleocr_chat":
+			return "image_native"
+		}
+	}
+	return format
+}
+
+func isDeepSeekOCR2Model(model string) bool {
+	normalized := strings.ToLower(strings.ReplaceAll(model, "_", "-"))
+	return strings.Contains(normalized, "deepseek-ocr-2")
+}
+
+func (e *OCRExecutor) invokeMinerUAsyncTask(ctx context.Context, cfg *OpenAIVisionConfig, fileData *urltobase64url.FileData) (string, map[string]any, error) {
+	endpoint := strings.TrimRight(cfg.Endpoint, "/")
+	rawBytes, err := decodeBase64DataURI(fileData.Base64Url)
+	if err != nil {
+		return "", nil, fmt.Errorf("failed to decode file data: %w", err)
+	}
+
+	task, err := e.submitMinerUAsyncTask(ctx, endpoint, rawBytes, mimeToExt(fileData.MimeType))
+	if err != nil {
+		return "", nil, err
+	}
+	taskID, ok := task["task_id"].(string)
+	if !ok || strings.TrimSpace(taskID) == "" {
+		return "", task, fmt.Errorf("MinerU async task response missing task_id")
+	}
+
+	status, err := e.pollMinerUAsyncTask(ctx, endpoint, taskID)
+	if err != nil {
+		return "", status, err
+	}
+
+	result, err := e.fetchMinerUAsyncResult(ctx, endpoint, taskID)
+	if err != nil {
+		return "", status, err
+	}
+
+	text := extractMinerUAsyncText(result)
+	raw := map[string]any{
+		"task":   task,
+		"status": status,
+		"result": result,
+	}
+	return text, raw, nil
+}
+
+func (e *OCRExecutor) submitMinerUAsyncTask(ctx context.Context, endpoint string, rawBytes []byte, ext string) (map[string]any, error) {
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("files", "document"+ext)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create MinerU task form: %w", err)
+	}
+	if _, err := part.Write(rawBytes); err != nil {
+		return nil, fmt.Errorf("failed to write MinerU task file: %w", err)
+	}
+	_ = writer.WriteField("backend", "pipeline")
+	_ = writer.WriteField("parse_method", "auto")
+	_ = writer.WriteField("return_md", "true")
+	_ = writer.WriteField("return_content_list", "true")
+	_ = writer.WriteField("return_images", "false")
+	if err := writer.Close(); err != nil {
+		return nil, fmt.Errorf("failed to finalize MinerU task form: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint+"/tasks", &buf)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	return e.doMinerUJSONRequest(req, "submit MinerU async task")
+}
+
+func (e *OCRExecutor) pollMinerUAsyncTask(ctx context.Context, endpoint, taskID string) (map[string]any, error) {
+	pollTimeout := defaultMinerUAsyncPollTimeout
+	if e.client != nil && e.client.Timeout > pollTimeout {
+		pollTimeout = e.client.Timeout
+	}
+	deadline := time.NewTimer(pollTimeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(minerUAsyncPollInterval)
+	defer ticker.Stop()
+
+	for {
+		status, err := e.getMinerUAsyncTaskStatus(ctx, endpoint, taskID)
+		if err != nil {
+			return status, err
+		}
+		switch strings.ToLower(strings.TrimSpace(fmt.Sprintf("%v", status["status"]))) {
+		case "completed", "success", "succeeded", "done":
+			return status, nil
+		case "failed", "error":
+			return status, fmt.Errorf("MinerU async task failed: %s", sanitizeUserVisibleOCRMessage(convMapToJSON(status)))
+		}
+
+		select {
+		case <-ctx.Done():
+			return status, ctx.Err()
+		case <-deadline.C:
+			return status, fmt.Errorf("MinerU async task %s timed out after %s; last status: %s", taskID, pollTimeout, sanitizeUserVisibleOCRMessage(convMapToJSON(status)))
+		case <-ticker.C:
+		}
+	}
+}
+
+func (e *OCRExecutor) getMinerUAsyncTaskStatus(ctx context.Context, endpoint, taskID string) (map[string]any, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"/tasks/"+url.PathEscape(taskID), nil)
+	if err != nil {
+		return nil, err
+	}
+	return e.doMinerUJSONRequest(req, "poll MinerU async task")
+}
+
+func (e *OCRExecutor) fetchMinerUAsyncResult(ctx context.Context, endpoint, taskID string) (map[string]any, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint+"/tasks/"+url.PathEscape(taskID)+"/result", nil)
+	if err != nil {
+		return nil, err
+	}
+	return e.doMinerUJSONRequest(req, "fetch MinerU async result")
+}
+
+func (e *OCRExecutor) doMinerUJSONRequest(req *http.Request, action string) (map[string]any, error) {
+	resp, err := e.client.Do(req)
+	if err != nil || resp == nil {
+		return nil, fmt.Errorf("%s failed: %w", action, err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read MinerU response: %w", err)
+	}
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("%s API error (status %d): %s", action, resp.StatusCode, sanitizeUserVisibleOCRMessage(string(respBody)))
+	}
+
+	var result map[string]any
+	if err := json.Unmarshal(respBody, &result); err != nil {
+		return nil, fmt.Errorf("failed to parse MinerU response JSON: %w", err)
+	}
+	return result, nil
+}
+
+func extractMinerUAsyncText(result map[string]any) string {
+	for _, path := range []string{
+		"md_content",
+		"markdown",
+		"content",
+		"text",
+		"result.md_content",
+		"result.markdown",
+		"data.md_content",
+		"data.markdown",
+	} {
+		if text := extractBySimpleJSONPath(result, path); strings.TrimSpace(text) != "" {
+			return text
+		}
+	}
+	return findStringByKeys(result, map[string]bool{
+		"md_content": true,
+		"markdown":   true,
+		"content":    true,
+		"text":       true,
+	})
+}
+
+func findStringByKeys(value any, keys map[string]bool) string {
+	switch v := value.(type) {
+	case map[string]any:
+		for key, nested := range v {
+			if keys[key] {
+				if text, ok := nested.(string); ok && strings.TrimSpace(text) != "" {
+					return text
+				}
+			}
+			if text := findStringByKeys(nested, keys); text != "" {
+				return text
+			}
+		}
+	case []any:
+		for _, nested := range v {
+			if text := findStringByKeys(nested, keys); text != "" {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func convMapToJSON(value map[string]any) string {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return fmt.Sprintf("%v", value)
+	}
+	return string(raw)
 }
 
 // invokeMinerU calls the MinerU file_parse API.

@@ -25,6 +25,22 @@ interface FormData {
   inputs: Record<string, unknown>;
 }
 
+const DEFAULT_OCR_PROVIDER_ID = 'paddle-ocr';
+const legacyProviderIDs = new Set([
+  'deepseek_ocr2_gpu7',
+  'paddleocr-openai-pdf-api',
+]);
+
+const normalizeProviderID = (providerID: unknown) => {
+  if (typeof providerID !== 'string' || providerID.trim() === '') {
+    return DEFAULT_OCR_PROVIDER_ID;
+  }
+  if (legacyProviderIDs.has(providerID)) {
+    return DEFAULT_OCR_PROVIDER_ID;
+  }
+  return providerID;
+};
+
 /**
  * Node Backend Data -> Frontend Form Data
  */
@@ -35,7 +51,7 @@ export const transformOnInit = (
   const { inputs = {}, outputs } = value || {};
   const rawInputs = inputs as Record<string, unknown>;
 
-  const existingParams = rawInputs.inputParameters as any[] | undefined;
+  const existingParams = rawInputs.inputParameters;
   const inputParameters =
     Array.isArray(existingParams) && existingParams.length > 0
       ? existingParams
@@ -48,17 +64,33 @@ export const transformOnInit = (
           },
         ];
 
+  const defaultOcrConfig = {
+    provider_id: DEFAULT_OCR_PROVIDER_ID,
+    max_tokens: 8192,
+  };
+
+  const existingOcrConfig =
+    typeof rawInputs.ocrConfig === 'object' && rawInputs.ocrConfig !== null
+      ? (rawInputs.ocrConfig as Record<string, unknown>)
+      : {};
+  const normalizedOcrConfig = {
+    ...existingOcrConfig,
+    provider_id: normalizeProviderID(existingOcrConfig.provider_id),
+  };
+
   const initValue = {
     nodeMeta: value?.nodeMeta,
     inputs: {
       inputParameters,
       providerType: OCRProviderType.OpenAIVision,
-      ocrConfig: {},
+      ocrConfig: { ...defaultOcrConfig, ...normalizedOcrConfig },
       ocrSetting: {
         timeout: 120,
         retryTimes: 3,
       },
       ...rawInputs,
+      providerType: rawInputs.providerType ?? OCRProviderType.OpenAIVision,
+      ocrConfig: { ...defaultOcrConfig, ...normalizedOcrConfig },
       inputParameters,
     },
     outputs: isEmpty(outputs)
@@ -87,8 +119,36 @@ export const transformOnSubmit = (
   value: FormData,
   _context: NodeFormContext,
 ): NodeDataDTO => {
+  const inputs = (value.inputs || {}) as Record<string, unknown>;
+  const ocrConfig =
+    typeof inputs.ocrConfig === 'object' && inputs.ocrConfig !== null
+      ? { ...(inputs.ocrConfig as Record<string, unknown>) }
+      : {};
+
+  [
+    'endpoint',
+    'api_key',
+    'model',
+    'message_format',
+    'paddleocr_output_format',
+    'url',
+    'auth_token',
+    'auth_value',
+    'auth_header',
+    'body_template',
+    'json_path',
+  ].forEach(key => {
+    delete ocrConfig[key];
+  });
+  ocrConfig.provider_id = normalizeProviderID(ocrConfig.provider_id);
+
   const formattedValue: Record<string, unknown> = {
     ...value,
+    inputs: {
+      ...inputs,
+      providerType: OCRProviderType.OpenAIVision,
+      ocrConfig,
+    },
   };
 
   return formattedValue as unknown as NodeDataDTO;

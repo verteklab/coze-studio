@@ -971,6 +971,10 @@ func buildStreamEndEvent(c *Context, mapChunks []map[string]any,
 			Token:    tokenInfo,
 			extra:    extra,
 		}
+		if answer, ok := outputMap["output"].(string); ok {
+			e.Answer = nodes.TrimKeyFinishedMarker(answer)
+			e.outputStr = ptr.Of(nodes.TrimKeyFinishedMarker(answer))
+		}
 
 		return e, nil
 	}
@@ -1020,13 +1024,23 @@ func buildStreamDeltaEvent(c *Context, chunk any, accumulated *nodes.StructuredC
 			}
 		}
 
-		return &Event{
-				Type:    NodeStreamingOutput,
-				Context: c,
-				Output:  fullOutput,
-			}, &nodes.StructuredCallbackOutput{
-				Output: fullOutput,
-			}, nil
+		event := &Event{
+			Type:    NodeStreamingOutput,
+			Context: c,
+			Output:  fullOutput,
+		}
+		accumulatedOutput := &nodes.StructuredCallbackOutput{
+			Output: fullOutput,
+		}
+		if answer, ok := mapChunk["output"].(string); ok {
+			event.Answer = nodes.TrimKeyFinishedMarker(answer)
+		}
+		if answer, ok := fullOutput["output"].(string); ok {
+			accumulatedOutput.Answer = ptr.Of(nodes.TrimKeyFinishedMarker(answer))
+			accumulatedOutput.OutputStr = ptr.Of(nodes.TrimKeyFinishedMarker(answer))
+			event.outputStr = ptr.Of(nodes.TrimKeyFinishedMarker(answer))
+		}
+		return event, accumulatedOutput, nil
 	}
 
 	structuredChunk, ok := chunk.(*nodes.StructuredCallbackOutput)

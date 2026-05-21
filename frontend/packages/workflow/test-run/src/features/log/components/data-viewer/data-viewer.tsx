@@ -30,6 +30,7 @@ export interface DataViewerProps {
   /** Supports object or plain text rendering */
   data: JsonValueType;
   mdPreview?: boolean;
+  previewPaths?: string[];
   className?: string;
   onPreview?: (value: string, path: string[]) => void;
   emptyPlaceholder?: string;
@@ -38,6 +39,7 @@ export interface DataViewerProps {
 export const DataViewer: React.FC<DataViewerProps> = ({
   data,
   mdPreview = false,
+  previewPaths = [],
   className,
   onPreview = noop,
   emptyPlaceholder,
@@ -70,6 +72,7 @@ export const DataViewer: React.FC<DataViewerProps> = ({
             field={i}
             key={i.path.join('.')}
             mdPreview={mdPreview}
+            previewPaths={previewPaths}
             onPreview={onPreview}
           />
         ))}
