@@ -24,6 +24,7 @@ import {
 import { type ContentProps } from '@coze-data/knowledge-resource-processor-core';
 import { getKnowledgeIDEQuery } from '@coze-data/knowledge-common-services';
 import { REPORT_EVENTS } from '@coze-arch/report-events';
+import { I18n } from '@coze-arch/i18n';
 import {
   CaptionType,
   DocumentSource,
@@ -148,8 +149,9 @@ export const ImageProgress: FC<ContentProps<ImageFileAddStore>> = props => {
       <div className={styles.error}>
         {/* TODO: i18n — wait for spec to register a key. */}
         <p className={styles['error-message']}>{error}</p>
-        {/* TODO: i18n — wait for spec to register a key. */}
-        <p className={styles['error-hint']}>请刷新页面或联系管理员。</p>
+        <p className={styles['error-hint']}>
+          {I18n.t('datasets_createFileModel_rag_progress_error_refresh_hint')}
+        </p>
       </div>
     );
   }
