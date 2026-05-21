@@ -55,6 +55,12 @@ type Impl struct {
 	// the caller enables EnableRerank. Same enforcement story as
 	// defaultLLMModelID.
 	defaultRerankModelID string
+	// defaultOCRModelID is attached to multipart top-level `ocr_model_id` for
+	// PDF uploads when the dynamic form did not supply one. Required because
+	// rag's PDF auto-detector silently promotes no-text-layer PDFs to
+	// scanned_document_source; the scanned-schema validator then rejects the
+	// request without ocr_model_id. Empty value disables the attachment.
+	defaultOCRModelID string
 }
 
 func New(
@@ -63,7 +69,7 @@ func New(
 	idgen idgen.IDGenerator,
 	resolver TenantResolver,
 	storage storage.Storage,
-	defaultTextModel, defaultImageModel, defaultLLMModel, defaultRerankModel string,
+	defaultTextModel, defaultImageModel, defaultLLMModel, defaultRerankModel, defaultOCRModel string,
 ) *Impl {
 	return &Impl{
 		rag:                          rag,
@@ -75,6 +81,7 @@ func New(
 		defaultImageEmbeddingModelID: defaultImageModel,
 		defaultLLMModelID:            defaultLLMModel,
 		defaultRerankModelID:         defaultRerankModel,
+		defaultOCRModelID:            defaultOCRModel,
 	}
 }
 

@@ -57,6 +57,13 @@ type Config struct {
 	// Same rationale as DefaultLLMModelID — required by the deployed rag
 	// validator when enable_rerank is true.
 	DefaultRerankModelID string `yaml:"default_rerank_model_id"`
+	// DefaultOCRModelID is the OCR model id coze attaches as the multipart
+	// top-level `ocr_model_id` for PDF uploads when the dynamic form did not
+	// supply one. rag's PDF auto-detector (services/document_service.py
+	// inspect_pdf_source_modality) silently promotes no-text-layer PDFs from
+	// text_source to scanned_document_source, after which the scanned-schema
+	// validator requires `ocr_model_id`. Empty value disables the attachment.
+	DefaultOCRModelID string `yaml:"default_ocr_model_id"`
 }
 
 // FileConfig is the on-disk shape of backend/conf/rag/rag.yaml.
@@ -128,5 +135,6 @@ func Load(path string) (*FileConfig, error) {
 	c.Knowledge.Backend = strings.TrimSpace(c.Knowledge.Backend)
 	c.Knowledge.Tenant.Mode = strings.TrimSpace(c.Knowledge.Tenant.Mode)
 	c.Knowledge.Tenant.DefaultTenantID = strings.TrimSpace(c.Knowledge.Tenant.DefaultTenantID)
+	c.Rag.DefaultOCRModelID = strings.TrimSpace(c.Rag.DefaultOCRModelID)
 	return &c, nil
 }

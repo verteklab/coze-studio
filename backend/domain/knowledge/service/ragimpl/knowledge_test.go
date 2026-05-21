@@ -352,6 +352,7 @@ func newTestImpl(t *testing.T, fc *fakeClient, ids ...int64) *Impl {
 		defaultImageEmbeddingModelID: "image-model-default",
 		defaultLLMModelID:            "llm-model-default",
 		defaultRerankModelID:         "rerank-model-default",
+		defaultOCRModelID:            "ocr-model-default",
 	}
 }
 

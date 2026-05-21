@@ -20,6 +20,9 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestLoad_OK(t *testing.T) {
@@ -136,4 +139,53 @@ knowledge:
 	if c.Knowledge.Tenant.DefaultTenantID != "coze" {
 		t.Fatalf("tenant.default=%s", c.Knowledge.Tenant.DefaultTenantID)
 	}
+}
+
+func TestLoad_DefaultOCRModelID_TrimsWhitespace(t *testing.T) {
+	t.Setenv("RAG_DEFAULT_OCR_MODEL_ID", "  model-ocr-paddle-infer-text  ")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rag.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+rag:
+  base_url: "http://rag:8000"
+  timeout_ms: 1000
+  default_text_embedding_model_id: "x"
+  default_image_embedding_model_id: "y"
+  default_llm_model_id: ""
+  default_rerank_model_id: ""
+  default_ocr_model_id: "${RAG_DEFAULT_OCR_MODEL_ID}"
+knowledge:
+  backend: "rag"
+  tenant:
+    mode: "env"
+    default_tenant_id: "test"
+`), 0o600))
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "model-ocr-paddle-infer-text", cfg.Rag.DefaultOCRModelID,
+		"DefaultOCRModelID must be TrimSpace'd so an empty-with-whitespace value does not bypass the disable-attachment sentinel")
+}
+
+func TestLoad_DefaultOCRModelID_FromEnv(t *testing.T) {
+	t.Setenv("RAG_DEFAULT_OCR_MODEL_ID", "model-ocr-paddle-infer-text")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "rag.yaml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+rag:
+  base_url: "http://rag:8000"
+  timeout_ms: 1000
+  default_text_embedding_model_id: "x"
+  default_image_embedding_model_id: "y"
+  default_llm_model_id: ""
+  default_rerank_model_id: ""
+  default_ocr_model_id: "${RAG_DEFAULT_OCR_MODEL_ID}"
+knowledge:
+  backend: "rag"
+  tenant:
+    mode: "env"
+    default_tenant_id: "test"
+`), 0o600))
+	cfg, err := Load(path)
+	require.NoError(t, err)
+	assert.Equal(t, "model-ocr-paddle-infer-text", cfg.Rag.DefaultOCRModelID)
 }
