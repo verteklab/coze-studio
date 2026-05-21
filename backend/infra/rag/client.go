@@ -375,6 +375,11 @@ func (c *Client) CreateDocument(ctx context.Context, tenantID, kbID string, req 
 			return nil, fmt.Errorf("multipart write enable_ocr: %w", err)
 		}
 	}
+	if req.OcrModelID != nil {
+		if err := w.WriteField("ocr_model_id", *req.OcrModelID); err != nil {
+			return nil, fmt.Errorf("multipart write ocr_model_id: %w", err)
+		}
+	}
 	if req.EnableImageEmbedding != nil {
 		if err := w.WriteField("enable_image_embedding", strconv.FormatBool(*req.EnableImageEmbedding)); err != nil {
 			return nil, fmt.Errorf("multipart write enable_image_embedding: %w", err)

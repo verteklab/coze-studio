@@ -249,7 +249,7 @@ func TestCreateDocument_Multipart(t *testing.T) {
 		// Fields that the request does not set must NOT appear on the wire so
 		// rag falls back to its per-schema defaults. pydantic with
 		// extra="forbid" would 422 on an empty string for these.
-		for _, k := range []string{"enable_ocr", "enable_image_embedding", "document_options"} {
+		for _, k := range []string{"enable_ocr", "ocr_model_id", "enable_image_embedding", "document_options"} {
 			if _, present := fields[k]; present {
 				t.Errorf("%s present (= %q) when request didn't set it; expected omitted", k, fields[k])
 			}
@@ -1453,5 +1453,102 @@ func TestDeleteKB(t *testing.T) {
 	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second})
 	if err := c.DeleteKB(context.Background(), "t1", "kb-1"); err != nil {
 		t.Fatalf("DeleteKB: %v", err)
+	}
+}
+
+// TestCreateDocument_OcrModelID_WrittenWhenNonNil asserts that setting
+// OcrModelID to a non-nil string causes the ocr_model_id multipart field to
+// appear on the wire with the exact value supplied.
+func TestCreateDocument_OcrModelID_WrittenWhenNonNil(t *testing.T) {
+	var capturedForm map[string]string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil {
+			t.Fatalf("Content-Type parse: %v", err)
+		}
+		mr := multipart.NewReader(r.Body, params["boundary"])
+		capturedForm = map[string]string{}
+		for {
+			part, pErr := mr.NextPart()
+			if pErr == io.EOF {
+				break
+			}
+			if pErr != nil {
+				t.Fatalf("NextPart: %v", pErr)
+			}
+			body, rErr := io.ReadAll(part)
+			if rErr != nil {
+				t.Fatalf("read part %q: %v", part.FormName(), rErr)
+			}
+			if part.FormName() != "file" {
+				capturedForm[part.FormName()] = string(body)
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"message":"ok","data":{"doc_id":"d1","task_id":"t1","status":"pending"}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second, UploadTimeoutMs: 5000})
+	ocrID := "model-ocr-paddle-infer-text"
+	_, err := c.CreateDocument(context.Background(), "tenant-a", "kb-1", &contract.CreateDocumentRequest{
+		FileBytes:      []byte("%PDF-1.4\nfake"),
+		Filename:       "x.pdf",
+		FileType:       "pdf",
+		SourceModality: "text_source",
+		OcrModelID:     &ocrID,
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument: %v", err)
+	}
+	if got := capturedForm["ocr_model_id"]; got != "model-ocr-paddle-infer-text" {
+		t.Errorf("ocr_model_id = %q, want %q", got, "model-ocr-paddle-infer-text")
+	}
+}
+
+// TestCreateDocument_OcrModelID_OmittedWhenNil asserts that leaving OcrModelID
+// nil causes the ocr_model_id multipart field to be absent from the wire, so
+// rag falls back to its own defaults.
+func TestCreateDocument_OcrModelID_OmittedWhenNil(t *testing.T) {
+	var seenKeys []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil {
+			t.Fatalf("Content-Type parse: %v", err)
+		}
+		mr := multipart.NewReader(r.Body, params["boundary"])
+		for {
+			part, pErr := mr.NextPart()
+			if pErr == io.EOF {
+				break
+			}
+			if pErr != nil {
+				t.Fatalf("NextPart: %v", pErr)
+			}
+			if _, rErr := io.ReadAll(part); rErr != nil {
+				t.Fatalf("read part %q: %v", part.FormName(), rErr)
+			}
+			seenKeys = append(seenKeys, part.FormName())
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"code":0,"message":"ok","data":{"doc_id":"d1","task_id":"t1","status":"pending"}}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	c := New(ragconf.Config{BaseURL: srv.URL, Timeout: 5 * time.Second, UploadTimeoutMs: 5000})
+	_, err := c.CreateDocument(context.Background(), "tenant-a", "kb-1", &contract.CreateDocumentRequest{
+		FileBytes:      []byte("%PDF-1.4\nfake"),
+		Filename:       "x.pdf",
+		FileType:       "pdf",
+		SourceModality: "text_source",
+		OcrModelID:     nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateDocument: %v", err)
+	}
+	for _, k := range seenKeys {
+		if k == "ocr_model_id" {
+			t.Errorf("ocr_model_id present on wire when OcrModelID is nil; seenKeys = %v", seenKeys)
+		}
 	}
 }

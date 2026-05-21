@@ -169,6 +169,13 @@ type CreateDocumentRequest struct {
 	// Optional: rag's enable_ocr form field. nil means "rag's per-schema
 	// default" (off for image/text, on for scanned_document).
 	EnableOCR *bool
+	// OcrModelID: optional. nil means "do not write the multipart field" —
+	// rag will fall back to flat_options.get("ocr_model_id") from
+	// document_options if present. Coze sets this for PDF uploads where
+	// document_options does not already carry the key, so rag's validator
+	// passes after its silent auto-promote from text_source to
+	// scanned_document_source.
+	OcrModelID *string
 	// Optional: rag's enable_image_embedding form field. Only honored by
 	// image-source schemas; text-source parsers silently ignore it.
 	EnableImageEmbedding *bool
