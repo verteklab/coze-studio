@@ -28,8 +28,12 @@ const PREFIX = 'datasets_createFileModel_rag_param_';
  *
  * Key namespace: `${PREFIX}<param_name>_label`, `..._desc`, and
  * `..._enum_<value>` for each allowed_values entry.
+ *
+ * Named `get*` (not `use*`) so it is safe to call inside array `.map()`
+ * callbacks without triggering react-hooks/rules-of-hooks lint errors —
+ * it does not call any React state or effect hooks internally.
  */
-export function useRagParameterI18n(p: DocumentParameter): {
+export function getRagParameterI18n(p: DocumentParameter): {
   label: string;
   description: string;
   options: Array<{ value: string; label: string }>;
@@ -49,13 +53,24 @@ export function useRagParameterI18n(p: DocumentParameter): {
 
 /**
  * Localised group header label. Empty input passes through (no key lookup).
+ *
+ * Named `get*` (not `use*`) so it is safe to call inside array `.map()`
+ * callbacks without triggering react-hooks/rules-of-hooks lint errors.
  */
-export function useRagGroupI18n(groupName: string): string {
+export function getRagGroupI18n(groupName: string): string {
   if (!groupName) {
     return '';
   }
   return i18nWithFallback(`${PREFIX}group_${groupName}`, groupName);
 }
+
+// Re-export under the canonical `use*` names for any callers that import
+// the hook-style names (e.g. top-level component bodies where hooks are
+// legal, or the unit tests which were written against the original names).
+export {
+  getRagParameterI18n as useRagParameterI18n,
+  getRagGroupI18n as useRagGroupI18n,
+};
 
 /**
  * I18n.t returns the key itself when missing (a known loader quirk). Detect

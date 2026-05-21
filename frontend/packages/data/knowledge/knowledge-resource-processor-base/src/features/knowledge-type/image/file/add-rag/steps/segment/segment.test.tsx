@@ -31,7 +31,20 @@ vi.mock('@/features/dynamic-parsing-panel', async () => {
 });
 
 vi.mock('@coze-arch/i18n', () => ({
-  I18n: { t: (k: string) => k },
+  I18n: {
+    t: (k: string) => {
+      // Provide translated values for keys the panel renders as user-visible
+      // labels via useRagParameterI18n so assertions can match the label text
+      // rather than the raw i18n key.
+      const table: Record<string, string> = {
+        datasets_createFileModel_rag_param_enable_ocr_label: 'Enable OCR',
+        datasets_createFileModel_rag_param_enable_ocr_desc:
+          'Whether to extract text via OCR.',
+        datasets_createFileModel_rag_param_group_ocr: 'ocr',
+      };
+      return table[k] ?? k;
+    },
+  },
 }));
 
 // Stub design-system primitives; the real package pulls CSS vitest can't

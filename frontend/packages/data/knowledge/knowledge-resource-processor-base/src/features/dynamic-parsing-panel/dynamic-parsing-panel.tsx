@@ -30,6 +30,7 @@ import { CollapsePanel } from '@/components';
 
 import { applyForcedParams, filterParamsByDependencies } from './validate';
 import { FORCED_PARAMS_BY_SCHEMA } from './use-schemas';
+import { getRagGroupI18n, getRagParameterI18n } from './use-param-i18n';
 import {
   type DocumentParameter,
   type DocumentParameterSchema,
@@ -159,6 +160,7 @@ const GroupedFields: FC<{
         if (forced && 'hidden' in forced && forced.hidden) {
           return null;
         }
+        const i18nParam = getRagParameterI18n(p);
         return (
           <div key={p.name} style={{ marginBottom: 12 }}>
             {showHeader ? (
@@ -166,18 +168,19 @@ const GroupedFields: FC<{
                 heading={6}
                 style={{ marginTop: 8, marginBottom: 4 }}
               >
-                {p.group}
+                {getRagGroupI18n(p.group)}
               </Typography.Title>
             ) : null}
             <FieldControl
               param={p}
+              i18n={i18nParam}
               value={forced ? forced.value : value[p.name]}
               onChange={onChange}
               forced={forced}
             />
-            {p.description ? (
+            {i18nParam.description ? (
               <Typography.Text type="tertiary" size="small">
-                {p.description}
+                {i18nParam.description}
               </Typography.Text>
             ) : null}
             {forced && 'reason' in forced ? (
@@ -220,13 +223,18 @@ const GroupedFields: FC<{
  */
 const FieldControl: FC<{
   param: DocumentParameter;
+  i18n: {
+    label: string;
+    description: string;
+    options: Array<{ value: string; label: string }>;
+  };
   value: unknown;
   onChange: (name: string, fieldValue: unknown) => void;
   forced?:
     | { value: unknown; reason: string; hidden?: false }
     | { value: unknown; hidden: true };
-}> = ({ param, value, onChange, forced }) => {
-  const label = param.ui_label || param.name;
+}> = ({ param, i18n, value, onChange, forced }) => {
+  const { label } = i18n;
   const isDisabled = Boolean(forced);
   const wrap = (node: ReactNode): ReactNode =>
     forced && 'reason' in forced ? (
@@ -279,16 +287,12 @@ const FieldControl: FC<{
         typeof value === 'string'
           ? value
           : (param.default as string | undefined);
-      const options = (param.allowed_values ?? []).map(v => ({
-        label: String(v),
-        value: String(v),
-      }));
       return wrap(
         <div style={{ display: 'flex', flexDirection: 'column' }}>
           <span style={{ marginBottom: 4 }}>{label}</span>
           <Select
             value={current}
-            optionList={options}
+            optionList={i18n.options}
             disabled={isDisabled}
             onChange={next => onChange(param.name, next)}
           />

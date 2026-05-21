@@ -18,10 +18,20 @@ import React from 'react';
 
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
+import '@testing-library/jest-dom';
 
-// i18n: return the key so we can assert against it in DOM queries.
+// i18n: use a lookup table that returns the key itself on miss so:
+//  (a) existing tests that assert against the key string continue to pass, and
+//  (b) the translation render test can assert the Chinese text for known keys.
+const i18nTable: Record<string, string> = {
+  datasets_createFileModel_rag_param_chunk_size_label: '切片大小',
+  datasets_createFileModel_rag_param_chunk_size_desc: '文本切片的最大长度。',
+  datasets_createFileModel_rag_param_group_chunking: '切片',
+  datasets_createFileModel_rag_param_table_text_format_label: '表格文本格式',
+  datasets_createFileModel_rag_param_table_text_format_enum_csv: 'CSV',
+};
 vi.mock('@coze-arch/i18n', () => ({
-  I18n: { t: (key: string) => key },
+  I18n: { t: (key: string) => i18nTable[key] ?? key },
 }));
 
 // coze-design: stub out the design-system primitives this panel uses. The
@@ -366,5 +376,48 @@ describe('DynamicParsingPanel forced params', () => {
     ]);
     render(<DynamicParsingPanel schema={s} value={{}} onChange={vi.fn()} />);
     expect(document.getElementById('dpp-produce_text_chunk')).toBeNull();
+  });
+});
+
+describe('DynamicParsingPanel translation rendering', () => {
+  it('renders translated label / description / group for a known schema', () => {
+    const schema = schemaOf('pdf_text_document', [
+      {
+        name: 'chunk_size',
+        type: 'integer',
+        group: 'chunking',
+        required: false,
+        advanced: false,
+        description: 'Maximum chunk size for text chunking.',
+        ui_label: 'Chunk size',
+        ui_component: 'number',
+      },
+      {
+        name: 'table_text_format',
+        type: 'string',
+        group: 'pdf_layout',
+        required: false,
+        advanced: false,
+        description: 'Text format used for extracted tables.',
+        ui_label: 'Table text format',
+        ui_component: 'select',
+        allowed_values: ['csv', 'markdown', 'plain'],
+      },
+    ]);
+
+    render(
+      <DynamicParsingPanel
+        schema={schema}
+        value={{}}
+        onChange={() => undefined}
+      />,
+    );
+
+    // Group header is translated via getRagGroupI18n
+    expect(screen.getByText('切片')).toBeInTheDocument();
+    // Param label is translated via getRagParameterI18n
+    expect(screen.getByText('切片大小')).toBeInTheDocument();
+    // Param description is translated via getRagParameterI18n
+    expect(screen.getByText('文本切片的最大长度。')).toBeInTheDocument();
   });
 });
