@@ -2,3 +2,77 @@ NodeOfCodeConfig:
     SupportThirdPartModules:
         - httpx
         - numpy
+
+ocr_providers:
+    - id: paddle-ocr
+      name: paddle-ocr
+      enabled: true
+      format: paddleocr
+      endpoint: http://117.59.171.81:17006
+      model: paddleocr-pdf
+      allowed_hosts:
+          - 117.59.171.81
+      response_path: choices.0.message.content
+      capabilities:
+          input_types:
+              - image
+              - pdf
+          supports_pdf: true
+          supports_page_range: false
+    - id: mineru
+      name: mineru
+      enabled: true
+      format: mineru_async_task
+      endpoint: http://117.59.171.81:17008
+      model: mineru-pdf
+      allowed_hosts:
+          - 117.59.171.81
+      response_path: choices.0.message.content
+      capabilities:
+          input_types:
+              - image
+              - pdf
+          supports_pdf: true
+          supports_page_range: false
+    - id: easyocr
+      name: easyocr
+      enabled: true
+      format: image_native
+      endpoint: http://117.59.171.81:17005
+      model: easyocr
+      allowed_hosts:
+          - 117.59.171.81
+      response_path: choices.0.message.content
+      capabilities:
+          input_types:
+              - image
+          supports_pdf: false
+          supports_page_range: false
+    - id: deepseek-ocr2
+      name: deepseek-ocr2
+      enabled: true
+      format: deepseek_ocr2_image
+      endpoint: http://117.59.171.81:17007
+      model: deepseek-ai/DeepSeek-OCR-2
+      allowed_hosts:
+          - 117.59.171.81
+      response_path: choices.0.message.content
+      capabilities:
+          input_types:
+              - image
+          supports_pdf: false
+          supports_page_range: false
+    - id: deepseek-ocr2-pdf
+      name: deepseek-ocr2-pdf
+      enabled: true
+      format: deepseek_ocr2_pdf_parse
+      endpoint: http://117.59.171.81:17007
+      model: deepseek-ai/DeepSeek-OCR-2
+      allowed_hosts:
+          - 117.59.171.81
+      response_path: markdown
+      capabilities:
+          input_types:
+              - pdf
+          supports_pdf: true
+          supports_page_range: true
