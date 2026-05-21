@@ -38,27 +38,20 @@ import { type ImageFileAddStore } from '../../../store';
 /**
  * Rag-mode SEGMENT_CLEANER step for the image upload wizard (Phase 3b).
  * Twin of the text wizard's <TextRagSegment /> — same schema-driven form
- * UX, but scoped to image schemas (`image_document` + `scanned_document`)
- * and writing into the image store.
+ * UX, but scoped to the `image_document` schema only.
  *
- * Behaviour:
- *   - For typical image uploads (jpg/png/webp/...), two schemas match:
- *     `image_document` (image_source) and `scanned_document`
- *     (scanned_document_source). The selector lets the user pick; default
- *     is `image_document` (matches rag's auto-routing). Picking
- *     `scanned_document` inlines a reserved `_source_modality` key so the
- *     backend (commit 6cdf670f) honors the explicit choice.
- *   - When `scanned_document` is chosen, surfaces a one-line hint that
- *     the OCR-heavy parser will be used.
- *   - On Next, serialises the form values into the wire blob (with
- *     `_source_modality` only when the user picked the non-default schema)
- *     and advances to PROGRESS.
- *   - Catalog load failure falls back to "advance with empty options" so
- *     a transient outage on the schemas endpoint does not block uploads.
+ * Image KB uploads materially behave as `image_document` after the
+ * `FORCED_PARAMS_BY_SCHEMA` layer applies (`scanned_document` produces
+ * byte-identical wire payloads post-force), so the modality selector that
+ * the text wizard exposes for PDF text-vs-scanned is intentionally absent
+ * here. See 2026-05-21-image-kb-collapse-modality-choice-design.md.
  *
- * Differs from <TextRagSegment /> only in the store type and the step
- * enum it transitions to; the renderer + selector logic is shared via
- * <DynamicParsingPanel /> + matchSchemasForFile.
+ * On Next, serialises the form values into the wire blob and advances to
+ * PROGRESS. Catalog load failure falls back to "advance with empty
+ * options" so a transient outage on the schemas endpoint does not block
+ * uploads. If `image_document` is absent from the catalog (a rag-side
+ * breaking change), the config area renders empty rather than silently
+ * falling back to scanned — the user surfaces the broken state.
  */
 export const ImageRagSegment: FC<ContentProps<ImageFileAddStore>> = props => {
   const { useStore, footer } = props;
@@ -81,7 +74,14 @@ export const ImageRagSegment: FC<ContentProps<ImageFileAddStore>> = props => {
     if (!schemas || !fileType) {
       return [];
     }
-    return matchSchemasForFile(schemas, fileType);
+    // Image KB uploads only ever materially behave as image_document after
+    // the FORCED_PARAMS_BY_SCHEMA layer in use-schemas.ts — scanned_document
+    // is byte-equivalent on the wire post-force. Narrow to image_document
+    // here (vs. inside matchSchemasForFile, which stays correct for the
+    // text-KB call site where PDF text/scanned do meaningfully differ).
+    return matchSchemasForFile(schemas, fileType).filter(
+      s => s.schema_id === 'image_document',
+    );
   }, [schemas, fileType]);
 
   const [selectedSchemaId, setSelectedSchemaId] = useState<string>('');
