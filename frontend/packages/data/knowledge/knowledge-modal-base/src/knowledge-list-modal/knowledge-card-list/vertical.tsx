@@ -39,7 +39,6 @@ import {
   DatasetStatus,
   StorageLocation,
 } from '@coze-arch/bot-api/knowledge';
-import { SpaceType } from '@coze-arch/bot-api/developer_api';
 
 import { getEllipsisCount, formatBytes } from '../../utils';
 import { FilePopover } from './components';
@@ -150,9 +149,7 @@ export const KnowledgeCardListVertical: FC<DatasetCardListVerticalProps> = ({
   searchType,
   onClickKnowledgeDetail,
 }) => {
-  const { id: spaceId, space_type } = useSpaceStore(s => s.space);
-
-  const isPersonal = space_type === SpaceType.Personal;
+  const { id: spaceId } = useSpaceStore(s => s.space);
 
   const handleRow = (e: { stopPropagation: () => void }, id: string) => {
     e.stopPropagation();
@@ -203,7 +200,7 @@ export const KnowledgeCardListVertical: FC<DatasetCardListVerticalProps> = ({
               <SpaceTags {...item}></SpaceTags>
 
               <div className={styles.info}>
-                {!isPersonal && (
+                {item.creator_name ? (
                   <>
                     <Avatar
                       src={item.avatar_url}
@@ -213,18 +210,18 @@ export const KnowledgeCardListVertical: FC<DatasetCardListVerticalProps> = ({
                       className={cs(styles.creator)}
                       ellipsis={{ showTooltip: true }}
                     >
-                      {item.creator_name || ''}
+                      {item.creator_name}
                     </Text>
                   </>
-                )}
+                ) : null}
                 {item.can_edit ? (
                   <UITag color="blue" style={{ marginLeft: 4 }}>
                     {I18n.t('knowledge_list_mine_badge')}
                   </UITag>
                 ) : null}
-                {!isPersonal && (
+                {item.creator_name ? (
                   <span className={styles['border-right']}></span>
-                )}
+                ) : null}
                 {searchType === OrderField.CreateTime ? (
                   <span className={styles.creator}>
                     {I18n.t('dataset_bot_create_time_knowledge', {
