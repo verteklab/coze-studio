@@ -845,6 +845,9 @@ func (k *KnowledgeApplicationService) checkWriteAccess(
 	if uid == nil {
 		return errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
+	if ctxutil.IsAdminFromCtx(ctx) {
+		return nil
+	}
 
 	// Resolve target → KB set. Batched queries; no N+1.
 	kbIDSet := map[int64]struct{}{}

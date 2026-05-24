@@ -53,3 +53,15 @@ func TestCheckWriteAccess_Unauthenticated(t *testing.T) {
 	err := svc.checkWriteAccess(context.Background(), nil, nil, nil, nil)
 	assert.Error(t, err)
 }
+
+func TestCheckWriteAccess_NoTarget(t *testing.T) {
+	svc := &KnowledgeApplicationService{}
+	uid := int64(42)
+	err := svc.checkWriteAccess(context.Background(), &uid, nil, nil, nil)
+	assert.Error(t, err)
+
+	var statusErr errorx.StatusError
+	if assert.True(t, errors.As(err, &statusErr)) {
+		assert.Equal(t, int32(errno.ErrKnowledgePermissionCode), statusErr.Code())
+	}
+}
