@@ -37,11 +37,10 @@ import (
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/entity"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service/ragimpl"
-	"github.com/coze-dev/coze-studio/backend/domain/permission"
 	resourceEntity "github.com/coze-dev/coze-studio/backend/domain/search/entity"
+	ragcontract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
 	cd "github.com/coze-dev/coze-studio/backend/infra/document"
 	"github.com/coze-dev/coze-studio/backend/infra/document/parser"
-	ragcontract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
 	"github.com/coze-dev/coze-studio/backend/infra/storage"
 	"github.com/coze-dev/coze-studio/backend/pkg/errorx"
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/conv"
@@ -402,11 +401,6 @@ func (k *KnowledgeApplicationService) CreateKnowledge(ctx context.Context, req *
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
 
-	err := k.checkPermission(ctx, uid, ptr.Of(req.SpaceID), nil, nil, nil)
-	if err != nil {
-		return dataset.NewCreateDatasetResponse(), err
-	}
-
 	// PR-1: forward optional embedding model ids to ragimpl via context.
 	// Legacy backend ignores this; rag backend reads it in CreateKnowledge.
 	// Helper is a no-op when both fields are empty, so legacy callers see no
@@ -446,7 +440,7 @@ func (k *KnowledgeApplicationService) datasetDetail(ctx context.Context, req *da
 	}
 
 	if !fromOpenAPI {
-		err = k.checkPermission(ctx, uid, ptr.Of(req.SpaceID), nil, nil, nil)
+		err = k.checkReadAccess(ctx, uid)
 		if err != nil {
 			return dataset.NewDatasetDetailResponse(), err
 		}
@@ -518,11 +512,9 @@ func (k *KnowledgeApplicationService) ListKnowledge(ctx context.Context, req *da
 		return dataset.NewListDatasetResponse(), err
 	}
 
-	if req.GetSpaceID() != 0 {
-		err = k.checkPermission(ctx, uid, ptr.Of(req.SpaceID), nil, nil, nil)
-		if err != nil {
-			return dataset.NewListDatasetResponse(), err
-		}
+	err = k.checkReadAccess(ctx, uid)
+	if err != nil {
+		return dataset.NewListDatasetResponse(), err
 	}
 
 	if req.Filter != nil && len(req.GetFilter().DatasetIds) > 0 {
@@ -569,7 +561,7 @@ func (k *KnowledgeApplicationService) DeleteKnowledge(ctx context.Context, req *
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
 
-	err := k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+	err := k.checkWriteAccess(ctx, uid, ptr.Of(req.GetDatasetID()), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -593,7 +585,7 @@ func (k *KnowledgeApplicationService) UpdateKnowledge(ctx context.Context, req *
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
 
-	err := k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+	err := k.checkWriteAccess(ctx, uid, ptr.Of(req.GetDatasetID()), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -772,7 +764,7 @@ func (k *KnowledgeApplicationService) DeleteDocument(ctx context.Context, req *d
 		return dataset.NewDeleteDocumentResponse(), err
 	}
 
-	err = k.checkPermission(ctx, uid, nil, transformedIDs, nil, nil)
+	err = k.checkWriteAccess(ctx, uid, nil, transformedIDs, nil)
 	if err != nil {
 		return dataset.NewDeleteDocumentResponse(), err
 	}
@@ -801,7 +793,7 @@ func (k *KnowledgeApplicationService) UpdateDocument(ctx context.Context, req *d
 		return nil, err
 	}
 
-	err = k.checkPermission(ctx, uid, nil, []int64{req.GetDocumentID()}, nil, nil)
+	err = k.checkWriteAccess(ctx, uid, nil, []int64{req.GetDocumentID()}, nil)
 	if err != nil {
 		return dataset.NewUpdateDocumentResponse(), err
 	}
@@ -906,60 +898,6 @@ func (k *KnowledgeApplicationService) checkWriteAccess(
 	return nil
 }
 
-func (k *KnowledgeApplicationService) checkPermission(ctx context.Context, uid *int64, spaceID *int64, documentIDs []int64, knowledgeID *int64, sliceIDs []int64) error {
-
-	rd := []*permission.ResourceIdentifier{}
-
-	if spaceID != nil {
-		rd = append(rd, &permission.ResourceIdentifier{
-			Type:   permission.ResourceTypeWorkspace,
-			ID:     []int64{*spaceID},
-			Action: permission.ActionRead,
-		})
-	}
-
-	if documentIDs != nil {
-		rd = append(rd, &permission.ResourceIdentifier{
-			Type:   permission.ResourceTypeKnowledgeDocument,
-			ID:     documentIDs,
-			Action: permission.ActionRead,
-		})
-	}
-	if sliceIDs != nil {
-		rd = append(rd, &permission.ResourceIdentifier{
-			Type:   permission.ResourceTypeKnowledgeSlice,
-			ID:     sliceIDs,
-			Action: permission.ActionRead,
-		})
-	}
-
-	if knowledgeID != nil {
-		rd = append(rd, &permission.ResourceIdentifier{
-			Type:   permission.ResourceTypeKnowledge,
-			ID:     []int64{*knowledgeID},
-			Action: permission.ActionRead,
-		})
-	}
-
-	if len(rd) == 0 {
-		return nil
-	}
-
-	checkResult, err := permission.DefaultSVC().CheckAuthz(ctx, &permission.CheckAuthzData{
-		ResourceIdentifier: rd,
-		OperatorID:         *uid,
-	})
-	if err != nil {
-		logs.CtxErrorf(ctx, "check authz failed, err: %v", err)
-		return err
-	}
-	if checkResult.Decision != permission.Allow {
-		return errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "permission denied"))
-	}
-
-	return nil
-}
-
 func (k *KnowledgeApplicationService) GetDocumentProgress(ctx context.Context, req *dataset.GetDocumentProgressRequest) (*dataset.GetDocumentProgressResponse, error) {
 
 	uid := ctxutil.GetUIDFromCtx(ctx)
@@ -974,7 +912,7 @@ func (k *KnowledgeApplicationService) GetDocumentProgress(ctx context.Context, r
 		logs.CtxErrorf(ctx, "convert string ids failed, err: %v", err)
 		return dataset.NewGetDocumentProgressResponse(), err
 	}
-	err = k.checkPermission(ctx, uid, nil, docIDs, nil, nil)
+	err = k.checkReadAccess(ctx, uid)
 	if err != nil {
 		return dataset.NewGetDocumentProgressResponse(), err
 	}
@@ -1015,7 +953,7 @@ func (k *KnowledgeApplicationService) RetryDocument(ctx context.Context, req *da
 	if uid == nil {
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
-	if err := k.checkPermission(ctx, uid, nil, []int64{req.GetDocumentID()}, nil, nil); err != nil {
+	if err := k.checkWriteAccess(ctx, uid, nil, []int64{req.GetDocumentID()}, nil); err != nil {
 		return dataset.NewRetryDocumentResponse(), err
 	}
 	svcResp, err := k.DomainSVC.RetryDocument(ctx, &service.RetryDocumentRequest{DocumentID: req.GetDocumentID()})
@@ -1136,7 +1074,7 @@ func (k *KnowledgeApplicationService) DeleteSlice(ctx context.Context, req *data
 		sliceIDs = append(sliceIDs, sliceID)
 	}
 
-	err := k.checkPermission(ctx, uid, nil, nil, nil, sliceIDs)
+	err := k.checkWriteAccess(ctx, uid, nil, nil, sliceIDs)
 	if err != nil {
 		logs.CtxErrorf(ctx, "check permission failed, err: %v", err)
 		return dataset.NewDeleteSliceResponse(), err
@@ -1269,8 +1207,8 @@ func (k *KnowledgeApplicationService) listSlice(ctx context.Context, req *datase
 		return nil, err
 	}
 
-	if !fromOpenAPI && req.DatasetID != nil {
-		err := k.checkPermission(ctx, uid, nil, nil, ptr.Of(*req.DatasetID), nil)
+	if !fromOpenAPI {
+		err := k.checkReadAccess(ctx, uid)
 		if err != nil {
 			return nil, err
 		}
@@ -1319,11 +1257,9 @@ func (k *KnowledgeApplicationService) GetTableSchema(ctx context.Context, req *d
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
 
-	if req.GetDocumentID() > 0 {
-		err = k.checkPermission(ctx, uid, nil, []int64{req.GetDocumentID()}, nil, nil)
-		if err != nil {
-			return nil, err
-		}
+	err = k.checkReadAccess(ctx, uid)
+	if err != nil {
+		return nil, err
 	}
 
 	if req.SourceFile == nil { // alter table
@@ -1398,7 +1334,7 @@ func (k *KnowledgeApplicationService) ValidateTableSchema(ctx context.Context, r
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
 	if req.GetDocumentID() > 0 {
-		err = k.checkPermission(ctx, uid, nil, []int64{req.GetDocumentID()}, nil, nil)
+		err = k.checkWriteAccess(ctx, uid, nil, []int64{req.GetDocumentID()}, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -1431,11 +1367,8 @@ func (k *KnowledgeApplicationService) GetDocumentTableInfo(ctx context.Context, 
 	if uid == nil {
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
-	if req.GetDocumentID() > 0 {
-		err := k.checkPermission(ctx, uid, nil, []int64{req.GetDocumentID()}, nil, nil)
-		if err != nil {
-			return nil, err
-		}
+	if err := k.checkReadAccess(ctx, uid); err != nil {
+		return nil, err
 	}
 
 	domainResp, err := k.DomainSVC.GetDocumentTableInfo(ctx, &service.GetDocumentTableInfoRequest{
@@ -1470,7 +1403,7 @@ func (k *KnowledgeApplicationService) CreateDocumentReview(ctx context.Context, 
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
 	if req.GetDatasetID() > 0 {
-		err := k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+		err := k.checkWriteAccess(ctx, uid, ptr.Of(req.GetDatasetID()), nil, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -1511,7 +1444,7 @@ func (k *KnowledgeApplicationService) MGetDocumentReview(ctx context.Context, re
 		return dataset.NewMGetDocumentReviewResponse(), err
 	}
 
-	err = k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+	err = k.checkReadAccess(ctx, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -1545,7 +1478,7 @@ func (k *KnowledgeApplicationService) SaveDocumentReview(ctx context.Context, re
 	if uid == nil {
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
-	err := k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+	err := k.checkWriteAccess(ctx, uid, ptr.Of(req.GetDatasetID()), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1637,7 +1570,7 @@ func (k *KnowledgeApplicationService) UpdatePhotoCaption(ctx context.Context, re
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
 
-	err := k.checkPermission(ctx, uid, nil, []int64{req.DocumentID}, nil, nil)
+	err := k.checkWriteAccess(ctx, uid, nil, []int64{req.DocumentID}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1702,7 +1635,7 @@ func (k *KnowledgeApplicationService) listPhoto(ctx context.Context, req *datase
 	}
 
 	if !fromOpenAPI {
-		err = k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+		err = k.checkReadAccess(ctx, uid)
 		if err != nil {
 			return nil, err
 		}
@@ -1794,7 +1727,7 @@ func (k *KnowledgeApplicationService) photoDetail(ctx context.Context, req *data
 	}
 
 	if !fromOpenAPI {
-		err = k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+		err = k.checkReadAccess(ctx, uid)
 		if err != nil {
 			return nil, err
 		}
@@ -1841,7 +1774,7 @@ func (k *KnowledgeApplicationService) ExtractPhotoCaption(ctx context.Context, r
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
 
-	err := k.checkPermission(ctx, uid, nil, []int64{req.GetDocumentID()}, nil, nil)
+	err := k.checkWriteAccess(ctx, uid, nil, []int64{req.GetDocumentID()}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1874,7 +1807,7 @@ func (k *KnowledgeApplicationService) ListKnowledgeAPI(ctx context.Context, req 
 		return dataset.NewListDatasetOpenApiResponse(), err
 	}
 
-	err = k.checkPermission(ctx, &uid, ptr.Of(req.SpaceID), nil, nil, nil)
+	err = k.checkReadAccess(ctx, &uid)
 	if err != nil {
 		return dataset.NewListDatasetOpenApiResponse(), err
 	}
@@ -1914,7 +1847,7 @@ func (k *KnowledgeApplicationService) UpdateKnowledgeAPI(ctx context.Context, re
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", " apiKeyInfo is nil"))
 	}
 
-	err := k.checkPermission(ctx, &uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+	err := k.checkWriteAccess(ctx, &uid, ptr.Of(req.GetDatasetID()), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1944,7 +1877,7 @@ func (k *KnowledgeApplicationService) DeleteKnowledgeAPI(ctx context.Context, re
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", " apiKeyInfo is nil"))
 	}
 
-	err := k.checkPermission(ctx, &uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+	err := k.checkWriteAccess(ctx, &uid, ptr.Of(req.GetDatasetID()), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1973,7 +1906,7 @@ func (k *KnowledgeApplicationService) GetDocumentProgressAPI(ctx context.Context
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", " apiKeyInfo is nil"))
 	}
 
-	err := k.checkPermission(ctx, &uid, nil, req.GetDocumentIds(), nil, nil)
+	err := k.checkReadAccess(ctx, &uid)
 	if err != nil {
 		return dataset.NewGetDocumentProgressOpenApiResponse(), err
 	}
@@ -2016,7 +1949,7 @@ func (k *KnowledgeApplicationService) ListPhotoAPI(ctx context.Context, req *dat
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", " apiKeyInfo is nil"))
 	}
 
-	err := k.checkPermission(ctx, &uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+	err := k.checkReadAccess(ctx, &uid)
 	if err != nil {
 		return nil, err
 	}
@@ -2083,11 +2016,6 @@ func (k *KnowledgeApplicationService) CreateKnowledgeAPI(ctx context.Context, re
 	uid := ctxutil.MustGetUIDFromApiAuthCtx(ctx)
 	if uid == 0 {
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", " apiKeyInfo is nil"))
-	}
-
-	err := k.checkPermission(ctx, &uid, ptr.Of(req.GetSpaceID()), nil, nil, nil)
-	if err != nil {
-		return dataset.NewCreateDatasetOpenApiResponse(), err
 	}
 
 	domainResp, err := k.createKnowledgeInternal(ctx, req.GetName(), req.GetDescription(), req.GetSpaceID(), uid, req.GetProjectID(), req.GetFormatType(), "")
