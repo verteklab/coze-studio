@@ -297,7 +297,16 @@ func (k *KnowledgeApplicationService) publishUpdateKnowledgeEvent(ctx context.Co
 	return nil
 }
 
-func (k *KnowledgeApplicationService) buildListKnowledgeRequest(ctx context.Context, spaceID int64, name *string, formatType *dataset.FormatType, page, pageSize int, projectIDStr string) (*service.ListKnowledgeRequest, error) {
+func (k *KnowledgeApplicationService) buildListKnowledgeRequest(
+	ctx context.Context,
+	spaceID int64,
+	name *string,
+	formatType *dataset.FormatType,
+	page, pageSize int,
+	projectIDStr string,
+	scope dataset.DatasetScopeType,
+	uid int64,
+) (*service.ListKnowledgeRequest, error) {
 	request := service.ListKnowledgeRequest{}
 
 	if page > 0 {
@@ -327,8 +336,18 @@ func (k *KnowledgeApplicationService) buildListKnowledgeRequest(ctx context.Cont
 		request.FormatType = ptr.Of(convertFormatType2Entity(*formatType))
 	}
 
-	if spaceID != 0 {
-		request.SpaceID = &spaceID
+	// Scope logic: ScopeAll (default / zero) returns every KB regardless of
+	// space; ScopeSelf restricts to KBs created by the caller. spaceID is
+	// intentionally ignored — KB visibility no longer depends on the active
+	// space, only on read permission (already checked by the caller).
+	_ = spaceID
+	switch scope {
+	case dataset.DatasetScopeType_ScopeSelf:
+		if uid != 0 {
+			request.UserID = ptr.Of(uid)
+		}
+	default:
+		// ScopeAll or zero — no space_id and no creator filter.
 	}
 
 	return &request, nil
@@ -487,6 +506,7 @@ func (k *KnowledgeApplicationService) ListKnowledge(ctx context.Context, req *da
 
 	var name *string
 	var formatType *dataset.FormatType
+	var scope dataset.DatasetScopeType
 	if req.Filter != nil {
 		if req.GetFilter().GetName() != "" {
 			nameValue := req.GetFilter().GetName()
@@ -496,6 +516,7 @@ func (k *KnowledgeApplicationService) ListKnowledge(ctx context.Context, req *da
 			formatTypeValue := req.GetFilter().GetFormatType()
 			formatType = &formatTypeValue
 		}
+		scope = req.GetFilter().GetScopeType()
 	}
 
 	var page, pageSize int
@@ -506,7 +527,7 @@ func (k *KnowledgeApplicationService) ListKnowledge(ctx context.Context, req *da
 		pageSize = int(*req.Size)
 	}
 
-	request, err := k.buildListKnowledgeRequest(ctx, req.GetSpaceID(), name, formatType, page, pageSize, req.GetProjectID())
+	request, err := k.buildListKnowledgeRequest(ctx, req.GetSpaceID(), name, formatType, page, pageSize, req.GetProjectID(), scope, *uid)
 	if err != nil {
 		logs.CtxErrorf(ctx, "build list knowledge request failed, err: %v", err)
 		return dataset.NewListDatasetResponse(), err
@@ -1810,7 +1831,9 @@ func (k *KnowledgeApplicationService) ListKnowledgeAPI(ctx context.Context, req 
 		pageSize = int(*req.PageSize)
 	}
 
-	request, err := k.buildListKnowledgeRequest(ctx, req.GetSpaceID(), req.Name, req.FormatType, page, pageSize, req.GetProjectID())
+	// OpenAPI request shape doesn't carry a scope_type; default behaviour is
+	// ScopeAll (zero value), matching the UI default.
+	request, err := k.buildListKnowledgeRequest(ctx, req.GetSpaceID(), req.Name, req.FormatType, page, pageSize, req.GetProjectID(), dataset.DatasetScopeType_ScopeAll, uid)
 	if err != nil {
 		logs.CtxErrorf(ctx, "build list knowledge request failed, err: %v", err)
 		return dataset.NewListDatasetOpenApiResponse(), err

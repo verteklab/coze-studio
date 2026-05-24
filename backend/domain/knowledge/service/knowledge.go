@@ -254,9 +254,11 @@ func (k *knowledgeSVC) DeleteKnowledge(ctx context.Context, request *DeleteKnowl
 }
 
 func (k *knowledgeSVC) ListKnowledge(ctx context.Context, request *ListKnowledgeRequest) (response *ListKnowledgeResponse, err error) {
-	if len(request.IDs) == 0 && request.AppID == nil && request.SpaceID == nil {
-		return nil, errorx.New(errno.ErrKnowledgeInvalidParamCode, errorx.KV("msg", "knowledge ids, project id, space id and query can not be all empty"))
-	}
+	// Historically this required IDs / AppID / SpaceID to be non-empty so the
+	// listing was always implicitly scoped. ScopeAll is now an explicit caller
+	// intent — list every KB regardless of space — so the no-filter case is
+	// accepted. Read permission has already been enforced by the application
+	// layer at this point.
 	opts := &entity.WhereKnowledgeOption{
 		KnowledgeIDs: request.IDs,
 		AppID:        request.AppID,
