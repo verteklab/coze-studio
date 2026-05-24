@@ -610,6 +610,10 @@ func (k *KnowledgeApplicationService) CreateDocument(ctx context.Context, req *d
 	if err != nil {
 		return nil, err
 	}
+	err = k.checkWriteAccess(ctx, uid, ptr.Of(req.GetDatasetID()), nil, nil)
+	if err != nil {
+		return dataset.NewCreateDocumentResponse(), err
+	}
 	listResp, err := k.DomainSVC.ListKnowledge(ctx, &service.ListKnowledgeRequest{IDs: []int64{req.GetDatasetID()}})
 	if err != nil {
 		logs.CtxErrorf(ctx, "mget knowledge failed, err: %v", err)
@@ -619,10 +623,6 @@ func (k *KnowledgeApplicationService) CreateDocument(ctx context.Context, req *d
 		return dataset.NewCreateDocumentResponse(), errors.New("knowledge not found")
 	}
 	knowledgeInfo := listResp.KnowledgeList[0]
-
-	if knowledgeInfo.CreatorID != *uid {
-		return dataset.NewCreateDocumentResponse(), errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "permission denied"))
-	}
 
 	documents := []*entity.Document{}
 	if len(req.GetDocumentBases()) == 0 {
@@ -699,6 +699,10 @@ func (k *KnowledgeApplicationService) ListDocument(ctx context.Context, req *dat
 	if err != nil {
 		return nil, err
 	}
+	err = k.checkReadAccess(ctx, uid)
+	if err != nil {
+		return dataset.NewListDocumentResponse(), err
+	}
 	var limit int = int(req.GetSize())
 	// var offset int = int(req.GetPage() * req.GetSize())
 	page := int(req.GetPage())
@@ -735,9 +739,6 @@ func (k *KnowledgeApplicationService) ListDocument(ctx context.Context, req *dat
 	resp.Total = int32(listResp.Total)
 	resp.DocumentInfos = make([]*dataset.DocumentInfo, 0)
 	for i := range documents {
-		if documents[i].CreatorID != *uid {
-			return dataset.NewListDocumentResponse(), errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "permission denied"))
-		}
 		resp.DocumentInfos = append(resp.DocumentInfos, convertDocument2Model(documents[i]))
 	}
 	return resp, nil
@@ -971,14 +972,21 @@ func (k *KnowledgeApplicationService) Resegment(ctx context.Context, req *datase
 	if uid == nil {
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
+	docIDs, err := slices.TransformWithErrorCheck(req.GetDocumentIds(), func(s string) (int64, error) {
+		id, err := strconv.ParseInt(s, 10, 64)
+		return id, err
+	})
+	if err != nil {
+		logs.CtxErrorf(ctx, "parse int failed, err: %v", err)
+		return dataset.NewResegmentResponse(), err
+	}
+	err = k.checkWriteAccess(ctx, uid, nil, docIDs, nil)
+	if err != nil {
+		return dataset.NewResegmentResponse(), err
+	}
 	resp := dataset.NewResegmentResponse()
 	resp.DocumentInfos = make([]*dataset.DocumentInfo, 0)
-	for i := range req.GetDocumentIds() {
-		docID, err := strconv.ParseInt(req.GetDocumentIds()[i], 10, 64)
-		if err != nil {
-			logs.CtxErrorf(ctx, "parse int failed, err: %v", err)
-			return dataset.NewResegmentResponse(), err
-		}
+	for _, docID := range docIDs {
 		var captionType *dataset.CaptionType
 		if req.GetChunkStrategy() != nil {
 			captionType = req.GetChunkStrategy().CaptionType
@@ -991,9 +999,6 @@ func (k *KnowledgeApplicationService) Resegment(ctx context.Context, req *datase
 		if err != nil {
 			logs.CtxErrorf(ctx, "resegment document failed, err: %v", err)
 			return dataset.NewResegmentResponse(), err
-		}
-		if resegmentResp.Document.Info.CreatorID != *uid {
-			return dataset.NewResegmentResponse(), errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "permission denied"))
 		}
 
 		resp.DocumentInfos = append(resp.DocumentInfos, &dataset.DocumentInfo{
@@ -1009,6 +1014,10 @@ func (k *KnowledgeApplicationService) CreateSlice(ctx context.Context, req *data
 	if uid == nil {
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
+	err := k.checkWriteAccess(ctx, uid, nil, []int64{req.GetDocumentID()}, nil)
+	if err != nil {
+		return dataset.NewCreateSliceResponse(), err
+	}
 	listResp, err := k.DomainSVC.ListDocument(ctx, &service.ListDocumentRequest{
 		DocumentIDs: []int64{req.GetDocumentID()},
 	})
@@ -1018,9 +1027,6 @@ func (k *KnowledgeApplicationService) CreateSlice(ctx context.Context, req *data
 	}
 	if len(listResp.Documents) != 1 {
 		return dataset.NewCreateSliceResponse(), errors.New("document not found")
-	}
-	if listResp.Documents[0].CreatorID != *uid {
-		return dataset.NewCreateSliceResponse(), errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "permission denied"))
 	}
 	sliceEntity := &model.Slice{
 		Info: model.Info{
@@ -1097,15 +1103,18 @@ func (k *KnowledgeApplicationService) UpdateSlice(ctx context.Context, req *data
 	if uid == nil {
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
+	err := k.checkWriteAccess(ctx, uid, nil, nil, []int64{req.GetSliceID()})
+	if err != nil {
+		return nil, err
+	}
 	getSliceResp, err := k.DomainSVC.GetSlice(ctx, &service.GetSliceRequest{
 		SliceID: req.GetSliceID(),
 	})
 	if err != nil {
 		return nil, errorx.New(errno.ErrKnowledgeInvalidParamCode, errorx.KV("msg", "slice not found"))
 	}
-
-	if getSliceResp.Slice != nil && getSliceResp.Slice.Info.CreatorID != *uid {
-		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "permission denied"))
+	if getSliceResp.Slice == nil {
+		return nil, errorx.New(errno.ErrKnowledgeInvalidParamCode, errorx.KV("msg", "slice not found"))
 	}
 	docID := getSliceResp.Slice.DocumentID
 
