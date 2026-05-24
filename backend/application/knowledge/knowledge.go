@@ -820,6 +820,89 @@ func (k *KnowledgeApplicationService) UpdateDocument(ctx context.Context, req *d
 	return &dataset.UpdateDocumentResponse{}, nil
 }
 
+// checkReadAccess allows any authenticated user. Use for read endpoints
+// (list, detail, list docs, list slices, retrieve). Knowledge data is
+// globally readable by design; only writes are owner-gated.
+func (k *KnowledgeApplicationService) checkReadAccess(ctx context.Context, uid *int64) error {
+	if uid == nil {
+		return errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
+	}
+	return nil
+}
+
+// checkWriteAccess resolves the target identifier(s) back to the owning KB(s)
+// and passes only when every owning KB.creator_id == *uid.
+//
+// Pass any combination of: knowledgeID, documentIDs, sliceIDs. (The union of
+// owning KBs is checked.)
+func (k *KnowledgeApplicationService) checkWriteAccess(
+	ctx context.Context,
+	uid *int64,
+	knowledgeID *int64,
+	documentIDs []int64,
+	sliceIDs []int64,
+) error {
+	if uid == nil {
+		return errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
+	}
+
+	// Resolve target → KB set. Batched queries; no N+1.
+	kbIDSet := map[int64]struct{}{}
+	if knowledgeID != nil {
+		kbIDSet[*knowledgeID] = struct{}{}
+	}
+	if len(documentIDs) > 0 {
+		docResp, err := k.DomainSVC.MGetDocument(ctx, &service.MGetDocumentRequest{DocumentIDs: documentIDs})
+		if err != nil {
+			logs.CtxErrorf(ctx, "mget document failed, err: %v", err)
+			return err
+		}
+		if docResp == nil || len(docResp.Documents) != len(documentIDs) {
+			return errorx.New(errno.ErrKnowledgeDocumentNotExistCode, errorx.KV("msg", "document not found"))
+		}
+		for _, d := range docResp.Documents {
+			kbIDSet[d.KnowledgeID] = struct{}{}
+		}
+	}
+	if len(sliceIDs) > 0 {
+		sliceResp, err := k.DomainSVC.MGetSlice(ctx, &service.MGetSliceRequest{SliceIDs: sliceIDs})
+		if err != nil {
+			logs.CtxErrorf(ctx, "mget slice failed, err: %v", err)
+			return err
+		}
+		if sliceResp == nil || len(sliceResp.Slices) != len(sliceIDs) {
+			return errorx.New(errno.ErrKnowledgeSliceNotExistCode, errorx.KV("msg", "slice not found"))
+		}
+		for _, s := range sliceResp.Slices {
+			kbIDSet[s.KnowledgeID] = struct{}{}
+		}
+	}
+
+	if len(kbIDSet) == 0 {
+		return errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "no write target"))
+	}
+
+	kbIDs := make([]int64, 0, len(kbIDSet))
+	for id := range kbIDSet {
+		kbIDs = append(kbIDs, id)
+	}
+
+	kbResp, err := k.DomainSVC.ListKnowledge(ctx, &service.ListKnowledgeRequest{IDs: kbIDs})
+	if err != nil {
+		logs.CtxErrorf(ctx, "list knowledge failed, err: %v", err)
+		return err
+	}
+	if kbResp == nil || len(kbResp.KnowledgeList) != len(kbIDs) {
+		return errorx.New(errno.ErrKnowledgeNotExistCode, errorx.KV("msg", "knowledge not found"))
+	}
+	for _, kb := range kbResp.KnowledgeList {
+		if kb.CreatorID != *uid {
+			return errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "not knowledge owner"))
+		}
+	}
+	return nil
+}
+
 func (k *KnowledgeApplicationService) checkPermission(ctx context.Context, uid *int64, spaceID *int64, documentIDs []int64, knowledgeID *int64, sliceIDs []int64) error {
 
 	rd := []*permission.ResourceIdentifier{}
