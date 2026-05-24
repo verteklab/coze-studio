@@ -23,6 +23,7 @@ import (
 	"github.com/coze-dev/coze-studio/backend/api/model/data/database/table"
 	"github.com/coze-dev/coze-studio/backend/api/model/resource/common"
 	"github.com/coze-dev/coze-studio/backend/api/model/workflow"
+	"github.com/coze-dev/coze-studio/backend/application/base/ctxutil"
 	database "github.com/coze-dev/coze-studio/backend/crossdomain/database/model"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
 	dbservice "github.com/coze-dev/coze-studio/backend/domain/memory/database/service"
@@ -236,6 +237,11 @@ func (w *workflowPacker) GetProjectDefaultActions(ctx context.Context) []*common
 
 type knowledgePacker struct {
 	resourceBasePacker
+	// cachedCanEdit memoizes the owner check so GetActions /
+	// GetProjectDefaultActions / GetDataInfo don't each issue a fresh
+	// GetKnowledgeByID for the same row. Packers are per-row + single-threaded
+	// so a plain pointer is fine (no mutex required).
+	cachedCanEdit *bool
 }
 
 func (k *knowledgePacker) GetDataInfo(ctx context.Context) (*dataInfo, error) {
@@ -248,6 +254,12 @@ func (k *knowledgePacker) GetDataInfo(ctx context.Context) (*dataInfo, error) {
 
 	kn := res.Knowledge
 
+	// Opportunistically warm the canEdit cache so the subsequent
+	// GetActions / GetProjectDefaultActions call doesn't refetch.
+	if k.cachedCanEdit == nil {
+		k.cachedCanEdit = ptr.Of(k.computeCanEditFromCreator(ctx, kn.CreatorID))
+	}
+
 	return &dataInfo{
 		iconURI: ptr.Of(kn.IconURI),
 		iconURL: kn.IconURL,
@@ -257,48 +269,99 @@ func (k *knowledgePacker) GetDataInfo(ctx context.Context) (*dataInfo, error) {
 }
 
 func (k *knowledgePacker) GetActions(ctx context.Context) []*common.ResourceAction {
+	canEdit := k.canCurrentUserEdit(ctx)
 	return []*common.ResourceAction{
 		{
 			Key:    common.ActionKey_Delete,
-			Enable: true,
+			Enable: canEdit,
 		},
 		{
 			Key:    common.ActionKey_EnableSwitch,
-			Enable: true,
+			Enable: canEdit,
 		},
 		{
 			Key:    common.ActionKey_Edit,
-			Enable: true,
+			Enable: canEdit,
 		},
 	}
 }
 func (k *knowledgePacker) GetProjectDefaultActions(ctx context.Context) []*common.ProjectResourceAction {
+	canEdit := k.canCurrentUserEdit(ctx)
 	return []*common.ProjectResourceAction{
 		{
 			Key:    common.ProjectResourceActionKey_Rename,
-			Enable: true,
+			Enable: canEdit,
 		},
 		{
+			// Copy is read-only on the source; the copy is owned by the copier.
 			Key:    common.ProjectResourceActionKey_Copy,
 			Enable: true,
 		},
 		{
+			// CopyToLibrary likewise produces a new resource owned by the copier.
 			Key:    common.ProjectResourceActionKey_CopyToLibrary,
 			Enable: true,
 		},
 		{
+			// MoveToLibrary mutates the original — gate it.
 			Key:    common.ProjectResourceActionKey_MoveToLibrary,
-			Enable: true,
+			Enable: canEdit,
 		},
 		{
 			Key:    common.ProjectResourceActionKey_Delete,
-			Enable: true,
+			Enable: canEdit,
 		},
 		{
 			Key:    common.ProjectResourceActionKey_Disable,
-			Enable: true,
+			Enable: canEdit,
 		},
 	}
+}
+
+// canCurrentUserEdit reports whether the requester is the KB's creator (or an
+// admin-context caller, e.g. admin-bearer OpenAPI). The result is memoized on
+// the packer instance so multiple action/data lookups for the same row share a
+// single GetKnowledgeByID call.
+func (k *knowledgePacker) canCurrentUserEdit(ctx context.Context) bool {
+	if k.cachedCanEdit != nil {
+		return *k.cachedCanEdit
+	}
+	canEdit := k.resolveCanEdit(ctx)
+	k.cachedCanEdit = ptr.Of(canEdit)
+	return canEdit
+}
+
+func (k *knowledgePacker) resolveCanEdit(ctx context.Context) bool {
+	if ctxutil.IsAdminFromCtx(ctx) {
+		return true
+	}
+	uid := ctxutil.GetUIDFromCtx(ctx)
+	if uid == nil {
+		return false
+	}
+	res, err := k.appContext.KnowledgeDomainSVC.GetKnowledgeByID(ctx, &service.GetKnowledgeByIDRequest{
+		KnowledgeID: k.resID,
+	})
+	if err != nil || res == nil || res.Knowledge == nil {
+		// If we can't determine ownership, fall back to read-only — safer than
+		// enabling writes for a stranger.
+		logs.CtxWarnf(ctx, "[knowledgePacker.resolveCanEdit] GetKnowledgeByID failed, resID=%d, err=%v", k.resID, err)
+		return false
+	}
+	return res.Knowledge.CreatorID == *uid
+}
+
+// computeCanEditFromCreator is the cheap path used when GetDataInfo has
+// already loaded the knowledge — it skips the duplicate GetKnowledgeByID.
+func (k *knowledgePacker) computeCanEditFromCreator(ctx context.Context, creatorID int64) bool {
+	if ctxutil.IsAdminFromCtx(ctx) {
+		return true
+	}
+	uid := ctxutil.GetUIDFromCtx(ctx)
+	if uid == nil {
+		return false
+	}
+	return creatorID == *uid
 }
 
 type promptPacker struct {
