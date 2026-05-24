@@ -215,13 +215,15 @@ export const KnowledgeCardListVertical: FC<DatasetCardListVerticalProps> = ({
                     >
                       {item.creator_name || ''}
                     </Text>
-                    {item.can_edit ? (
-                      <UITag color="blue" style={{ marginLeft: 4 }}>
-                        {I18n.t('knowledge_list_mine_badge')}
-                      </UITag>
-                    ) : null}
-                    <span className={styles['border-right']}></span>
                   </>
+                )}
+                {item.can_edit ? (
+                  <UITag color="blue" style={{ marginLeft: 4 }}>
+                    {I18n.t('knowledge_list_mine_badge')}
+                  </UITag>
+                ) : null}
+                {!isPersonal && (
+                  <span className={styles['border-right']}></span>
                 )}
                 {searchType === OrderField.CreateTime ? (
                   <span className={styles.creator}>
