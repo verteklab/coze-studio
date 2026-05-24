@@ -55,7 +55,6 @@ import {
   DatasetScopeType,
   FormatType,
 } from '@coze-arch/bot-api/knowledge';
-import { SpaceType } from '@coze-arch/bot-api/developer_api';
 import { KnowledgeApi } from '@coze-arch/bot-api';
 
 import { DATA_REFACTOR_CLASS_NAME } from '../../constant';
@@ -234,9 +233,7 @@ const useKnowledgeFilter = ({
       value: DatasetScopeType.ScopeSelf,
     },
   ];
-  const { id, space_type } = useSpaceStore(s => s.space);
-
-  const isPersonal = space_type === SpaceType.Personal;
+  const { id } = useSpaceStore(s => s.space);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const { loading, data, loadingMore, noMore, reload } =
@@ -250,7 +247,7 @@ const useKnowledgeFilter = ({
             space_id: id || '',
             query,
             search_type: searchType,
-            scope_type: isPersonal ? DatasetScopeType.ScopeSelf : scopeType,
+            scope_type: scopeType,
             format_type:
               currentKnowledgeType === FilterKnowledgeType.ALL
                 ? undefined
@@ -377,41 +374,40 @@ const useKnowledgeFilter = ({
     [handleAdd],
   );
 
-  const renderScopeTabs = () =>
-    !isPersonal ? (
-      <div
-        key="scope-tabs"
-        className={styles['file-type-tab']}
-        data-testid="bot.knowledge.select.list.modal.scope-tabs"
-      >
-        {scopeTabs.reduce<ReactNode[]>((accumulator, tab, idx) => {
-          const tabNode = (
-            <div
-              key={tab.value}
-              onClick={() => setScopeType(tab.value)}
-              className={
-                scopeType === tab.value
-                  ? styles['file-type-tab-item-active']
-                  : styles['file-type-tab-item']
-              }
-            >
-              {tab.label}
-            </div>
-          );
-          if (idx !== 0) {
-            return accumulator.concat([
-              <Divider
-                key={`${tab.value}-divider`}
-                layout="vertical"
-                margin="12px"
-              />,
-              tabNode,
-            ]);
-          }
-          return accumulator.concat([tabNode]);
-        }, [])}
-      </div>
-    ) : null;
+  const renderScopeTabs = () => (
+    <div
+      key="scope-tabs"
+      className={styles['file-type-tab']}
+      data-testid="bot.knowledge.select.list.modal.scope-tabs"
+    >
+      {scopeTabs.reduce<ReactNode[]>((accumulator, tab, idx) => {
+        const tabNode = (
+          <div
+            key={tab.value}
+            onClick={() => setScopeType(tab.value)}
+            className={
+              scopeType === tab.value
+                ? styles['file-type-tab-item-active']
+                : styles['file-type-tab-item']
+            }
+          >
+            {tab.label}
+          </div>
+        );
+        if (idx !== 0) {
+          return accumulator.concat([
+            <Divider
+              key={`${tab.value}-divider`}
+              layout="vertical"
+              margin="12px"
+            />,
+            tabNode,
+          ]);
+        }
+        return accumulator.concat([tabNode]);
+      }, [])}
+    </div>
+  );
 
   const renderFilters = useMemo(
     () => () => (
@@ -473,7 +469,6 @@ const useKnowledgeFilter = ({
       headerClassName,
       handleSearchTypeChange,
       scopeType,
-      isPersonal,
       showFilters,
       uniqKnowledgeTypeConfigList,
     ],
