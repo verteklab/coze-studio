@@ -633,7 +633,13 @@ func resolveDatasetBackend(id int64, ragMapped map[int64]struct{}) *string {
 	return &s
 }
 
-func batchConvertKnowledgeEntity2Model(ctx context.Context, knowledgeEntity []*model.Knowledge) (map[int64]*dataset.Dataset, error) {
+// batchConvertKnowledgeEntity2Model turns a slice of domain Knowledge entities
+// into the response DTO map. `uid` is the caller's logged-in user id (or the
+// API-key owner for OpenAPI flows) and is used to populate Dataset.CanEdit:
+// CanEdit is true iff the KB's CreatorID matches `uid`. Pass 0 to force
+// CanEdit=false (e.g. anonymous / admin-context callers without a meaningful
+// owner identity).
+func batchConvertKnowledgeEntity2Model(ctx context.Context, knowledgeEntity []*model.Knowledge, uid int64) (map[int64]*dataset.Dataset, error) {
 	// Resolve "which backend owns each KB" in a single batched query before
 	// the per-record loop. On legacy deployments mappingRepo is nil — every
 	// KB resolves to "legacy" via the empty set, no DB hit.
@@ -698,7 +704,11 @@ func batchConvertKnowledgeEntity2Model(ctx context.Context, knowledgeEntity []*m
 			IconURI:              k.IconURI,
 			IconURL:              k.IconURL,
 			Description:          k.Description,
-			CanEdit:              true,
+			// CanEdit: ownership flag — the frontend uses it to show/hide
+			// edit affordances. Owner is the user whose id was recorded as
+			// CreatorID at KB creation time. uid==0 means "no caller
+			// identity" (anonymous / admin-context) and yields false.
+			CanEdit:              uid != 0 && k.CreatorID == uid,
 			CreateTime:           int32(k.CreatedAtMs / 1000),
 			CreatorID:            k.CreatorID,
 			SpaceID:              k.SpaceID,

@@ -486,7 +486,9 @@ func (k *KnowledgeApplicationService) datasetDetail(ctx context.Context, req *da
 		logs.CtxErrorf(ctx, "get knowledge failed, err: %v", err)
 		return dataset.NewDatasetDetailResponse(), err
 	}
-	knowledgeMap, err := batchConvertKnowledgeEntity2Model(ctx, domainResp.KnowledgeList)
+	// getUID returns a non-nil pointer for both flows (it errors otherwise),
+	// so this deref is safe. CanEdit is derived from (CreatorID == *uid).
+	knowledgeMap, err := batchConvertKnowledgeEntity2Model(ctx, domainResp.KnowledgeList, ptr.From(uid))
 	if err != nil {
 		logs.CtxErrorf(ctx, "batch convert knowledge entity failed, err: %v", err)
 		return dataset.NewDatasetDetailResponse(), err
@@ -564,7 +566,8 @@ func (k *KnowledgeApplicationService) ListKnowledge(ctx context.Context, req *da
 
 	resp := dataset.ListDatasetResponse{}
 	resp.Total = int32(domainResp.Total)
-	knowledgeMap, err := batchConvertKnowledgeEntity2Model(ctx, domainResp.KnowledgeList)
+	// uid is guaranteed non-nil at this point (checked at function entry).
+	knowledgeMap, err := batchConvertKnowledgeEntity2Model(ctx, domainResp.KnowledgeList, *uid)
 	if err != nil {
 		logs.CtxErrorf(ctx, "batch convert knowledge entity failed, err: %v", err)
 		return dataset.NewListDatasetResponse(), err
@@ -1850,7 +1853,9 @@ func (k *KnowledgeApplicationService) ListKnowledgeAPI(ctx context.Context, req 
 		return dataset.NewListDatasetOpenApiResponse(), err
 	}
 
-	knowledgeMap, err := batchConvertKnowledgeEntity2Model(ctx, domainResp.KnowledgeList)
+	// OpenAPI flow: uid is the API-key owner (already checked non-zero above);
+	// CanEdit will be true only for KBs that user actually owns.
+	knowledgeMap, err := batchConvertKnowledgeEntity2Model(ctx, domainResp.KnowledgeList, uid)
 	if err != nil {
 		logs.CtxErrorf(ctx, "batch convert knowledge entity failed, err: %v", err)
 		return dataset.NewListDatasetOpenApiResponse(), err
