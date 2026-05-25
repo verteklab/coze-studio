@@ -279,6 +279,22 @@ const useKnowledgeFilter = ({
       },
     );
 
+  // Sort own KBs (can_edit=true) first, then by update_time desc within each
+  // group. Applied client-side over the accumulated infinite-scroll buffer so
+  // own KBs always float to the top of whatever page set we have loaded.
+  const sortedList = useMemo(() => {
+    const list = data?.list;
+    if (!list?.length) {
+      return list ?? [];
+    }
+    return [...list].sort((a, b) => {
+      if (!!a.can_edit === !!b.can_edit) {
+        return Number(b.update_time ?? 0) - Number(a.update_time ?? 0);
+      }
+      return a.can_edit ? -1 : 1;
+    });
+  }, [data?.list]);
+
   useUpdateEffect(() => {
     handleResetFilter();
   }, [id]);
@@ -322,7 +338,7 @@ const useKnowledgeFilter = ({
                   query,
                   searchType,
                   loading: loadingMore,
-                  list: data.list,
+                  list: sortedList,
                   noMore,
                   resetFilter: handleResetFilter,
                   refresh: reload,
