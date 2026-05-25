@@ -586,6 +586,73 @@ func TestListKnowledge_ByIDs_UnknownIDsSkipped(t *testing.T) {
 	require.Equal(t, int64(2001), resp.KnowledgeList[0].Info.ID)
 }
 
+// TestListKnowledge_ByUserID is the regression test for the ScopeSelf wiring
+// gap: ListDataset.Filter.scope_type = ScopeSelf is translated to
+// ListKnowledgeRequest.UserID by the application layer (see
+// buildListKnowledgeRequest), but the v2 RAG backend used to silently fall
+// through to a tenant-wide list because ragimpl.ListKnowledge ignored UserID.
+// This test asserts: (a) the response contains only rows whose mapping
+// creator_id == UserID, (b) total is the unpaginated filtered count, and (c)
+// rag.ListKBs is never called — the filter is satisfied by the mapping table
+// alone, which avoids paging the entire tenant just to throw most of it away.
+func TestListKnowledge_ByUserID(t *testing.T) {
+	getKBCalls := 0
+	listKBsCalled := false
+	fc := &fakeClient{
+		getKBFunc: func(_, kbID string) (*contract.KB, error) {
+			getKBCalls++
+			return &contract.KB{KBID: kbID, Name: "kb-" + kbID, Status: "active", CreatedAt: contract.RagTime(time.Unix(0, 0)), UpdatedAt: contract.RagTime(time.Unix(0, 0))}, nil
+		},
+		listKBsFunc: func(_ *contract.ListKBsRequest) (*contract.ListKBsResponse, error) {
+			listKBsCalled = true
+			return &contract.ListKBsResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+
+	// Seed two KBs owned by user 11 and one by user 22. ScopeSelf for user 11
+	// must surface only the two it owns, with their CreatorID preserved.
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 3001, "rag-uuid-3001", "", 0, 11, 0, knowledgeModel.DocumentTypeText))
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 3002, "rag-uuid-3002", "", 0, 11, 0, knowledgeModel.DocumentTypeText))
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 3003, "rag-uuid-3003", "", 0, 22, 0, knowledgeModel.DocumentTypeText))
+
+	uid := int64(11)
+	page, pageSize := 1, 20
+	resp, err := i.ListKnowledge(context.Background(), &service.ListKnowledgeRequest{
+		UserID: &uid, Page: &page, PageSize: &pageSize,
+	})
+	require.NoError(t, err)
+	require.Equal(t, int64(2), resp.Total, "total must be the unpaginated filtered count")
+	require.Len(t, resp.KnowledgeList, 2)
+	for _, kb := range resp.KnowledgeList {
+		require.Equal(t, uid, kb.Info.CreatorID, "every returned KB must be owned by the requesting user")
+	}
+	require.Equal(t, 2, getKBCalls, "one rag.GetKB call per owned KB")
+	require.False(t, listKBsCalled, "ScopeSelf path must not fall through to tenant-wide ListKBs")
+}
+
+// UserID = 0 means "no caller filter" — caller-side bug or ScopeAll request
+// reaching ragimpl through an unusual path. The contract is to treat it as
+// ScopeAll, NOT to return every user's KBs by accident. The KBsByCreator
+// zero-creator guard enforces this on the mapping side; this test pins the
+// behaviour end-to-end by asserting we go through ListKBs.
+func TestListKnowledge_ByUserID_ZeroUIDFallsThroughToListKBs(t *testing.T) {
+	listKBsCalled := false
+	fc := &fakeClient{
+		listKBsFunc: func(_ *contract.ListKBsRequest) (*contract.ListKBsResponse, error) {
+			listKBsCalled = true
+			return &contract.ListKBsResponse{}, nil
+		},
+	}
+	i := newTestImpl(t, fc)
+
+	zero := int64(0)
+	resp, err := i.ListKnowledge(context.Background(), &service.ListKnowledgeRequest{UserID: &zero})
+	require.NoError(t, err)
+	require.Empty(t, resp.KnowledgeList)
+	require.True(t, listKBsCalled, "UserID=0 must NOT trigger the creator-filtered branch")
+}
+
 // TestRagimpl_ListDocumentParameterSchemas verifies the pass-through
 // behavior: tenant resolver runs, no mapping lookup happens (rag's
 // endpoint is system-wide), and the rag client's return value

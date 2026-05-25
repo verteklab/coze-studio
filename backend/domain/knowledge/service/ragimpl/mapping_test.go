@@ -162,6 +162,61 @@ func TestMapping_KBsByCozeIDs_PartialFound(t *testing.T) {
 	require.Equal(t, int64(1), res[0].CozeID)
 }
 
+func TestMapping_KBsByCreator(t *testing.T) {
+	db := setupDB(t)
+	// Three creators, with creator 7 owning 3 KBs.
+	db.Create(&kbRow{CozeKBID: 10, RagKBID: "u10", CreatorID: 7, FormatType: int64(knowledgeModel.DocumentTypeText)})
+	db.Create(&kbRow{CozeKBID: 11, RagKBID: "u11", CreatorID: 7, FormatType: int64(knowledgeModel.DocumentTypeText)})
+	db.Create(&kbRow{CozeKBID: 12, RagKBID: "u12", CreatorID: 7, FormatType: int64(knowledgeModel.DocumentTypeText)})
+	db.Create(&kbRow{CozeKBID: 20, RagKBID: "u20", CreatorID: 8})
+	db.Create(&kbRow{CozeKBID: 21, RagKBID: "u21", CreatorID: 9})
+	m := NewMappingRepo(db)
+
+	// Page 1, size 2: highest coze_kb_id first per the production ORDER BY.
+	res, total, err := m.KBsByCreator(context.Background(), 7, 1, 2)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), total, "total counts ALL matching rows, not just this page")
+	require.Len(t, res, 2)
+	require.Equal(t, int64(12), res[0].CozeID, "DESC order by coze_kb_id")
+	require.Equal(t, int64(11), res[1].CozeID)
+
+	// Page 2 with size 2 returns the remaining 1 row.
+	res, total, err = m.KBsByCreator(context.Background(), 7, 2, 2)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), total)
+	require.Len(t, res, 1)
+	require.Equal(t, int64(10), res[0].CozeID)
+}
+
+// Empty creator is a callable no-op, not a "list everyone" wildcard. Mirrors
+// KBsByCozeIDs([])'s zero-input contract: don't hit the DB, return (nil, 0).
+func TestMapping_KBsByCreator_ZeroCreator(t *testing.T) {
+	db := setupDB(t)
+	db.Create(&kbRow{CozeKBID: 30, RagKBID: "u30", CreatorID: 7})
+	m := NewMappingRepo(db)
+	res, total, err := m.KBsByCreator(context.Background(), 0, 1, 20)
+	require.NoError(t, err)
+	require.Nil(t, res)
+	require.Equal(t, int64(0), total)
+}
+
+// Soft-deleted rows are invisible to KBsByCreator — same predicate the rest of
+// the repo uses (deleted_at IS NULL). Guards against the filter ever returning
+// a KB whose mapping was tombstoned by DeleteKnowledge.
+func TestMapping_KBsByCreator_ExcludesSoftDeleted(t *testing.T) {
+	db := setupDB(t)
+	m := NewMappingRepo(db)
+	require.NoError(t, m.InsertKB(context.Background(), 40, "u40", "", 0, 7, 0, knowledgeModel.DocumentTypeText))
+	require.NoError(t, m.InsertKB(context.Background(), 41, "u41", "", 0, 7, 0, knowledgeModel.DocumentTypeText))
+	require.NoError(t, m.SoftDeleteKB(context.Background(), 41))
+
+	res, total, err := m.KBsByCreator(context.Background(), 7, 1, 20)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), total)
+	require.Len(t, res, 1)
+	require.Equal(t, int64(40), res[0].CozeID)
+}
+
 func TestMapping_KBByRagID(t *testing.T) {
 	db := setupDB(t)
 	db.Create(&kbRow{CozeKBID: 200, RagKBID: "uuid-z"})

@@ -150,6 +150,61 @@ func (m *MappingRepo) KBsByCozeIDs(ctx context.Context, ids []int64) ([]*KBMappi
 	return out, nil
 }
 
+// KBsByCreator returns active KB mappings created by the given user, paginated.
+// total is the unpaginated count of matching rows. Used by ListKnowledge when
+// the caller asks for ScopeSelf (filter.scope_type = ScopeSelf), which maps to
+// ListKnowledgeRequest.UserID. Empty creator returns (nil, 0, nil) so the caller
+// keeps the gate explicit and we don't accidentally degrade to a tenant-wide
+// scan when the application layer forgot to set UserID.
+func (m *MappingRepo) KBsByCreator(ctx context.Context, creatorID int64, page, pageSize int) ([]*KBMapping, int64, error) {
+	if creatorID == 0 {
+		return nil, 0, nil
+	}
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 {
+		pageSize = 20
+	}
+	var total int64
+	if err := m.db.WithContext(ctx).
+		Table("rag_kb_mapping").
+		Where("creator_id = ? AND (deleted_at IS NULL)", creatorID).
+		Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	if total == 0 {
+		return nil, 0, nil
+	}
+	var rows []struct {
+		CozeKBID   int64  `gorm:"column:coze_kb_id"`
+		RagKBID    string `gorm:"column:rag_kb_id"`
+		IconURI    string `gorm:"column:icon_uri"`
+		AppID      int64  `gorm:"column:app_id"`
+		CreatorID  int64  `gorm:"column:creator_id"`
+		FormatType int64  `gorm:"column:format_type"`
+	}
+	if err := m.db.WithContext(ctx).
+		Table("rag_kb_mapping").
+		Select("coze_kb_id, rag_kb_id, icon_uri, app_id, creator_id, format_type").
+		Where("creator_id = ? AND (deleted_at IS NULL)", creatorID).
+		Order("coze_kb_id DESC").
+		Offset((page - 1) * pageSize).
+		Limit(pageSize).
+		Scan(&rows).Error; err != nil {
+		return nil, 0, err
+	}
+	out := make([]*KBMapping, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, &KBMapping{
+			CozeID: r.CozeKBID, RagKBID: r.RagKBID, IconURI: r.IconURI,
+			AppID: r.AppID, CreatorID: r.CreatorID,
+			FormatType: knowledgeModel.DocumentType(r.FormatType),
+		})
+	}
+	return out, total, nil
+}
+
 // Exists is a yes/no lookup: does an active mapping row exist for this coze KB id?
 // "No such mapping" is (false, nil); only true DB failures return an error. Used by
 // the application layer to tag Dataset.Backend on outgoing DTOs without paying the

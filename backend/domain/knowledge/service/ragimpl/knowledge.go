@@ -312,11 +312,6 @@ func (i *Impl) ListKnowledge(ctx context.Context, req *service.ListKnowledgeRequ
 		}, nil
 	}
 
-	// NOTE: other req fields (SpaceID, AppID, Name, Status, UserID, Query,
-	// Order*, FormatType) are not yet honoured by ragimpl — they were
-	// unimplemented before this patch too. Filed as known gap; current
-	// callers either rely on IDs or accept the unfiltered tenant page.
-
 	page, pageSize := 1, 20
 	if req.Page != nil && *req.Page > 0 {
 		page = *req.Page
@@ -324,6 +319,38 @@ func (i *Impl) ListKnowledge(ctx context.Context, req *service.ListKnowledgeRequ
 	if req.PageSize != nil && *req.PageSize > 0 {
 		pageSize = *req.PageSize
 	}
+
+	// ScopeSelf path: caller asked for KBs created by req.UserID. The rag
+	// /knowledgebases endpoint doesn't expose a creator filter, but we own the
+	// mapping table which already records creator_id at InsertKB time. Resolve
+	// creator → coze KB ids → rag UUIDs → hydrate, paginated at the DB layer.
+	// Mirrors the by-id branch: missing rag-side KBs are logged and skipped so
+	// a single stale mapping row doesn't fail the whole list.
+	if req.UserID != nil && *req.UserID != 0 {
+		mappings, total, err := i.mapping.KBsByCreator(ctx, *req.UserID, page, pageSize)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]*knowledgeModel.Knowledge, 0, len(mappings))
+		for _, m := range mappings {
+			kb, err := i.rag.GetKB(ctx, tenant, m.RagKBID)
+			if err != nil {
+				logs.CtxWarnf(ctx, "ragimpl: ListKnowledge: GetKB(%s) failed for coze_kb_id=%d: %v", m.RagKBID, m.CozeID, err)
+				continue
+			}
+			out = append(out, hydrateKnowledge(kb, m))
+		}
+		return &service.ListKnowledgeResponse{
+			KnowledgeList: out,
+			Total:         total,
+		}, nil
+	}
+
+	// NOTE: other req fields (SpaceID, AppID, Name, Status, Query, Order*,
+	// FormatType) are not yet honoured by ragimpl — they were unimplemented
+	// before this patch too. Filed as known gap; current callers either rely
+	// on IDs / UserID or accept the unfiltered tenant page.
+
 	resp, err := i.rag.ListKBs(ctx, &contract.ListKBsRequest{
 		TenantID: tenant,
 		Page:     page,
