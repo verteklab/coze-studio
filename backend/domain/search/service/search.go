@@ -71,7 +71,9 @@ func (s *searchImpl) SearchProjects(ctx context.Context, req *searchEntity.Searc
 	if req.ProjectID != 0 { // precise search
 		searchReq.Query.Bool.Must = append(searchReq.Query.Bool.Must,
 			es.NewEqualQuery(fieldOfID, conv.Int64ToStr(req.ProjectID)))
-	} else {
+	} else if req.SpaceID > 0 {
+		// SpaceID == 0 means "search across all spaces" — used by the library
+		// page so users can see other users' globally-readable KBs.
 		searchReq.Query.Bool.Must = append(searchReq.Query.Bool.Must,
 			es.NewEqualQuery(fieldOfSpaceID, conv.Int64ToStr(req.SpaceID)))
 	}

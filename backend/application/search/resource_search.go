@@ -62,8 +62,12 @@ func (s *SearchApplicationService) LibraryResourceList(ctx context.Context, req 
 		return nil, errorx.New(errno.ErrSearchPermissionCode, errorx.KV("msg", "session required"))
 	}
 
+	// SpaceID is intentionally left at 0 to search across all spaces, so users
+	// can see globally-readable KBs created in other personal spaces. The
+	// post-filter below drops non-owner non-KB rows to preserve owner-only
+	// scoping for plugins/workflows/databases/prompts.
 	searchReq := &entity.SearchResourcesRequest{
-		SpaceID:             req.GetSpaceID(),
+		SpaceID:             0,
 		OwnerID:             0,
 		Name:                req.GetName(),
 		ResTypeFilter:       req.GetResTypeFilter(),
