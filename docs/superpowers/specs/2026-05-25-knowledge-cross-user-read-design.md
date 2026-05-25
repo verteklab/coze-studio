@@ -269,3 +269,13 @@ Scenario 3: Alice deletes K; Bob's workflow later hits K
 2. **OpenAPI / admin-bearer endpoints.** The fork's admin-bearer routes have their own middleware and do not go through `checkPermission`; the predicate split does not affect them. Verified during research.
 3. **Future "private KB" need.** Out of scope. If introduced later, add a `visibility` column and extend `checkReadAccess`. We do not pre-stub this.
 4. **Missed handler in reclassification.** Mitigated by deleting `checkPermission` entirely — any unmigrated call site fails to compile.
+
+## Deferred follow-ups (post-implementation)
+
+These were surfaced during execution and are NOT covered by this branch:
+
+1. **ragimpl `ListKnowledge` ignores `UserID` / `SpaceID` filters.** `backend/domain/knowledge/service/ragimpl/knowledge.go:315` already has a NOTE about this. Consequence: on rag-backed deployments, the FE "我创建的" (ScopeSelf) tab returns the tenant-wide list instead of filtering — visually equivalent to "全部". Fix is a small change to the ragimpl side. Not a correctness bug for the primary copy-workflow use case.
+2. **Workspace library page cross-user view.** `backend/application/search/resource_search.go:127` returns `ErrSearchPermissionCode` on the first non-owner row, blocking cross-user browse on the workspace `library_resource_list` surface. The KB list modal and workflow KB picker (the primary surfaces) use `ListDataset` and are unaffected.
+3. **`Dataset.CreatorName` / `avatar_url` not populated by backend.** `batchConvertKnowledgeEntity2Model` populates `creator_id` but not the display name/avatar. FE handles gracefully (`creator_name ? ... : null`), so the "@<creator>" banner template and per-row author byline render as a blank slot. Backfill is a small follow-up — needs a join to `user` (or equivalent) at convert time.
+4. **Backend curl smoke (plan Task 5).** Deferred to user — needs two distinct logged-in user sessions. Plan §"Task 5" has the exact curl commands.
+5. **End-to-end `copy_wk_template` smoke (plan Task 11).** Deferred to user — needs Alice + Bob accounts, an Alice-created workflow with a KB-retrieve node, and a copy operation as Bob. Plan §"Task 11" has the step-by-step.
