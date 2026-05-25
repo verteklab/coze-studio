@@ -119,13 +119,18 @@ func (s *SearchApplicationService) LibraryResourceList(ctx context.Context, req 
 		return nil, err
 	}
 
+	// Knowledge bases are globally readable (cross-user). Other resource
+	// types remain owner-scoped: non-owner rows are dropped silently rather
+	// than failing the whole request.
 	filterResource := make([]*common.ResourceInfo, 0)
 	for _, res := range resources {
 		if res == nil {
 			continue
 		}
 		if res.CreatorID != nil && *res.CreatorID != *userID {
-			return nil, errorx.New(errno.ErrSearchPermissionCode, errorx.KV("msg", "user can't search resources created by themselves"))
+			if res.ResType == nil || *res.ResType != common.ResType_Knowledge {
+				continue
+			}
 		}
 		filterResource = append(filterResource, res)
 	}
