@@ -9111,6 +9111,8 @@
   "knowledge_content_illegal_error_msg": "内容不符合平台规范",
   "knowledge_custom_add_content": "添加值",
   "knowledge_detail_doc_rename": "重命名",
+  "knowledge_detail_readonly_banner": "你正在查看其他用户创建的知识库，无修改权限。",
+  "knowledge_detail_readonly_banner_with_creator": "你正在查看 {creator} 创建的知识库，无修改权限。",
   "knowledge_detail_tableTitle_source": "来源",
   "knowledge_document_view": "查看文档失败，请稍后重试",
   "knowledge_edit_unit_name_title": "编辑名称",

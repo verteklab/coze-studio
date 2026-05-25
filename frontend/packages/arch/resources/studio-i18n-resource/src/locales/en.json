@@ -8001,6 +8001,8 @@
   "knowledge_content_illegal_error_msg": "The content does not comply with platform specifications.",
   "knowledge_custom_add_content": "Add value",
   "knowledge_detail_doc_rename": "Rename",
+  "knowledge_detail_readonly_banner": "You are viewing a knowledge base created by another user. You don't have permission to modify it.",
+  "knowledge_detail_readonly_banner_with_creator": "You are viewing a knowledge base created by {creator}. You don't have permission to modify it.",
   "knowledge_detail_tableTitle_source": "Source",
   "knowledge_document_view": "Failed to view the document. Please try again later. ",
   "knowledge_edit_unit_name_title": "Edit name",
