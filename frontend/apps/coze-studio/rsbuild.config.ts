@@ -19,7 +19,7 @@ import path from 'path';
 import { defineConfig } from '@coze-arch/rsbuild-config';
 import { GLOBAL_ENVS } from '@coze-arch/bot-env';
 
-const API_PROXY_TARGET = 'http://127.0.0.1:8893/';
+const API_PROXY_TARGET = 'http://127.0.0.1:8895/';
 
 const mergedConfig = defineConfig({
   server: {
