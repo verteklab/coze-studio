@@ -102,25 +102,42 @@ type RetrieveRequest struct {
 	Query       string
 	ChatHistory []*schema.Message
 
-	// Recall from the specified knowledge base and documentation
+	// Recall from the specified knowledge base
 	KnowledgeIDs []int64
-	DocumentIDs  []int64 // TODO: Confirm the scene
 
 	// recall strategy
 	Strategy *RetrievalStrategy
 }
 
 type RetrievalStrategy struct {
-	TopK      *int64   // 1-10 default 3
-	MinScore  *float64 // 0.01-0.99 default 0.5
-	MaxTokens *int64
+	// top_k. Defaults are handled by rag/legacy backends, not here.
+	TopK *int64
 
-	SelectType         SelectType // call method
-	SearchType         SearchType // search strategy
-	EnableQueryRewrite bool
-	EnableRerank       bool
-	EnableNL2SQL       bool
-	IsPersonalOnly     bool
+	SelectType SelectType
+	SearchType SearchType
+
+	// query_strategy 4 booleans (rag wire-level keys are
+	// rewrite / expansion / multi_query / enable_rerank)
+	Rewrite      bool
+	Expansion    bool
+	MultiQuery   bool
+	EnableRerank bool
+
+	// New top-level rag fields surfaced via the workflow node
+	QueryImage       *QueryImage
+	QueryMode        string
+	TargetChunkTypes []string
+	Filters          map[string]any
+	Retrievers       []string
+	FusionPolicy     map[string]any
+	RetrieverParams  map[string]any
+}
+
+// QueryImage is the inline-or-reference image payload mirroring rag's
+// ImageQueryDTO. At least one of ImageBase64 / ImageRef must be non-empty.
+type QueryImage struct {
+	ImageBase64 string
+	ImageRef    string
 }
 
 type SelectType int64

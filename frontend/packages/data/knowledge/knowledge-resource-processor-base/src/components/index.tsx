@@ -26,6 +26,10 @@ export {
   TableStructureTitle,
 } from './table-format';
 export { UnitProgress } from './unit-progress';
+export {
+  UploadProgressPoll,
+  type UploadProgressPollProps,
+} from './upload-progress-poll';
 export { UploadUnitFile } from './upload-unit-file';
 export { UploadUnitTable } from './upload-unit-table';
 export { ConfigurationError } from './configuration/error';

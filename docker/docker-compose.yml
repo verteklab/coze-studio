@@ -1,4 +1,10 @@
 name: coze-studio
+
+# Optional rag stack — bring up alongside this file with:
+#   docker compose -f docker-compose.yml -f docker-compose.rag.yml up
+# For ephemeral CI runs (tmpfs storage, host port 8000), use
+# docker-compose.test.yml on its own.
+
 x-env-file: &env_file
   - .env
 

@@ -39,6 +39,7 @@ import { type UnitType } from '@coze-data/knowledge-resource-processor-core';
 import { BotE2e } from '@coze-data/e2e';
 import { REPORT_EVENTS } from '@coze-arch/report-events';
 import { I18n } from '@coze-arch/i18n';
+import { Input } from '@coze-arch/coze-design';
 import { useSpaceStore } from '@coze-arch/bot-studio-store';
 import {
   UIButton,
@@ -54,9 +55,7 @@ import {
   DatasetScopeType,
   FormatType,
 } from '@coze-arch/bot-api/knowledge';
-import { SpaceType } from '@coze-arch/bot-api/developer_api';
 import { KnowledgeApi } from '@coze-arch/bot-api';
-import { Input } from '@coze-arch/coze-design';
 
 import { DATA_REFACTOR_CLASS_NAME } from '../../constant';
 
@@ -221,22 +220,20 @@ const useKnowledgeFilter = ({
   const [query, setQuery] = useState<string>();
   const [searchType, setSearchType] = useState<OrderField>(DEFAULT_SEARCH_TYPE);
   const [scopeType, setScopeType] = useState<DatasetScopeType>(
-    projectID ? DatasetScopeType.ScopeSelf : DatasetScopeType.ScopeAll,
+    DatasetScopeType.ScopeAll,
   );
 
-  const scopeOptions = [
+  const scopeTabs: { label: string; value: DatasetScopeType }[] = [
     {
-      label: I18n.t('scope_all'),
+      label: I18n.t('knowledge_list_scope_all'),
       value: DatasetScopeType.ScopeAll,
     },
     {
-      label: I18n.t('scope_self'),
+      label: I18n.t('knowledge_list_scope_mine'),
       value: DatasetScopeType.ScopeSelf,
     },
   ];
-  const { id, space_type } = useSpaceStore(s => s.space);
-
-  const isPersonal = space_type === SpaceType.Personal;
+  const { id } = useSpaceStore(s => s.space);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const { loading, data, loadingMore, noMore, reload } =
@@ -250,7 +247,7 @@ const useKnowledgeFilter = ({
             space_id: id || '',
             query,
             search_type: searchType,
-            scope_type: isPersonal ? DatasetScopeType.ScopeSelf : scopeType,
+            scope_type: scopeType,
             format_type:
               currentKnowledgeType === FilterKnowledgeType.ALL
                 ? undefined
@@ -281,6 +278,22 @@ const useKnowledgeFilter = ({
         reloadDeps: [query, searchType, scopeType, projectID],
       },
     );
+
+  // Sort own KBs (can_edit=true) first, then by update_time desc within each
+  // group. Applied client-side over the accumulated infinite-scroll buffer so
+  // own KBs always float to the top of whatever page set we have loaded.
+  const sortedList = useMemo(() => {
+    const list = data?.list;
+    if (!list?.length) {
+      return list ?? [];
+    }
+    return [...list].sort((a, b) => {
+      if (!!a.can_edit === !!b.can_edit) {
+        return Number(b.update_time ?? 0) - Number(a.update_time ?? 0);
+      }
+      return a.can_edit ? -1 : 1;
+    });
+  }, [data?.list]);
 
   useUpdateEffect(() => {
     handleResetFilter();
@@ -325,7 +338,7 @@ const useKnowledgeFilter = ({
                   query,
                   searchType,
                   loading: loadingMore,
-                  list: data.list,
+                  list: sortedList,
                   noMore,
                   resetFilter: handleResetFilter,
                   refresh: reload,
@@ -353,105 +366,125 @@ const useKnowledgeFilter = ({
   };
 
   const renderSearch = useMemo(
-    () => () =>
-      (
-        <Input
-          autoFocus
-          key="query-input"
-          placeholder={I18n.t('db2_014')}
-          onChange={debounce(handleQueryChange, 500)}
-        />
-      ),
+    () => () => (
+      <Input
+        autoFocus
+        key="query-input"
+        placeholder={I18n.t('db2_014')}
+        onChange={debounce(handleQueryChange, 500)}
+      />
+    ),
     [],
   );
 
   const renderCreateBtn = useMemo(
-    () => () =>
-      (
-        <UIButton
-          theme="solid"
-          onClick={handleAdd}
-          data-testid={BotE2e.BotKnowledgeSelectListModalCreateBtn}
-        >
-          {I18n.t('datasets_create_btn')}
-        </UIButton>
-      ),
+    () => () => (
+      <UIButton
+        theme="solid"
+        onClick={handleAdd}
+        data-testid={BotE2e.BotKnowledgeSelectListModalCreateBtn}
+      >
+        {I18n.t('datasets_create_btn')}
+      </UIButton>
+    ),
     [handleAdd],
   );
 
-  const renderFilters = useMemo(
-    () => () =>
-      (
-        <>
-          <div className={styles['file-type-tab']}>
-            {uniqKnowledgeTypeConfigList.reduce<ReactNode[]>(
-              (
-                accumulator: ReactNode[],
-                currentValue: FilterKnowledgeType,
-                currentIndex: number,
-              ) => {
-                const reactNode = renderKnowledgeTypeConfigNode(currentValue);
-                if (currentIndex !== 0) {
-                  return accumulator.concat([
-                    <Divider layout="vertical" margin="12px" />,
-                    reactNode,
-                  ]);
-                }
-                return accumulator.concat([reactNode]);
-              },
-              [],
-            )}
+  const renderScopeTabs = () => (
+    <div
+      key="scope-tabs"
+      className={styles['file-type-tab']}
+      data-testid="bot.knowledge.select.list.modal.scope-tabs"
+    >
+      {scopeTabs.reduce<ReactNode[]>((accumulator, tab, idx) => {
+        const tabNode = (
+          <div
+            key={tab.value}
+            onClick={() => setScopeType(tab.value)}
+            className={
+              scopeType === tab.value
+                ? styles['file-type-tab-item-active']
+                : styles['file-type-tab-item']
+            }
+          >
+            {tab.label}
           </div>
+        );
+        if (idx !== 0) {
+          return accumulator.concat([
+            <Divider
+              key={`${tab.value}-divider`}
+              layout="vertical"
+              margin="12px"
+            />,
+            tabNode,
+          ]);
+        }
+        return accumulator.concat([tabNode]);
+      }, [])}
+    </div>
+  );
 
-          <div className={'flex'}>
-            {uniq(showFilters).map((filterType: DatasetFilterType) => {
-              if (filterType === 'scope-type') {
-                return !isPersonal ? (
-                  <UISelect
-                    label={I18n.t('Creator')}
-                    showClear={false}
-                    value={scopeType}
-                    optionList={scopeOptions}
-                    onChange={v => {
-                      setScopeType(v as DatasetScopeType);
-                    }}
-                  />
-                ) : null;
-              } else if (filterType === 'search-type') {
-                return (
-                  <UISelect
-                    data-testid={
-                      BotE2e.BotKnowledgeSelectListModalCreateDateSelect
-                    }
-                    label={I18n.t('Sort')}
-                    showClear={false}
-                    value={searchType}
-                    optionList={[
-                      {
-                        label: I18n.t('Create_time'),
-                        value: OrderField.CreateTime,
-                      },
-                      {
-                        label: I18n.t('Update_time'),
-                        value: OrderField.UpdateTime,
-                      },
-                    ]}
-                    onChange={v => {
-                      handleSearchTypeChange(v as OrderField);
-                    }}
-                  />
-                );
+  const renderFilters = useMemo(
+    () => () => (
+      <>
+        <div className={styles['file-type-tab']}>
+          {uniqKnowledgeTypeConfigList.reduce<ReactNode[]>(
+            (
+              accumulator: ReactNode[],
+              currentValue: FilterKnowledgeType,
+              currentIndex: number,
+            ) => {
+              const reactNode = renderKnowledgeTypeConfigNode(currentValue);
+              if (currentIndex !== 0) {
+                return accumulator.concat([
+                  <Divider layout="vertical" margin="12px" />,
+                  reactNode,
+                ]);
               }
-            })}
-          </div>
-        </>
-      ),
+              return accumulator.concat([reactNode]);
+            },
+            [],
+          )}
+        </div>
+
+        <div className={'flex'}>
+          {uniq(showFilters).map((filterType: DatasetFilterType) => {
+            if (filterType === 'scope-type') {
+              return renderScopeTabs();
+            } else if (filterType === 'search-type') {
+              return (
+                <UISelect
+                  data-testid={
+                    BotE2e.BotKnowledgeSelectListModalCreateDateSelect
+                  }
+                  label={I18n.t('Sort')}
+                  showClear={false}
+                  value={searchType}
+                  optionList={[
+                    {
+                      label: I18n.t('Create_time'),
+                      value: OrderField.CreateTime,
+                    },
+                    {
+                      label: I18n.t('Update_time'),
+                      value: OrderField.UpdateTime,
+                    },
+                  ]}
+                  onChange={v => {
+                    handleSearchTypeChange(v as OrderField);
+                  }}
+                />
+              );
+            }
+          })}
+        </div>
+      </>
+    ),
     [
       headerClassName,
       handleSearchTypeChange,
       scopeType,
-      scopeOptions,
-      isPersonal,
       showFilters,
       uniqKnowledgeTypeConfigList,
     ],
@@ -563,17 +596,7 @@ const useKnowledgeFilter = ({
             <div className="flex gap-[8px]">
               {uniq(showFilters).map((filterType: DatasetFilterType) => {
                 if (filterType === 'scope-type') {
-                  return !isPersonal ? (
-                    <UISelect
-                      label={I18n.t('Creator')}
-                      showClear={false}
-                      value={scopeType}
-                      optionList={scopeOptions}
-                      onChange={v => {
-                        setScopeType(v as DatasetScopeType);
-                      }}
-                    />
-                  ) : null;
+                  return renderScopeTabs();
                 } else if (filterType === 'search-type') {
                   return (
                     <UISelect

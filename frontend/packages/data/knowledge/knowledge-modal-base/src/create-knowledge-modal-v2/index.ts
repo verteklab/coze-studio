@@ -39,3 +39,10 @@ export {
 } from './features/import-knowledge-source-select/module';
 
 export { SourceSelect } from './components/source-select';
+
+export {
+  ModelSelector,
+  type ModelProvider,
+  type ModelSelectorProps,
+  type ProvidersResponse,
+} from './model-selector';

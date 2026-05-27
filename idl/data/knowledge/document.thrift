@@ -177,6 +177,13 @@ struct CreateDocumentRequest {
     17: optional common.ChunkStrategy chunk_strategy  // Only when there is no document in the knowledge base, it needs to be passed, and if there is one, it will be obtained from the knowledge base. Slicing rules, if it is empty, it will be automatically sliced by paragraph
     31: optional bool is_append               // Appends content to an existing document when true. The text type cannot be used
     32: optional common.ParsingStrategy     parsing_strategy // parsing strategy
+    // Phase 3b: JSON-stringified opaque options for the rag dynamic upload form.
+    // Forwarded verbatim to rag's POST /documents document_options field. A
+    // reserved top-level key `_source_modality` (if present) is consumed by the
+    // backend to override the rag source_modality routing (e.g. "scanned_document_source"
+    // for a PDF the user explicitly marked as a scan). Absence is safe — legacy
+    // callers and the openapi path keep working without setting this field.
+    33: optional string document_options
 
     255: optional base.Base Base
 }
@@ -230,6 +237,19 @@ struct GetDocumentProgressRequest {
 }
 struct GetDocumentProgressResponse {
     1: list<common.DocumentProgress> data
+
+    253: required i64 code
+    254: required string msg
+    255: optional base.BaseResp BaseResp
+}
+
+struct RetryDocumentRequest {
+    1: required i64 document_id (agw.js_conv="str", agw.key="document_id", api.js_conv="true", api.body="document_id")
+
+    255: optional base.Base Base
+}
+struct RetryDocumentResponse {
+    1: optional DocumentInfo document_info
 
     253: required i64 code
     254: required string msg

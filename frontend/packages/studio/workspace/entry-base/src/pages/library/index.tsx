@@ -174,36 +174,32 @@ export const BaseLibraryPage = forwardRef<
                     }));
                   }}
                 />
-                {!isPersonalSpace ? (
-                  <Select
-                    data-testid="workspace.library.filter.user"
-                    className={classNames(s.select)}
-                    style={
-                      params?.user_filter !== 0 ? highlightFilterStyle : {}
-                    }
-                    showClear={false}
-                    value={params.user_filter}
-                    optionList={scopeOptions}
-                    onChange={v => {
-                      sendTeaEvent(EVENT_NAMES.workspace_action_front, {
-                        space_id: spaceId,
-                        space_type: isPersonalSpace ? 'personal' : 'teamspace',
-                        tab_name: 'library',
-                        action: 'filter',
-                        filter_type: 'creators',
-                        filter_name: scopeOptions.find(
-                          item =>
-                            item.value ===
-                            ((v as Array<number>)?.[0] as number),
-                        )?.label,
-                      });
-                      setParams(prev => ({
-                        ...prev,
-                        user_filter: v as number,
-                      }));
-                    }}
-                  />
-                ) : null}
+                <Select
+                  data-testid="workspace.library.filter.user"
+                  className={classNames(s.select)}
+                  style={params?.user_filter !== 0 ? highlightFilterStyle : {}}
+                  showClear={false}
+                  value={params.user_filter}
+                  optionList={scopeOptions}
+                  onChange={v => {
+                    sendTeaEvent(EVENT_NAMES.workspace_action_front, {
+                      space_id: spaceId,
+                      space_type: isPersonalSpace ? 'personal' : 'teamspace',
+                      tab_name: 'library',
+                      action: 'filter',
+                      filter_type: 'creators',
+                      filter_name: scopeOptions.find(
+                        item =>
+                          item.value === ((v as Array<number>)?.[0] as number),
+                      )?.label,
+                    });
+                    setParams(prev => ({
+                      ...prev,
+                      user_filter: v as number,
+                    }));
+                  }}
+                />
+
                 <Select
                   data-testid="workspace.library.filter.status"
                   className={s.select}

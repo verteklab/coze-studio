@@ -24,7 +24,7 @@ import {
 } from '@coze-data/knowledge-stores';
 import { useReportTti } from '@coze-arch/report-tti';
 import { I18n } from '@coze-arch/i18n';
-import { Layout } from '@coze-arch/coze-design';
+import { Banner, Layout } from '@coze-arch/coze-design';
 import { renderHtmlTitle } from '@coze-arch/bot-utils';
 import { type DocumentInfo, type Dataset } from '@coze-arch/bot-api/knowledge';
 import { FormatType } from '@coze-arch/bot-api/knowledge';
@@ -46,15 +46,31 @@ export const KnowledgeIDEBaseLayout = ({
 }: KnowledgeIDEBaseLayoutProps) => {
   const { onUpdateDisplayName, onStatusChange } = useDataCallbacks();
 
-  const { setDataSetDetail, dataSetDetail, setDocumentList, documentList } =
-    useKnowledgeStore(
-      useShallow(state => ({
-        setDataSetDetail: state.setDataSetDetail,
-        dataSetDetail: state.dataSetDetail,
-        setDocumentList: state.setDocumentList,
-        documentList: state.documentList,
-      })),
-    );
+  const {
+    setDataSetDetail,
+    dataSetDetail,
+    setDocumentList,
+    documentList,
+    canEdit,
+  } = useKnowledgeStore(
+    useShallow(state => ({
+      setDataSetDetail: state.setDataSetDetail,
+      dataSetDetail: state.dataSetDetail,
+      setDocumentList: state.setDocumentList,
+      documentList: state.documentList,
+      canEdit: state.canEdit,
+    })),
+  );
+  // Render the read-only banner only after the detail response has come
+  // back. `dataSetDetail.dataset_id` is the cheapest "we have data" check —
+  // before then `canEdit` defaults to true from the store anyway, but we'd
+  // rather hide the banner until the response confirms ownership.
+  const showReadonlyBanner = !canEdit && !!dataSetDetail?.dataset_id;
+  const readonlyBannerText = dataSetDetail?.creator_name
+    ? I18n.t('knowledge_detail_readonly_banner_with_creator', {
+        creator: dataSetDetail.creator_name,
+      })
+    : I18n.t('knowledge_detail_readonly_banner');
   const [progressMap, setProgressMap] = useState<ProgressMap>({});
 
   const pollingTaskProgressInternal = usePollingTaskProgress();
@@ -129,6 +145,14 @@ export const KnowledgeIDEBaseLayout = ({
       >
         {/* navigation bar */}
         {renderNavBar?.(renderContext)}
+        {/* read-only banner: shown when the current user is not the KB owner */}
+        {showReadonlyBanner ? (
+          <Banner
+            type="info"
+            closeIcon={null}
+            description={readonlyBannerText}
+          />
+        ) : null}
         {/* content area */}
         {renderContent?.(renderContext)}
       </Layout>

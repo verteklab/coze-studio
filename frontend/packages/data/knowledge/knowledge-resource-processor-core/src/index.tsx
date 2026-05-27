@@ -40,3 +40,4 @@ export {
   CheckedStatus,
 } from './constants';
 export { KnowledgeUploadStoreProvider } from './context';
+export { isRagBackend } from './utils';

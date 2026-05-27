@@ -1,0 +1,63 @@
+/*
+ * Copyright 2025 coze-dev Authors
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+.upload-progress-poll {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+
+  .summary {
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 20px;
+    color: var(--coz-fg-primary);
+  }
+
+  .list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+
+    margin: 0;
+    padding: 0;
+
+    list-style: none;
+  }
+
+  .row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .doc-id {
+    font-size: 12px;
+    line-height: 16px;
+    color: var(--coz-fg-secondary);
+  }
+
+  .error {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+
+    .error-text {
+      font-size: 12px;
+      line-height: 16px;
+      color: var(--coz-fg-hglt-red);
+    }
+  }
+}

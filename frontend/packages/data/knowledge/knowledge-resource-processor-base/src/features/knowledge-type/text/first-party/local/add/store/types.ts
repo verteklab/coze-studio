@@ -26,14 +26,36 @@ import {
 import { type TextLocalAddUpdateStep } from '../constants';
 import { type IDocReviewSlice, type IDocReviewState } from './doc-review-slice';
 
+/**
+ * Phase 3b dynamic upload form state. Written by the rag-mode segment step
+ * (add-rag/steps/segment) and read by the rag-mode progress step
+ * (add-rag/steps/progress) when firing `KnowledgeApi.CreateDocument`. The
+ * value is the final JSON string the backend forwards verbatim to rag's
+ * POST /documents document_options field (with the reserved
+ * `_source_modality` key inlined when the user picked a non-default schema).
+ *
+ * Empty string is the "use defaults" signal — the legacy wizard never writes
+ * this field, and the rag-mode wizard writes it only on Next from the
+ * segment step.
+ */
+export interface IDocumentOptionsState {
+  documentOptions: string;
+}
+export interface IDocumentOptionsSlice {
+  setDocumentOptions: (value: string) => void;
+}
+
 export type UploadTextLocalAddUpdateState =
   UploadTextState<TextLocalAddUpdateStep> &
     LocalTextCustomResegmentState &
-    IDocReviewState;
+    IDocReviewState &
+    IDocumentOptionsState;
 
 export type UploadTextLocalAddUpdateStore =
   UploadTextStore<TextLocalAddUpdateStep> &
     LocalTextCustomResegmentState &
     LocalTextCustomResegmentAction &
     IDocReviewSlice &
-    ILevelSegmentsSlice;
+    ILevelSegmentsSlice &
+    IDocumentOptionsState &
+    IDocumentOptionsSlice;

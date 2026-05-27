@@ -99,8 +99,7 @@ func genKnowledgeRequest(_ context.Context, ids []int64, conf *bot_common.Knowle
 		ChatHistory:  history,
 		KnowledgeIDs: ids,
 		Strategy: &knowledgeEntity.RetrievalStrategy{
-			TopK:     conf.TopK,
-			MinScore: conf.MinScore,
+			TopK: conf.TopK,
 
 			SelectType: func() knowledgeModel.SelectType {
 				if conf.Auto != nil && *conf.Auto {
@@ -125,9 +124,7 @@ func genKnowledgeRequest(_ context.Context, ids []int64, conf *bot_common.Knowle
 				}
 			}(),
 
-			EnableQueryRewrite: conf.RecallStrategy != nil && conf.RecallStrategy.UseRewrite != nil && *conf.RecallStrategy.UseRewrite,
-			EnableRerank:       conf.RecallStrategy != nil && conf.RecallStrategy.UseRerank != nil && *conf.RecallStrategy.UseRerank,
-			EnableNL2SQL:       conf.RecallStrategy != nil && conf.RecallStrategy.UseNl2sql != nil && *conf.RecallStrategy.UseNl2sql,
+			EnableRerank: conf.RecallStrategy != nil && conf.RecallStrategy.UseRerank != nil && *conf.RecallStrategy.UseRerank,
 		},
 	}
 

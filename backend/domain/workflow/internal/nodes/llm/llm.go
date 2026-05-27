@@ -535,12 +535,9 @@ func (c *Config) Build(ctx context.Context, ns *schema2.NodeSchema, _ ...schema2
 			}
 			knowledgeRecallConfig.RetrievalStrategy = &RetrievalStrategy{
 				RetrievalStrategy: &knowledge.RetrievalStrategy{
-					TopK:               ptr.Of(setting.TopK),
-					MinScore:           ptr.Of(setting.MinScore),
-					SearchType:         searchType,
-					EnableNL2SQL:       setting.UseNL2SQL,
-					EnableQueryRewrite: setting.UseRewrite,
-					EnableRerank:       setting.UseRerank,
+					TopK:         ptr.Of(setting.TopK),
+					SearchType:   searchType,
+					EnableRerank: setting.UseRerank,
 				},
 				NoReCallReplyMode:            NoReCallReplyMode(setting.NoRecallReplyMode),
 				NoReCallReplyCustomizePrompt: setting.NoRecallReplyCustomizePrompt,

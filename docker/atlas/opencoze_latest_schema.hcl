@@ -1818,6 +1818,193 @@ table "knowledge_document_slice" {
     columns = [column.sequence]
   }
 }
+table "rag_kb_mapping" {
+  schema  = schema.opencoze
+  comment = "Map coze int64 KB id to rag UUID + coze-only display fields (icon, audit, format_type). Name/description/status live in rag."
+  column "coze_kb_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+    comment  = "coze int64 knowledge id"
+  }
+  column "rag_kb_id" {
+    null    = false
+    type    = varchar(64)
+    comment = "rag UUID (authoritative)"
+  }
+  column "icon_uri" {
+    null    = true
+    type    = varchar(255)
+    comment = "coze-only display field; rag has no icon concept"
+  }
+  column "app_id" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+    comment  = "informational: project/app id (used for UI filter only; never gates isolation)"
+  }
+  column "creator_id" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+    comment  = "informational: creator user id"
+  }
+  column "created_at" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+    comment  = "Create Time in Milliseconds"
+  }
+  column "deleted_at" {
+    null    = true
+    type    = datetime(3)
+    comment = "Delete Time"
+  }
+  column "format_type" {
+    null     = false
+    type     = tinyint
+    default  = 0
+    unsigned = true
+    comment  = "coze DocumentType: 0=text, 1=table, 2=image"
+  }
+  primary_key {
+    columns = [column.coze_kb_id]
+  }
+  index "uk_rag_kb_id" {
+    unique  = true
+    columns = [column.rag_kb_id]
+  }
+  index "idx_app" {
+    columns = [column.app_id, column.deleted_at]
+  }
+}
+table "rag_doc_mapping" {
+  schema  = schema.opencoze
+  comment = "Map coze int64 document id to rag UUID + rag task tracking. Name/status/source_uri live in rag."
+  column "coze_doc_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+    comment  = "coze int64 document id"
+  }
+  column "rag_doc_id" {
+    null    = false
+    type    = varchar(64)
+    comment = "rag UUID (authoritative)"
+  }
+  column "coze_kb_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+    comment  = "owning KB (FK to rag_kb_mapping.coze_kb_id)"
+  }
+  column "creator_id" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+    comment  = "informational: creator user id"
+  }
+  column "last_task_id" {
+    null    = true
+    type    = varchar(64)
+    comment = "rag task id from last ingestion attempt (used by MGetDocumentProgress)"
+  }
+  column "size" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+    comment  = "Document file size in bytes; coze-side, since rag does not return size on its Document response."
+  }
+  column "image_url" {
+    null    = true
+    type    = varchar(512)
+    comment = "Coze-side MinIO URL for image-source documents (for detail-page thumbnails). NULL for non-image docs and for pre-2026-05-20 image uploads."
+  }
+  column "created_at" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+    comment  = "Create Time in Milliseconds"
+  }
+  column "deleted_at" {
+    null    = true
+    type    = datetime(3)
+    comment = "Delete Time"
+  }
+  primary_key {
+    columns = [column.coze_doc_id]
+  }
+  index "uk_rag_doc_id" {
+    unique  = true
+    columns = [column.rag_doc_id]
+  }
+  index "idx_kb" {
+    columns = [column.coze_kb_id, column.deleted_at]
+  }
+}
+table "rag_chunk_mapping" {
+  schema  = schema.opencoze
+  comment = "Map coze int64 slice id to rag chunk UUID. Concurrency-safe lazy backfill on read paths permits short-lived multiple coze_slice_ids per rag_chunk_id; resolution policy is read-earliest (no UNIQUE on rag_chunk_id)."
+  column "coze_slice_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+    comment  = "coze int64 slice (chunk) id"
+  }
+  column "rag_chunk_id" {
+    null    = false
+    type    = varchar(64)
+    comment = "rag chunk UUID (authoritative)"
+  }
+  column "rag_doc_id" {
+    null    = false
+    type    = varchar(64)
+    comment = "rag doc UUID owning this chunk"
+  }
+  column "coze_doc_id" {
+    null     = false
+    type     = bigint
+    unsigned = true
+    comment  = "owning coze document (FK to rag_doc_mapping.coze_doc_id)"
+  }
+  column "creator_id" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+    comment  = "coze uid that created or owns this chunk; 0 for chunks materialised by lazy backfill where the doc-level creator is unknown"
+  }
+  column "created_at" {
+    null     = false
+    type     = bigint
+    default  = 0
+    unsigned = true
+    comment  = "Create Time in Milliseconds"
+  }
+  column "deleted_at" {
+    null    = true
+    type    = datetime(3)
+    comment = "Delete Time"
+  }
+  primary_key {
+    columns = [column.coze_slice_id]
+  }
+  index "idx_rag_chunk_id" {
+    columns = [column.rag_chunk_id]
+  }
+  index "idx_coze_doc_id" {
+    columns = [column.coze_doc_id, column.deleted_at]
+  }
+  index "idx_rag_doc_id" {
+    columns = [column.rag_doc_id, column.deleted_at]
+  }
+}
 table "kv_entries" {
   schema  = schema.opencoze
   comment = "kv data"

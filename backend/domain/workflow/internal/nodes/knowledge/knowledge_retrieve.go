@@ -88,52 +88,48 @@ func (r *RetrieveConfig) Adapt(_ context.Context, n *vo.Node, _ ...nodes.AdaptOp
 		return nil, false
 	}
 
-	if content, ok := getDesignatedParamContent("topK"); ok {
+	if content, ok := getDesignatedParamContent("topK"); ok && content != nil {
 		topK, err := cast.ToInt64E(content)
 		if err != nil {
 			return nil, err
 		}
-		retrievalStrategy.TopK = &topK
+		// Drop non-positive values: rag 40004's on top_k=0 / blank UI input.
+		// Letting rag pick its own default is the only sane fallback here.
+		if topK > 0 {
+			retrievalStrategy.TopK = &topK
+		}
 	}
 
-	if content, ok := getDesignatedParamContent("useRerank"); ok {
-		useRerank, err := cast.ToBoolE(content)
+	// 4-boolean query_strategy (rag wire-level keys: rewrite / expansion /
+	// multi_query / enable_rerank). Frontend param names use camelCase:
+	// rewrite / expansion / multiQuery / enableRerank.
+	if content, ok := getDesignatedParamContent("rewrite"); ok && content != nil {
+		v, err := cast.ToBoolE(content)
 		if err != nil {
 			return nil, err
 		}
-		retrievalStrategy.EnableRerank = useRerank
+		retrievalStrategy.Rewrite = v
 	}
-
-	if content, ok := getDesignatedParamContent("useRewrite"); ok {
-		useRewrite, err := cast.ToBoolE(content)
+	if content, ok := getDesignatedParamContent("expansion"); ok && content != nil {
+		v, err := cast.ToBoolE(content)
 		if err != nil {
 			return nil, err
 		}
-		retrievalStrategy.EnableQueryRewrite = useRewrite
+		retrievalStrategy.Expansion = v
 	}
-
-	if content, ok := getDesignatedParamContent("isPersonalOnly"); ok {
-		isPersonalOnly, err := cast.ToBoolE(content)
+	if content, ok := getDesignatedParamContent("multiQuery"); ok && content != nil {
+		v, err := cast.ToBoolE(content)
 		if err != nil {
 			return nil, err
 		}
-		retrievalStrategy.IsPersonalOnly = isPersonalOnly
+		retrievalStrategy.MultiQuery = v
 	}
-
-	if content, ok := getDesignatedParamContent("useNl2sql"); ok {
-		useNl2sql, err := cast.ToBoolE(content)
+	if content, ok := getDesignatedParamContent("enableRerank"); ok && content != nil {
+		v, err := cast.ToBoolE(content)
 		if err != nil {
 			return nil, err
 		}
-		retrievalStrategy.EnableNL2SQL = useNl2sql
-	}
-
-	if content, ok := getDesignatedParamContent("minScore"); ok {
-		minScore, err := cast.ToFloat64E(content)
-		if err != nil {
-			return nil, err
-		}
-		retrievalStrategy.MinScore = &minScore
+		retrievalStrategy.EnableRerank = v
 	}
 
 	if content, ok := getDesignatedParamContent("strategy"); ok {
@@ -146,6 +142,119 @@ func (r *RetrieveConfig) Adapt(_ context.Context, n *vo.Node, _ ...nodes.AdaptOp
 			return nil, err
 		}
 		retrievalStrategy.SearchType = searchType
+	}
+
+	if content, ok := getDesignatedParamContent("queryMode"); ok && content != nil {
+		mode, err := cast.ToStringE(content)
+		if err != nil {
+			return nil, err
+		}
+		switch mode {
+		case "", "text_input", "image_input", "mixed_input":
+			retrievalStrategy.QueryMode = mode
+		default:
+			return nil, errors.New("queryMode must be one of text_input / image_input / mixed_input")
+		}
+	}
+
+	// queryImage's inner keys are snake_case (image_base64 / image_ref) to
+	// match rag's ImageQueryDTO wire shape. The frontend QueryInputSection
+	// emits matching keys; do not switch to camelCase here without
+	// coordinating with the frontend contract.
+	if content, ok := getDesignatedParamContent("queryImage"); ok && content != nil {
+		m, ok := content.(map[string]any)
+		if !ok {
+			return nil, errors.New("queryImage param must be an object")
+		}
+		qi := &knowledge.QueryImage{}
+		if v, present := m["image_base64"]; present {
+			s, err := cast.ToStringE(v)
+			if err != nil {
+				return nil, err
+			}
+			qi.ImageBase64 = s
+		}
+		if v, present := m["image_ref"]; present {
+			s, err := cast.ToStringE(v)
+			if err != nil {
+				return nil, err
+			}
+			qi.ImageRef = s
+		}
+		if qi.ImageBase64 != "" || qi.ImageRef != "" {
+			retrievalStrategy.QueryImage = qi
+		}
+	}
+
+	if content, ok := getDesignatedParamContent("targetChunkTypes"); ok && content != nil {
+		raw, ok := content.([]any)
+		if !ok {
+			return nil, errors.New("targetChunkTypes param must be a list")
+		}
+		out := make([]string, 0, len(raw))
+		for _, v := range raw {
+			s, err := cast.ToStringE(v)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, s)
+		}
+		if len(out) > 0 {
+			retrievalStrategy.TargetChunkTypes = out
+		}
+	}
+
+	// filters / fusionPolicy / retrieverParams forward inner keys to rag
+	// verbatim. Inner keys must match rag's expected shape (snake_case for
+	// rag's metadata filter keys; see rag's RetrievalRequest pydantic model).
+	// Mismatched keys are silently dropped by rag's pydantic extra=ignore;
+	// no validation happens at this layer.
+	if content, ok := getDesignatedParamContent("filters"); ok && content != nil {
+		m, ok := content.(map[string]any)
+		if !ok {
+			return nil, errors.New("filters param must be an object")
+		}
+		if len(m) > 0 {
+			retrievalStrategy.Filters = m
+		}
+	}
+
+	if content, ok := getDesignatedParamContent("retrievers"); ok && content != nil {
+		raw, ok := content.([]any)
+		if !ok {
+			return nil, errors.New("retrievers param must be a list")
+		}
+		out := make([]string, 0, len(raw))
+		for _, v := range raw {
+			s, err := cast.ToStringE(v)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, s)
+		}
+		if len(out) > 0 {
+			retrievalStrategy.Retrievers = out
+		}
+	}
+
+	if content, ok := getDesignatedParamContent("fusionPolicy"); ok && content != nil {
+		m, ok := content.(map[string]any)
+		if !ok {
+			return nil, errors.New("fusionPolicy param must be an object")
+		}
+		if len(m) > 0 {
+			retrievalStrategy.FusionPolicy = m
+		}
+	}
+
+	if content, ok := getDesignatedParamContent("retrieverParams"); ok && content != nil {
+		m, ok := content.(map[string]any)
+		if !ok {
+			return nil, errors.New("retrieverParams param must be an object")
+		}
+		if len(m) > 0 {
+			retrievalStrategy.RetrieverParams = m
+		}
 	}
 
 	r.RetrievalStrategy = retrievalStrategy

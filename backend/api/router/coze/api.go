@@ -136,12 +136,20 @@ func Register(r *server.Hertz) {
 			_knowledge0.POST("/detail", append(_datasetdetailMw(), coze.DatasetDetail)...)
 			_knowledge0.POST("/list", append(_listdatasetMw(), coze.ListDataset)...)
 			_knowledge0.POST("/update", append(_updatedatasetMw(), coze.UpdateDataset)...)
+			// PR-1: rag-backend-only proxy. Not driven by the IDL; the handler
+			// short-circuits to ErrRagFeaturePendingCode when KNOWLEDGE_BACKEND=legacy.
+			_knowledge0.GET("/rag/model_providers", coze.ListRagModelProviders)
+			// Phase 2: per-file-type parameter schema catalog for the upload UI's
+			// dynamic "advanced" form. Same legacy fallback semantics.
+			_knowledge0.GET("/rag/document_parameter_schemas", coze.ListRagDocumentParameterSchemas)
 			{
 				_document := _knowledge0.Group("/document", _documentMw()...)
 				_document.POST("/create", append(_createdocumentMw(), coze.CreateDocument)...)
 				_document.POST("/delete", append(_deletedocumentMw(), coze.DeleteDocument)...)
 				_document.POST("/list", append(_listdocumentMw(), coze.ListDocument)...)
 				_document.POST("/resegment", append(_resegmentMw(), coze.Resegment)...)
+				// MANUAL EDIT: codegen toolchain not wired (see commit e2dcc807).
+				_document.POST("/retry", append(_retrydocumentMw(), coze.RetryDocument)...)
 				_document.POST("/update", append(_updatedocumentMw(), coze.UpdateDocument)...)
 				{
 					_progress := _document.Group("/progress", _progressMw()...)

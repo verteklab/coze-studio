@@ -45,6 +45,7 @@ type Knowledge interface {
 	ExtractPhotoCaption(ctx context.Context, request *ExtractPhotoCaptionRequest) (response *ExtractPhotoCaptionResponse, err error)
 	ListDocument(ctx context.Context, request *ListDocumentRequest) (response *ListDocumentResponse, err error)
 	MGetDocumentProgress(ctx context.Context, request *MGetDocumentProgressRequest) (response *MGetDocumentProgressResponse, err error)
+	RetryDocument(ctx context.Context, request *RetryDocumentRequest) (response *RetryDocumentResponse, err error)
 	ResegmentDocument(ctx context.Context, request *ResegmentDocumentRequest) (response *ResegmentDocumentResponse, err error)
 	GetAlterTableSchema(ctx context.Context, request *AlterTableSchemaRequest) (response *TableSchemaResponse, err error)
 	ValidateTableSchema(ctx context.Context, request *ValidateTableSchemaRequest) (response *ValidateTableSchemaResponse, err error)
@@ -90,6 +91,14 @@ type UpdateKnowledgeRequest struct {
 
 type CreateDocumentRequest struct {
 	Documents []*entity.Document
+	// DocumentOptions is a JSON-stringified opaque blob forwarded verbatim to
+	// rag's POST /documents document_options form field (Phase 3b dynamic
+	// upload form). Applied to every document in this batch — same scoping
+	// as ChunkStrategy / ParsingStrategy. A reserved top-level
+	// `_source_modality` key (if present) is consumed by ragimpl to override
+	// rag's source_modality routing. Empty string means "rag falls back to
+	// per-schema defaults" (and ragimpl's Phase 1 inference still runs).
+	DocumentOptions string
 }
 
 type UpdateDocumentRequest struct {
@@ -108,6 +117,19 @@ type MGetDocumentProgressRequest struct {
 
 type MGetDocumentProgressResponse struct {
 	ProgressList []*DocumentProgress
+}
+
+type RetryDocumentRequest struct {
+	DocumentID int64
+}
+
+// RetryDocumentResponse carries the refreshed entity with the post-retry
+// status (typically Init/Chunking — rag's UploadDocumentResponse returns
+// status="pending" or "processing"). Callers can immediately render this
+// to the UI; subsequent MGetDocumentProgress polls follow the new task
+// via the updated rag_doc_mapping.last_task_id.
+type RetryDocumentResponse struct {
+	Document *entity.Document
 }
 
 type CreateSliceRequest struct {

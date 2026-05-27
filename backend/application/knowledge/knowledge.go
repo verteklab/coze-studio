@@ -36,8 +36,9 @@ import (
 	model "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/entity"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
-	"github.com/coze-dev/coze-studio/backend/domain/permission"
+	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service/ragimpl"
 	resourceEntity "github.com/coze-dev/coze-studio/backend/domain/search/entity"
+	ragcontract "github.com/coze-dev/coze-studio/backend/infra/contract/rag"
 	cd "github.com/coze-dev/coze-studio/backend/infra/document"
 	"github.com/coze-dev/coze-studio/backend/infra/document/parser"
 	"github.com/coze-dev/coze-studio/backend/infra/storage"
@@ -47,6 +48,7 @@ import (
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/ptr"
 	"github.com/coze-dev/coze-studio/backend/pkg/lang/slices"
 	"github.com/coze-dev/coze-studio/backend/pkg/logs"
+	"github.com/coze-dev/coze-studio/backend/types/consts"
 	"github.com/coze-dev/coze-studio/backend/types/errno"
 )
 
@@ -54,9 +56,176 @@ type KnowledgeApplicationService struct {
 	DomainSVC service.Knowledge
 	eventBus  search.ResourceEventBus
 	storage   storage.Storage
+	// rag is non-nil only when KNOWLEDGE_BACKEND=rag. Endpoints that only make
+	// sense against the rag backend (e.g. /model-providers) MUST guard on this
+	// before dereferencing.
+	rag               ragcontract.Client
+	ragTenantResolver ragimpl.TenantResolver
+	// mappingRepo is the rag_kb_mapping DAO. Non-nil only when
+	// KNOWLEDGE_BACKEND=rag — on legacy deployments no rows can ever exist in
+	// rag_kb_mapping so the field is left nil and every Dataset.Backend resolves
+	// to "legacy" without paying a DB hit. Used by the convertor to tag
+	// outgoing DTOs with their owning backend ("rag" vs "legacy").
+	mappingRepo *ragimpl.MappingRepo
 }
 
 var KnowledgeSVC = &KnowledgeApplicationService{}
+
+// ragModelProvider is the wire shape consumed by the frontend create-KB modal
+// (frontend/.../model-selector.tsx). The selector only reads {id, name}, so
+// we strip the rest of rag's ModelProviderDTO at the application boundary;
+// the additional fields would force the frontend type to track every rag
+// schema bump without buying anything for the current UI.
+type ragModelProvider struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// ListRagModelProvidersResponse is the application-level response shape
+// returned to the frontend. We split rag's flat {items: [{type, ...}]} list
+// into the {text_models, image_models} buckets the modal expects, so the
+// frontend stays unaware of rag's transport schema.
+type ListRagModelProvidersResponse struct {
+	TextModels  []ragModelProvider `json:"text_models"`
+	ImageModels []ragModelProvider `json:"image_models"`
+}
+
+// ListRagModelProviders fetches the available embedding model providers from
+// rag and translates them into the legacy `{text_models, image_models}` shape
+// the create-KB modal consumes.
+//
+// Returns ErrRagFeaturePendingCode when the active backend is legacy — the
+// frontend uses that signal to hide the model selector entirely.
+func (k *KnowledgeApplicationService) ListRagModelProviders(ctx context.Context) (*ListRagModelProvidersResponse, error) {
+	if k.rag == nil {
+		return nil, errorx.New(errno.ErrRagFeaturePendingCode, errorx.KV("msg", "model providers proxy requires KNOWLEDGE_BACKEND=rag"))
+	}
+	tenant := ""
+	if k.ragTenantResolver != nil {
+		// Tenant header is sent on every rag call for trace correlation; the
+		// model-providers endpoint itself is tenant-agnostic on the server.
+		if v, err := k.ragTenantResolver.Resolve(ctx); err == nil {
+			tenant = v
+		}
+	}
+	raw, err := k.rag.ListModelProviders(ctx, tenant)
+	if err != nil {
+		return nil, err
+	}
+	textItems, imageItems := raw.Split()
+	out := &ListRagModelProvidersResponse{
+		TextModels:  make([]ragModelProvider, 0, len(textItems)),
+		ImageModels: make([]ragModelProvider, 0, len(imageItems)),
+	}
+	for _, m := range textItems {
+		out.TextModels = append(out.TextModels, ragModelProvider{ID: m.ModelID, Name: m.Name})
+	}
+	for _, m := range imageItems {
+		out.ImageModels = append(out.ImageModels, ragModelProvider{ID: m.ModelID, Name: m.Name})
+	}
+	return out, nil
+}
+
+// ragDocumentParameter is the application-layer view of one tunable knob in
+// a rag parameter schema. Mirrors ragcontract.DocumentParameter on the wire
+// but pinned at the application boundary so rag-internal renames don't leak
+// into the frontend contract.
+type ragDocumentParameter struct {
+	Name          string   `json:"name"`
+	Type          string   `json:"type"` // boolean | integer | string | array[string] | ...
+	Group         string   `json:"group"`
+	Required      bool     `json:"required"`
+	Default       any      `json:"default,omitempty"`
+	AllowedValues []any    `json:"allowed_values,omitempty"`
+	MinValue      *float64 `json:"min_value,omitempty"`
+	MaxValue      *float64 `json:"max_value,omitempty"`
+	Description   string   `json:"description"`
+	UILabel       string   `json:"ui_label"`
+	UIComponent   string   `json:"ui_component"`
+	Advanced      bool     `json:"advanced"`
+}
+
+// ragDocumentParameterSchema is one entry in the per-file-type catalog the
+// upload wizard's dynamic form consumes. Selection on the frontend is by
+// file_types / source_modalities — the wizard picks the schema whose
+// file_types contains the uploaded file's extension.
+type ragDocumentParameterSchema struct {
+	SchemaID         string                 `json:"schema_id"`
+	Description      string                 `json:"description"`
+	FileTypes        []string               `json:"file_types"`
+	SourceModalities []string               `json:"source_modalities"`
+	Parameters       []ragDocumentParameter `json:"parameters"`
+}
+
+// ListRagDocumentParameterSchemasResponse is the wire shape the upload UI
+// receives. A single-field wrapper leaves room to add per-tenant or
+// per-capability filtering later (e.g. only schemas the tenant's enabled
+// parsers support) without renaming the top-level shape.
+type ListRagDocumentParameterSchemasResponse struct {
+	Schemas []ragDocumentParameterSchema `json:"schemas"`
+}
+
+// ListRagDocumentParameterSchemas fetches rag's system-wide catalog of
+// per-file-type parameter forms so the upload UI can render a dynamic
+// "advanced" panel matched to the file being uploaded.
+//
+// Internal-flagged parameters (rag's "advanced operator knob" set, e.g.
+// ocr_render_dpi) are filtered out at this layer — they belong in admin
+// tooling, not the user-facing form. The Advanced bool is preserved so the
+// UI can still hide its own "advanced toggle" parameters behind a disclosure.
+//
+// Returns ErrRagFeaturePendingCode when the active backend is legacy — the
+// frontend uses that signal to fall back to the static parsing-strategy UI.
+func (k *KnowledgeApplicationService) ListRagDocumentParameterSchemas(ctx context.Context) (*ListRagDocumentParameterSchemasResponse, error) {
+	if k.rag == nil {
+		return nil, errorx.New(errno.ErrRagFeaturePendingCode, errorx.KV("msg", "document parameter schemas proxy requires KNOWLEDGE_BACKEND=rag"))
+	}
+	tenant := ""
+	if k.ragTenantResolver != nil {
+		// The schemas endpoint is tenant-agnostic on the server but we still
+		// forward the header for trace correlation, matching ListRagModelProviders.
+		if v, err := k.ragTenantResolver.Resolve(ctx); err == nil {
+			tenant = v
+		}
+	}
+	raw, err := k.rag.ListDocumentParameterSchemas(ctx, tenant)
+	if err != nil {
+		return nil, err
+	}
+	out := &ListRagDocumentParameterSchemasResponse{
+		Schemas: make([]ragDocumentParameterSchema, 0, len(raw)),
+	}
+	for _, sch := range raw {
+		params := make([]ragDocumentParameter, 0, len(sch.Parameters))
+		for _, p := range sch.Parameters {
+			if p.Internal {
+				continue
+			}
+			params = append(params, ragDocumentParameter{
+				Name:          p.Name,
+				Type:          p.Type,
+				Group:         p.Group,
+				Required:      p.Required,
+				Default:       p.Default,
+				AllowedValues: p.AllowedValues,
+				MinValue:      p.MinValue,
+				MaxValue:      p.MaxValue,
+				Description:   p.Description,
+				UILabel:       p.UILabel,
+				UIComponent:   p.UIComponent,
+				Advanced:      p.Advanced,
+			})
+		}
+		out.Schemas = append(out.Schemas, ragDocumentParameterSchema{
+			SchemaID:         sch.SchemaID,
+			Description:      sch.Description,
+			FileTypes:        sch.FileTypes,
+			SourceModalities: sch.SourceModalities,
+			Parameters:       params,
+		})
+	}
+	return out, nil
+}
 
 func (k *KnowledgeApplicationService) deleteKnowledgeInternal(ctx context.Context, knowledgeID int64) error {
 	err := k.DomainSVC.DeleteKnowledge(ctx, &service.DeleteKnowledgeRequest{
@@ -128,7 +297,16 @@ func (k *KnowledgeApplicationService) publishUpdateKnowledgeEvent(ctx context.Co
 	return nil
 }
 
-func (k *KnowledgeApplicationService) buildListKnowledgeRequest(ctx context.Context, spaceID int64, name *string, formatType *dataset.FormatType, page, pageSize int, projectIDStr string) (*service.ListKnowledgeRequest, error) {
+func (k *KnowledgeApplicationService) buildListKnowledgeRequest(
+	ctx context.Context,
+	spaceID int64,
+	name *string,
+	formatType *dataset.FormatType,
+	page, pageSize int,
+	projectIDStr string,
+	scope dataset.DatasetScopeType,
+	uid int64,
+) (*service.ListKnowledgeRequest, error) {
 	request := service.ListKnowledgeRequest{}
 
 	if page > 0 {
@@ -158,8 +336,18 @@ func (k *KnowledgeApplicationService) buildListKnowledgeRequest(ctx context.Cont
 		request.FormatType = ptr.Of(convertFormatType2Entity(*formatType))
 	}
 
-	if spaceID != 0 {
-		request.SpaceID = &spaceID
+	// Scope logic: ScopeAll (default / zero) returns every KB regardless of
+	// space; ScopeSelf restricts to KBs created by the caller. spaceID is
+	// intentionally ignored — KB visibility no longer depends on the active
+	// space, only on read permission (already checked by the caller).
+	_ = spaceID
+	switch scope {
+	case dataset.DatasetScopeType_ScopeSelf:
+		if uid != 0 {
+			request.UserID = ptr.Of(uid)
+		}
+	default:
+		// ScopeAll or zero — no space_id and no creator filter.
 	}
 
 	return &request, nil
@@ -232,10 +420,11 @@ func (k *KnowledgeApplicationService) CreateKnowledge(ctx context.Context, req *
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
 
-	err := k.checkPermission(ctx, uid, ptr.Of(req.SpaceID), nil, nil, nil)
-	if err != nil {
-		return dataset.NewCreateDatasetResponse(), err
-	}
+	// PR-1: forward optional embedding model ids to ragimpl via context.
+	// Legacy backend ignores this; rag backend reads it in CreateKnowledge.
+	// Helper is a no-op when both fields are empty, so legacy callers see no
+	// behaviour change.
+	ctx = consts.WithRagModelOverride(ctx, req.GetTextEmbeddingModelID(), req.GetImageEmbeddingModelID())
 
 	domainResp, err := k.createKnowledgeInternal(ctx, req.Name, req.Description, req.SpaceID, ptr.From(uid), req.GetProjectID(), req.FormatType, req.IconURI)
 	if err != nil {
@@ -270,7 +459,7 @@ func (k *KnowledgeApplicationService) datasetDetail(ctx context.Context, req *da
 	}
 
 	if !fromOpenAPI {
-		err = k.checkPermission(ctx, uid, ptr.Of(req.SpaceID), nil, nil, nil)
+		err = k.checkReadAccess(ctx, uid)
 		if err != nil {
 			return dataset.NewDatasetDetailResponse(), err
 		}
@@ -297,7 +486,9 @@ func (k *KnowledgeApplicationService) datasetDetail(ctx context.Context, req *da
 		logs.CtxErrorf(ctx, "get knowledge failed, err: %v", err)
 		return dataset.NewDatasetDetailResponse(), err
 	}
-	knowledgeMap, err := batchConvertKnowledgeEntity2Model(ctx, domainResp.KnowledgeList)
+	// getUID returns a non-nil pointer for both flows (it errors otherwise),
+	// so this deref is safe. CanEdit is derived from (CreatorID == *uid).
+	knowledgeMap, err := batchConvertKnowledgeEntity2Model(ctx, domainResp.KnowledgeList, ptr.From(uid))
 	if err != nil {
 		logs.CtxErrorf(ctx, "batch convert knowledge entity failed, err: %v", err)
 		return dataset.NewDatasetDetailResponse(), err
@@ -317,6 +508,7 @@ func (k *KnowledgeApplicationService) ListKnowledge(ctx context.Context, req *da
 
 	var name *string
 	var formatType *dataset.FormatType
+	var scope dataset.DatasetScopeType
 	if req.Filter != nil {
 		if req.GetFilter().GetName() != "" {
 			nameValue := req.GetFilter().GetName()
@@ -326,6 +518,7 @@ func (k *KnowledgeApplicationService) ListKnowledge(ctx context.Context, req *da
 			formatTypeValue := req.GetFilter().GetFormatType()
 			formatType = &formatTypeValue
 		}
+		scope = req.GetFilter().GetScopeType()
 	}
 
 	var page, pageSize int
@@ -336,17 +529,15 @@ func (k *KnowledgeApplicationService) ListKnowledge(ctx context.Context, req *da
 		pageSize = int(*req.Size)
 	}
 
-	request, err := k.buildListKnowledgeRequest(ctx, req.GetSpaceID(), name, formatType, page, pageSize, req.GetProjectID())
+	request, err := k.buildListKnowledgeRequest(ctx, req.GetSpaceID(), name, formatType, page, pageSize, req.GetProjectID(), scope, *uid)
 	if err != nil {
 		logs.CtxErrorf(ctx, "build list knowledge request failed, err: %v", err)
 		return dataset.NewListDatasetResponse(), err
 	}
 
-	if req.GetSpaceID() != 0 {
-		err = k.checkPermission(ctx, uid, ptr.Of(req.SpaceID), nil, nil, nil)
-		if err != nil {
-			return dataset.NewListDatasetResponse(), err
-		}
+	err = k.checkReadAccess(ctx, uid)
+	if err != nil {
+		return dataset.NewListDatasetResponse(), err
 	}
 
 	if req.Filter != nil && len(req.GetFilter().DatasetIds) > 0 {
@@ -375,7 +566,8 @@ func (k *KnowledgeApplicationService) ListKnowledge(ctx context.Context, req *da
 
 	resp := dataset.ListDatasetResponse{}
 	resp.Total = int32(domainResp.Total)
-	knowledgeMap, err := batchConvertKnowledgeEntity2Model(ctx, domainResp.KnowledgeList)
+	// uid is guaranteed non-nil at this point (checked at function entry).
+	knowledgeMap, err := batchConvertKnowledgeEntity2Model(ctx, domainResp.KnowledgeList, *uid)
 	if err != nil {
 		logs.CtxErrorf(ctx, "batch convert knowledge entity failed, err: %v", err)
 		return dataset.NewListDatasetResponse(), err
@@ -393,7 +585,7 @@ func (k *KnowledgeApplicationService) DeleteKnowledge(ctx context.Context, req *
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
 
-	err := k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+	err := k.checkWriteAccess(ctx, uid, ptr.Of(req.GetDatasetID()), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -417,7 +609,7 @@ func (k *KnowledgeApplicationService) UpdateKnowledge(ctx context.Context, req *
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
 
-	err := k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+	err := k.checkWriteAccess(ctx, uid, ptr.Of(req.GetDatasetID()), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -442,6 +634,10 @@ func (k *KnowledgeApplicationService) CreateDocument(ctx context.Context, req *d
 	if err != nil {
 		return nil, err
 	}
+	err = k.checkWriteAccess(ctx, uid, ptr.Of(req.GetDatasetID()), nil, nil)
+	if err != nil {
+		return dataset.NewCreateDocumentResponse(), err
+	}
 	listResp, err := k.DomainSVC.ListKnowledge(ctx, &service.ListKnowledgeRequest{IDs: []int64{req.GetDatasetID()}})
 	if err != nil {
 		logs.CtxErrorf(ctx, "mget knowledge failed, err: %v", err)
@@ -451,10 +647,6 @@ func (k *KnowledgeApplicationService) CreateDocument(ctx context.Context, req *d
 		return dataset.NewCreateDocumentResponse(), errors.New("knowledge not found")
 	}
 	knowledgeInfo := listResp.KnowledgeList[0]
-
-	if knowledgeInfo.CreatorID != *uid {
-		return dataset.NewCreateDocumentResponse(), errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "permission denied"))
-	}
 
 	documents := []*entity.Document{}
 	if len(req.GetDocumentBases()) == 0 {
@@ -499,7 +691,8 @@ func (k *KnowledgeApplicationService) CreateDocument(ctx context.Context, req *d
 	}
 	resp := dataset.NewCreateDocumentResponse()
 	createResp, err := k.DomainSVC.CreateDocument(ctx, &service.CreateDocumentRequest{
-		Documents: documents,
+		Documents:       documents,
+		DocumentOptions: req.GetDocumentOptions(),
 	})
 	if err != nil {
 		logs.CtxErrorf(ctx, "create document failed, err: %v", err)
@@ -529,6 +722,10 @@ func (k *KnowledgeApplicationService) ListDocument(ctx context.Context, req *dat
 	uid, err := getUID(ctx, fromOpenAPI)
 	if err != nil {
 		return nil, err
+	}
+	err = k.checkReadAccess(ctx, uid)
+	if err != nil {
+		return dataset.NewListDocumentResponse(), err
 	}
 	var limit int = int(req.GetSize())
 	// var offset int = int(req.GetPage() * req.GetSize())
@@ -566,9 +763,6 @@ func (k *KnowledgeApplicationService) ListDocument(ctx context.Context, req *dat
 	resp.Total = int32(listResp.Total)
 	resp.DocumentInfos = make([]*dataset.DocumentInfo, 0)
 	for i := range documents {
-		if documents[i].CreatorID != *uid {
-			return dataset.NewListDocumentResponse(), errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "permission denied"))
-		}
 		resp.DocumentInfos = append(resp.DocumentInfos, convertDocument2Model(documents[i]))
 	}
 	return resp, nil
@@ -595,7 +789,7 @@ func (k *KnowledgeApplicationService) DeleteDocument(ctx context.Context, req *d
 		return dataset.NewDeleteDocumentResponse(), err
 	}
 
-	err = k.checkPermission(ctx, uid, nil, transformedIDs, nil, nil)
+	err = k.checkWriteAccess(ctx, uid, nil, transformedIDs, nil)
 	if err != nil {
 		return dataset.NewDeleteDocumentResponse(), err
 	}
@@ -624,7 +818,7 @@ func (k *KnowledgeApplicationService) UpdateDocument(ctx context.Context, req *d
 		return nil, err
 	}
 
-	err = k.checkPermission(ctx, uid, nil, []int64{req.GetDocumentID()}, nil, nil)
+	err = k.checkWriteAccess(ctx, uid, nil, []int64{req.GetDocumentID()}, nil)
 	if err != nil {
 		return dataset.NewUpdateDocumentResponse(), err
 	}
@@ -643,57 +837,89 @@ func (k *KnowledgeApplicationService) UpdateDocument(ctx context.Context, req *d
 	return &dataset.UpdateDocumentResponse{}, nil
 }
 
-func (k *KnowledgeApplicationService) checkPermission(ctx context.Context, uid *int64, spaceID *int64, documentIDs []int64, knowledgeID *int64, sliceIDs []int64) error {
-
-	rd := []*permission.ResourceIdentifier{}
-
-	if spaceID != nil {
-		rd = append(rd, &permission.ResourceIdentifier{
-			Type:   permission.ResourceTypeWorkspace,
-			ID:     []int64{*spaceID},
-			Action: permission.ActionRead,
-		})
+// checkReadAccess allows any authenticated user. Use for read endpoints
+// (list, detail, list docs, list slices, retrieve). Knowledge data is
+// globally readable by design; only writes are owner-gated.
+func (k *KnowledgeApplicationService) checkReadAccess(ctx context.Context, uid *int64) error {
+	if uid == nil {
+		return errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
+	return nil
+}
 
-	if documentIDs != nil {
-		rd = append(rd, &permission.ResourceIdentifier{
-			Type:   permission.ResourceTypeKnowledgeDocument,
-			ID:     documentIDs,
-			Action: permission.ActionRead,
-		})
+// checkWriteAccess resolves the target identifier(s) back to the owning KB(s)
+// and passes only when every owning KB.creator_id == *uid.
+//
+// Pass any combination of: knowledgeID, documentIDs, sliceIDs. (The union of
+// owning KBs is checked.)
+func (k *KnowledgeApplicationService) checkWriteAccess(
+	ctx context.Context,
+	uid *int64,
+	knowledgeID *int64,
+	documentIDs []int64,
+	sliceIDs []int64,
+) error {
+	if uid == nil {
+		return errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
-	if sliceIDs != nil {
-		rd = append(rd, &permission.ResourceIdentifier{
-			Type:   permission.ResourceTypeKnowledgeSlice,
-			ID:     sliceIDs,
-			Action: permission.ActionRead,
-		})
-	}
-
-	if knowledgeID != nil {
-		rd = append(rd, &permission.ResourceIdentifier{
-			Type:   permission.ResourceTypeKnowledge,
-			ID:     []int64{*knowledgeID},
-			Action: permission.ActionRead,
-		})
-	}
-
-	if len(rd) == 0 {
+	if ctxutil.IsAdminFromCtx(ctx) {
 		return nil
 	}
 
-	checkResult, err := permission.DefaultSVC().CheckAuthz(ctx, &permission.CheckAuthzData{
-		ResourceIdentifier: rd,
-		OperatorID:         *uid,
-	})
-	if err != nil {
-		logs.CtxErrorf(ctx, "check authz failed, err: %v", err)
-		return err
+	// Resolve target → KB set. Batched queries; no N+1.
+	kbIDSet := map[int64]struct{}{}
+	if knowledgeID != nil {
+		kbIDSet[*knowledgeID] = struct{}{}
 	}
-	if checkResult.Decision != permission.Allow {
-		return errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "permission denied"))
+	if len(documentIDs) > 0 {
+		docResp, err := k.DomainSVC.MGetDocument(ctx, &service.MGetDocumentRequest{DocumentIDs: documentIDs})
+		if err != nil {
+			logs.CtxErrorf(ctx, "mget document failed, err: %v", err)
+			return err
+		}
+		if docResp == nil || len(docResp.Documents) != len(documentIDs) {
+			return errorx.New(errno.ErrKnowledgeDocumentNotExistCode, errorx.KV("msg", "document not found"))
+		}
+		for _, d := range docResp.Documents {
+			kbIDSet[d.KnowledgeID] = struct{}{}
+		}
+	}
+	if len(sliceIDs) > 0 {
+		sliceResp, err := k.DomainSVC.MGetSlice(ctx, &service.MGetSliceRequest{SliceIDs: sliceIDs})
+		if err != nil {
+			logs.CtxErrorf(ctx, "mget slice failed, err: %v", err)
+			return err
+		}
+		if sliceResp == nil || len(sliceResp.Slices) != len(sliceIDs) {
+			return errorx.New(errno.ErrKnowledgeSliceNotExistCode, errorx.KV("msg", "slice not found"))
+		}
+		for _, s := range sliceResp.Slices {
+			kbIDSet[s.KnowledgeID] = struct{}{}
+		}
 	}
 
+	if len(kbIDSet) == 0 {
+		return errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "no write target"))
+	}
+
+	kbIDs := make([]int64, 0, len(kbIDSet))
+	for id := range kbIDSet {
+		kbIDs = append(kbIDs, id)
+	}
+
+	kbResp, err := k.DomainSVC.ListKnowledge(ctx, &service.ListKnowledgeRequest{IDs: kbIDs})
+	if err != nil {
+		logs.CtxErrorf(ctx, "list knowledge failed, err: %v", err)
+		return err
+	}
+	if kbResp == nil || len(kbResp.KnowledgeList) != len(kbIDs) {
+		return errorx.New(errno.ErrKnowledgeNotExistCode, errorx.KV("msg", "knowledge not found"))
+	}
+	for _, kb := range kbResp.KnowledgeList {
+		if kb.CreatorID != *uid {
+			return errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "not knowledge owner"))
+		}
+	}
 	return nil
 }
 
@@ -711,7 +937,7 @@ func (k *KnowledgeApplicationService) GetDocumentProgress(ctx context.Context, r
 		logs.CtxErrorf(ctx, "convert string ids failed, err: %v", err)
 		return dataset.NewGetDocumentProgressResponse(), err
 	}
-	err = k.checkPermission(ctx, uid, nil, docIDs, nil, nil)
+	err = k.checkReadAccess(ctx, uid)
 	if err != nil {
 		return dataset.NewGetDocumentProgressResponse(), err
 	}
@@ -741,19 +967,50 @@ func (k *KnowledgeApplicationService) GetDocumentProgress(ctx context.Context, r
 	return resp, nil
 }
 
+// RetryDocument retries a previously-failed document ingestion. Forwards to
+// the domain service which dispatches to ragimpl (which calls rag's
+// POST /documents/{id}/retry and bumps mapping.last_task_id so subsequent
+// MGetDocumentProgress polls follow the retry's new task) or to the legacy
+// stub. Response carries a refreshed DocumentInfo so the UI can re-render
+// the row without an immediate second round-trip.
+func (k *KnowledgeApplicationService) RetryDocument(ctx context.Context, req *dataset.RetryDocumentRequest) (*dataset.RetryDocumentResponse, error) {
+	uid := ctxutil.GetUIDFromCtx(ctx)
+	if uid == nil {
+		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
+	}
+	if err := k.checkWriteAccess(ctx, uid, nil, []int64{req.GetDocumentID()}, nil); err != nil {
+		return dataset.NewRetryDocumentResponse(), err
+	}
+	svcResp, err := k.DomainSVC.RetryDocument(ctx, &service.RetryDocumentRequest{DocumentID: req.GetDocumentID()})
+	if err != nil {
+		logs.CtxErrorf(ctx, "retry document failed, err: %v", err)
+		return dataset.NewRetryDocumentResponse(), err
+	}
+	resp := dataset.NewRetryDocumentResponse()
+	resp.DocumentInfo = convertDocument2Model(svcResp.Document)
+	return resp, nil
+}
+
 func (k *KnowledgeApplicationService) Resegment(ctx context.Context, req *dataset.ResegmentRequest) (*dataset.ResegmentResponse, error) {
 	uid := ctxutil.GetUIDFromCtx(ctx)
 	if uid == nil {
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
+	docIDs, err := slices.TransformWithErrorCheck(req.GetDocumentIds(), func(s string) (int64, error) {
+		id, err := strconv.ParseInt(s, 10, 64)
+		return id, err
+	})
+	if err != nil {
+		logs.CtxErrorf(ctx, "parse int failed, err: %v", err)
+		return dataset.NewResegmentResponse(), err
+	}
+	err = k.checkWriteAccess(ctx, uid, nil, docIDs, nil)
+	if err != nil {
+		return dataset.NewResegmentResponse(), err
+	}
 	resp := dataset.NewResegmentResponse()
 	resp.DocumentInfos = make([]*dataset.DocumentInfo, 0)
-	for i := range req.GetDocumentIds() {
-		docID, err := strconv.ParseInt(req.GetDocumentIds()[i], 10, 64)
-		if err != nil {
-			logs.CtxErrorf(ctx, "parse int failed, err: %v", err)
-			return dataset.NewResegmentResponse(), err
-		}
+	for _, docID := range docIDs {
 		var captionType *dataset.CaptionType
 		if req.GetChunkStrategy() != nil {
 			captionType = req.GetChunkStrategy().CaptionType
@@ -766,9 +1023,6 @@ func (k *KnowledgeApplicationService) Resegment(ctx context.Context, req *datase
 		if err != nil {
 			logs.CtxErrorf(ctx, "resegment document failed, err: %v", err)
 			return dataset.NewResegmentResponse(), err
-		}
-		if resegmentResp.Document.Info.CreatorID != *uid {
-			return dataset.NewResegmentResponse(), errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "permission denied"))
 		}
 
 		resp.DocumentInfos = append(resp.DocumentInfos, &dataset.DocumentInfo{
@@ -784,6 +1038,10 @@ func (k *KnowledgeApplicationService) CreateSlice(ctx context.Context, req *data
 	if uid == nil {
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
+	err := k.checkWriteAccess(ctx, uid, nil, []int64{req.GetDocumentID()}, nil)
+	if err != nil {
+		return dataset.NewCreateSliceResponse(), err
+	}
 	listResp, err := k.DomainSVC.ListDocument(ctx, &service.ListDocumentRequest{
 		DocumentIDs: []int64{req.GetDocumentID()},
 	})
@@ -793,9 +1051,6 @@ func (k *KnowledgeApplicationService) CreateSlice(ctx context.Context, req *data
 	}
 	if len(listResp.Documents) != 1 {
 		return dataset.NewCreateSliceResponse(), errors.New("document not found")
-	}
-	if listResp.Documents[0].CreatorID != *uid {
-		return dataset.NewCreateSliceResponse(), errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "permission denied"))
 	}
 	sliceEntity := &model.Slice{
 		Info: model.Info{
@@ -849,7 +1104,7 @@ func (k *KnowledgeApplicationService) DeleteSlice(ctx context.Context, req *data
 		sliceIDs = append(sliceIDs, sliceID)
 	}
 
-	err := k.checkPermission(ctx, uid, nil, nil, nil, sliceIDs)
+	err := k.checkWriteAccess(ctx, uid, nil, nil, sliceIDs)
 	if err != nil {
 		logs.CtxErrorf(ctx, "check permission failed, err: %v", err)
 		return dataset.NewDeleteSliceResponse(), err
@@ -872,15 +1127,18 @@ func (k *KnowledgeApplicationService) UpdateSlice(ctx context.Context, req *data
 	if uid == nil {
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
+	err := k.checkWriteAccess(ctx, uid, nil, nil, []int64{req.GetSliceID()})
+	if err != nil {
+		return nil, err
+	}
 	getSliceResp, err := k.DomainSVC.GetSlice(ctx, &service.GetSliceRequest{
 		SliceID: req.GetSliceID(),
 	})
 	if err != nil {
 		return nil, errorx.New(errno.ErrKnowledgeInvalidParamCode, errorx.KV("msg", "slice not found"))
 	}
-
-	if getSliceResp.Slice != nil && getSliceResp.Slice.Info.CreatorID != *uid {
-		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "permission denied"))
+	if getSliceResp.Slice == nil {
+		return nil, errorx.New(errno.ErrKnowledgeInvalidParamCode, errorx.KV("msg", "slice not found"))
 	}
 	docID := getSliceResp.Slice.DocumentID
 
@@ -982,8 +1240,8 @@ func (k *KnowledgeApplicationService) listSlice(ctx context.Context, req *datase
 		return nil, err
 	}
 
-	if !fromOpenAPI && req.DatasetID != nil {
-		err := k.checkPermission(ctx, uid, nil, nil, ptr.Of(*req.DatasetID), nil)
+	if !fromOpenAPI {
+		err := k.checkReadAccess(ctx, uid)
 		if err != nil {
 			return nil, err
 		}
@@ -1032,11 +1290,9 @@ func (k *KnowledgeApplicationService) GetTableSchema(ctx context.Context, req *d
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
 
-	if req.GetDocumentID() > 0 {
-		err = k.checkPermission(ctx, uid, nil, []int64{req.GetDocumentID()}, nil, nil)
-		if err != nil {
-			return nil, err
-		}
+	err = k.checkReadAccess(ctx, uid)
+	if err != nil {
+		return nil, err
 	}
 
 	if req.SourceFile == nil { // alter table
@@ -1111,7 +1367,7 @@ func (k *KnowledgeApplicationService) ValidateTableSchema(ctx context.Context, r
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
 	if req.GetDocumentID() > 0 {
-		err = k.checkPermission(ctx, uid, nil, []int64{req.GetDocumentID()}, nil, nil)
+		err = k.checkWriteAccess(ctx, uid, nil, []int64{req.GetDocumentID()}, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -1144,11 +1400,8 @@ func (k *KnowledgeApplicationService) GetDocumentTableInfo(ctx context.Context, 
 	if uid == nil {
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
-	if req.GetDocumentID() > 0 {
-		err := k.checkPermission(ctx, uid, nil, []int64{req.GetDocumentID()}, nil, nil)
-		if err != nil {
-			return nil, err
-		}
+	if err := k.checkReadAccess(ctx, uid); err != nil {
+		return nil, err
 	}
 
 	domainResp, err := k.DomainSVC.GetDocumentTableInfo(ctx, &service.GetDocumentTableInfoRequest{
@@ -1183,7 +1436,7 @@ func (k *KnowledgeApplicationService) CreateDocumentReview(ctx context.Context, 
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
 	if req.GetDatasetID() > 0 {
-		err := k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+		err := k.checkWriteAccess(ctx, uid, ptr.Of(req.GetDatasetID()), nil, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -1224,7 +1477,7 @@ func (k *KnowledgeApplicationService) MGetDocumentReview(ctx context.Context, re
 		return dataset.NewMGetDocumentReviewResponse(), err
 	}
 
-	err = k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+	err = k.checkReadAccess(ctx, uid)
 	if err != nil {
 		return nil, err
 	}
@@ -1258,7 +1511,7 @@ func (k *KnowledgeApplicationService) SaveDocumentReview(ctx context.Context, re
 	if uid == nil {
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
-	err := k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+	err := k.checkWriteAccess(ctx, uid, ptr.Of(req.GetDatasetID()), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1350,7 +1603,7 @@ func (k *KnowledgeApplicationService) UpdatePhotoCaption(ctx context.Context, re
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
 
-	err := k.checkPermission(ctx, uid, nil, []int64{req.DocumentID}, nil, nil)
+	err := k.checkWriteAccess(ctx, uid, nil, []int64{req.DocumentID}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1415,7 +1668,7 @@ func (k *KnowledgeApplicationService) listPhoto(ctx context.Context, req *datase
 	}
 
 	if !fromOpenAPI {
-		err = k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+		err = k.checkReadAccess(ctx, uid)
 		if err != nil {
 			return nil, err
 		}
@@ -1507,7 +1760,7 @@ func (k *KnowledgeApplicationService) photoDetail(ctx context.Context, req *data
 	}
 
 	if !fromOpenAPI {
-		err = k.checkPermission(ctx, uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+		err = k.checkReadAccess(ctx, uid)
 		if err != nil {
 			return nil, err
 		}
@@ -1554,7 +1807,7 @@ func (k *KnowledgeApplicationService) ExtractPhotoCaption(ctx context.Context, r
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", "session required"))
 	}
 
-	err := k.checkPermission(ctx, uid, nil, []int64{req.GetDocumentID()}, nil, nil)
+	err := k.checkWriteAccess(ctx, uid, nil, []int64{req.GetDocumentID()}, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1581,13 +1834,15 @@ func (k *KnowledgeApplicationService) ListKnowledgeAPI(ctx context.Context, req 
 		pageSize = int(*req.PageSize)
 	}
 
-	request, err := k.buildListKnowledgeRequest(ctx, req.GetSpaceID(), req.Name, req.FormatType, page, pageSize, req.GetProjectID())
+	// OpenAPI request shape doesn't carry a scope_type; default behaviour is
+	// ScopeAll (zero value), matching the UI default.
+	request, err := k.buildListKnowledgeRequest(ctx, req.GetSpaceID(), req.Name, req.FormatType, page, pageSize, req.GetProjectID(), dataset.DatasetScopeType_ScopeAll, uid)
 	if err != nil {
 		logs.CtxErrorf(ctx, "build list knowledge request failed, err: %v", err)
 		return dataset.NewListDatasetOpenApiResponse(), err
 	}
 
-	err = k.checkPermission(ctx, &uid, ptr.Of(req.SpaceID), nil, nil, nil)
+	err = k.checkReadAccess(ctx, &uid)
 	if err != nil {
 		return dataset.NewListDatasetOpenApiResponse(), err
 	}
@@ -1598,7 +1853,9 @@ func (k *KnowledgeApplicationService) ListKnowledgeAPI(ctx context.Context, req 
 		return dataset.NewListDatasetOpenApiResponse(), err
 	}
 
-	knowledgeMap, err := batchConvertKnowledgeEntity2Model(ctx, domainResp.KnowledgeList)
+	// OpenAPI flow: uid is the API-key owner (already checked non-zero above);
+	// CanEdit will be true only for KBs that user actually owns.
+	knowledgeMap, err := batchConvertKnowledgeEntity2Model(ctx, domainResp.KnowledgeList, uid)
 	if err != nil {
 		logs.CtxErrorf(ctx, "batch convert knowledge entity failed, err: %v", err)
 		return dataset.NewListDatasetOpenApiResponse(), err
@@ -1627,7 +1884,7 @@ func (k *KnowledgeApplicationService) UpdateKnowledgeAPI(ctx context.Context, re
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", " apiKeyInfo is nil"))
 	}
 
-	err := k.checkPermission(ctx, &uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+	err := k.checkWriteAccess(ctx, &uid, ptr.Of(req.GetDatasetID()), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1657,7 +1914,7 @@ func (k *KnowledgeApplicationService) DeleteKnowledgeAPI(ctx context.Context, re
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", " apiKeyInfo is nil"))
 	}
 
-	err := k.checkPermission(ctx, &uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+	err := k.checkWriteAccess(ctx, &uid, ptr.Of(req.GetDatasetID()), nil, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -1686,7 +1943,7 @@ func (k *KnowledgeApplicationService) GetDocumentProgressAPI(ctx context.Context
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", " apiKeyInfo is nil"))
 	}
 
-	err := k.checkPermission(ctx, &uid, nil, req.GetDocumentIds(), nil, nil)
+	err := k.checkReadAccess(ctx, &uid)
 	if err != nil {
 		return dataset.NewGetDocumentProgressOpenApiResponse(), err
 	}
@@ -1729,7 +1986,7 @@ func (k *KnowledgeApplicationService) ListPhotoAPI(ctx context.Context, req *dat
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", " apiKeyInfo is nil"))
 	}
 
-	err := k.checkPermission(ctx, &uid, nil, nil, ptr.Of(req.GetDatasetID()), nil)
+	err := k.checkReadAccess(ctx, &uid)
 	if err != nil {
 		return nil, err
 	}
@@ -1796,11 +2053,6 @@ func (k *KnowledgeApplicationService) CreateKnowledgeAPI(ctx context.Context, re
 	uid := ctxutil.MustGetUIDFromApiAuthCtx(ctx)
 	if uid == 0 {
 		return nil, errorx.New(errno.ErrKnowledgePermissionCode, errorx.KV("msg", " apiKeyInfo is nil"))
-	}
-
-	err := k.checkPermission(ctx, &uid, ptr.Of(req.GetSpaceID()), nil, nil, nil)
-	if err != nil {
-		return dataset.NewCreateDatasetOpenApiResponse(), err
 	}
 
 	domainResp, err := k.createKnowledgeInternal(ctx, req.GetName(), req.GetDescription(), req.GetSpaceID(), uid, req.GetProjectID(), req.GetFormatType(), "")

@@ -57,6 +57,9 @@ const getDefaultTextLocalAddUpdateState: () => UploadTextLocalAddUpdateState =
       maxLevel: 3,
       isSaveTitle: true,
     },
+    // Phase 3b: empty = "use rag defaults". Set by the rag-mode segment step
+    // on Next; read by the rag-mode progress step when calling CreateDocument.
+    documentOptions: '',
   });
 
 export const createTextLocalAddUpdateStore = () =>
@@ -104,6 +107,11 @@ export const createTextLocalAddUpdateStore = () =>
               [key]: value,
             },
           }));
+        },
+        // Phase 3b: rag-mode segment step writes the serialized document_options
+        // JSON here on Next, including any reserved `_source_modality` key.
+        setDocumentOptions: documentOptions => {
+          set({ documentOptions }, false, 'setDocumentOptions');
         },
       }),
       {

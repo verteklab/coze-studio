@@ -1,0 +1,5 @@
+[mysqld]
+# Disable Linux native AIO so v2 MySQL doesn't compete with other containers for
+# the kernel-wide fs.aio-max-nr budget. Trade-off: slightly higher I/O latency
+# under heavy write load; safe on the side that AIO_MAX is exhausted on this host.
+innodb_use_native_aio = 0

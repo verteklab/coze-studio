@@ -254,9 +254,11 @@ func (k *knowledgeSVC) DeleteKnowledge(ctx context.Context, request *DeleteKnowl
 }
 
 func (k *knowledgeSVC) ListKnowledge(ctx context.Context, request *ListKnowledgeRequest) (response *ListKnowledgeResponse, err error) {
-	if len(request.IDs) == 0 && request.AppID == nil && request.SpaceID == nil {
-		return nil, errorx.New(errno.ErrKnowledgeInvalidParamCode, errorx.KV("msg", "knowledge ids, project id, space id and query can not be all empty"))
-	}
+	// Historically this required IDs / AppID / SpaceID to be non-empty so the
+	// listing was always implicitly scoped. ScopeAll is now an explicit caller
+	// intent — list every KB regardless of space — so the no-filter case is
+	// accepted. Read permission has already been enforced by the application
+	// layer at this point.
 	opts := &entity.WhereKnowledgeOption{
 		KnowledgeIDs: request.IDs,
 		AppID:        request.AppID,
@@ -545,6 +547,15 @@ func (k *knowledgeSVC) MGetDocumentProgress(ctx context.Context, request *MGetDo
 	return &MGetDocumentProgressResponse{
 		ProgressList: progresslist,
 	}, nil
+}
+
+// RetryDocument is rag-only — legacy mode has no equivalent task-retry concept.
+// The frontend renders the retry button only inside rag-mode wizards, so this
+// path should not trigger in normal use; it exists to satisfy the
+// service.Knowledge interface and to surface a clear error if a future caller
+// reaches the legacy impl by mistake.
+func (k *knowledgeSVC) RetryDocument(ctx context.Context, request *RetryDocumentRequest) (response *RetryDocumentResponse, err error) {
+	return nil, errorx.New(errno.ErrRagFeaturePendingCode, errorx.KV("msg", "RetryDocument requires KNOWLEDGE_BACKEND=rag"))
 }
 
 func (k *knowledgeSVC) getProgressFromCache(ctx context.Context, documentProgress *DocumentProgress) (err error) {

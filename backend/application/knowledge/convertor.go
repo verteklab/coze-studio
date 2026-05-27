@@ -617,7 +617,45 @@ func convertDocumentTypeDataset2Entity(formatType dataset.FormatType) model.Docu
 	}
 }
 
-func batchConvertKnowledgeEntity2Model(ctx context.Context, knowledgeEntity []*model.Knowledge) (map[int64]*dataset.Dataset, error) {
+// resolveDatasetBackend returns a freshly-allocated *string ("rag" or "legacy")
+// describing which backend owns the given KB. A non-nil pointer is always
+// returned so the convertor can assign Dataset.Backend unconditionally; the
+// frontend's isRagBackend helper reads the string value.
+//
+// Pointer-aliasing safety: every call allocates its own string variable so
+// callers in a tight loop can store the returned pointer on distinct DTOs
+// without two records sharing storage.
+func resolveDatasetBackend(id int64, ragMapped map[int64]struct{}) *string {
+	s := "legacy"
+	if _, ok := ragMapped[id]; ok {
+		s = "rag"
+	}
+	return &s
+}
+
+// batchConvertKnowledgeEntity2Model turns a slice of domain Knowledge entities
+// into the response DTO map. `uid` is the caller's logged-in user id (or the
+// API-key owner for OpenAPI flows) and is used to populate Dataset.CanEdit:
+// CanEdit is true iff the KB's CreatorID matches `uid`. Pass 0 to force
+// CanEdit=false (e.g. anonymous / admin-context callers without a meaningful
+// owner identity).
+func batchConvertKnowledgeEntity2Model(ctx context.Context, knowledgeEntity []*model.Knowledge, uid int64) (map[int64]*dataset.Dataset, error) {
+	// Resolve "which backend owns each KB" in a single batched query before
+	// the per-record loop. On legacy deployments mappingRepo is nil — every
+	// KB resolves to "legacy" via the empty set, no DB hit.
+	var ragMapped map[int64]struct{}
+	if KnowledgeSVC.mappingRepo != nil {
+		ids := make([]int64, 0, len(knowledgeEntity))
+		for _, k := range knowledgeEntity {
+			ids = append(ids, k.ID)
+		}
+		m, err := KnowledgeSVC.mappingRepo.ExistsBatch(ctx, ids)
+		if err != nil {
+			logs.CtxErrorf(ctx, "rag mapping ExistsBatch failed, err: %v", err)
+			return nil, err
+		}
+		ragMapped = m
+	}
 	knowledgeMap := map[int64]*dataset.Dataset{}
 	for _, k := range knowledgeEntity {
 		documentEntity, err := KnowledgeSVC.DomainSVC.ListDocument(ctx, &service.ListDocumentRequest{
@@ -666,7 +704,11 @@ func batchConvertKnowledgeEntity2Model(ctx context.Context, knowledgeEntity []*m
 			IconURI:              k.IconURI,
 			IconURL:              k.IconURL,
 			Description:          k.Description,
-			CanEdit:              true,
+			// CanEdit: ownership flag — the frontend uses it to show/hide
+			// edit affordances. Owner is the user whose id was recorded as
+			// CreatorID at KB creation time. uid==0 means "no caller
+			// identity" (anonymous / admin-context) and yields false.
+			CanEdit:              uid != 0 && k.CreatorID == uid,
 			CreateTime:           int32(k.CreatedAtMs / 1000),
 			CreatorID:            k.CreatorID,
 			SpaceID:              k.SpaceID,
@@ -678,6 +720,7 @@ func batchConvertKnowledgeEntity2Model(ctx context.Context, knowledgeEntity []*m
 			ChunkStrategy:        convertChunkingStrategy2Model(rule),
 			ProcessingFileIDList: processingFileIDList,
 			ProjectID:            strconv.FormatInt(k.AppID, 10),
+			Backend:              resolveDatasetBackend(k.ID, ragMapped),
 		}
 	}
 	return knowledgeMap, nil

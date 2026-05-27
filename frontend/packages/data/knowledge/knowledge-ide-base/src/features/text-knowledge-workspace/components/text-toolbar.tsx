@@ -21,6 +21,7 @@ import { type ReactNode } from 'react';
 import classnames from 'classnames';
 import { isFeishuOrLarkDocumentSource } from '@coze-data/utils';
 import { useKnowledgeStore } from '@coze-data/knowledge-stores';
+import { isRagBackend } from '@coze-data/knowledge-resource-processor-core';
 import { KnowledgeE2e } from '@coze-data/e2e';
 import { I18n } from '@coze-arch/i18n';
 import {
@@ -93,6 +94,7 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
   customUIElements: { linkOriginUrlButton, fetchSliceButton },
 }) => {
   const canEdit = useKnowledgeStore(state => state.canEdit);
+  const dataSetDetail = useKnowledgeStore(state => state.dataSetDetail);
   const isLookMode = isLookIframeMode();
   const canOperate = canEdit && !isLookMode;
 
@@ -104,8 +106,14 @@ export const TextToolbar: React.FC<TextToolbarProps> = ({
       isFeishuOrLarkDocumentSource(curDoc?.source_type));
 
   const showDeleteDocBtn = curDoc && canOperate;
+  // Rag mode: hide resegment — see knowledge-nav-bar/index.tsx isShowResegmentBtn
+  // for the rationale (rag's /update is metadata-only and /retry replays the
+  // original config, so re-chunk with new strategy has no path without
+  // delete + re-upload). Both entry points must agree.
   const showResegmentButton =
-    canOperate && curDoc?.format_type === FormatType.Text;
+    canOperate &&
+    curDoc?.format_type === FormatType.Text &&
+    !isRagBackend(dataSetDetail);
   const showFetchSliceBtn =
     canOperate &&
     curDoc &&

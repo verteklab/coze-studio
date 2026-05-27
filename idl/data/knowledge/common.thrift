@@ -179,4 +179,10 @@ struct Dataset {
 
     24: list<string>     processing_file_id_list  // List of file IDs in process
     25: string        project_id          //project ID
+
+    // Backend that owns this KB's knowledge data. "rag" = managed by the
+    // standalone rag service via ragimpl; "legacy" = managed by coze's
+    // in-tree knowledge module. Derived from rag_kb_mapping presence;
+    // absent on responses from older servers (clients treat as "legacy").
+    26: optional string backend
 }

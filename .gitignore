@@ -45,6 +45,7 @@ output/*
 bin/*
 
 docker/data/*
+docker/.env.v2
 
 backend/static
 

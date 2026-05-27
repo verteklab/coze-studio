@@ -166,6 +166,9 @@ export interface CreateDatasetRequest {
   project_id?: string;
   /** 存储位置，0: byterag，1: opensearch，2: douyin */
   storage_location?: common.StorageLocation;
+  /** PR-1: forwarded to rag at KB creation time. Optional; absent → backend uses defaults. */
+  text_embedding_model_id?: string;
+  image_embedding_model_id?: string;
   Base?: base.Base;
 }
 
@@ -230,6 +233,11 @@ export interface Dataset {
   dataset_type?: DatasetType;
   /** storage_config详细信息 */
   storage_config?: StorageConfig;
+  /** MANUAL EDIT — added 2026-05-13 per plan 2026-05-13-coze-ui-rag-flow-alignment.
+   *  Codegen toolchain is not wired in OSS repo (see Task 0 discovery findings).
+   *  "rag" = managed by standalone rag service; "legacy" = in-tree module.
+   *  Absent on older-server responses; clients treat as "legacy". */
+  backend?: string;
 }
 
 export interface DatasetDetailRequest {

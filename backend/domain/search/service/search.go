@@ -252,8 +252,13 @@ func (s *searchImpl) SearchResources(ctx context.Context, req *searchEntity.Sear
 		searchReq.Query.Bool.Must = append(searchReq.Query.Bool.Must,
 			es.NewEqualQuery(fieldOfAPPID, conv.Int64ToStr(req.APPID)))
 	} else {
-		searchReq.Query.Bool.Must = append(searchReq.Query.Bool.Must,
-			es.NewEqualQuery(fieldOfSpaceID, conv.Int64ToStr(req.SpaceID)))
+		// SpaceID == 0 means "search across all spaces" — used by the library
+		// page so users can see globally-readable KBs created in other spaces.
+		// The library-only Should clauses (no app_id / app_id=0) still apply.
+		if req.SpaceID > 0 {
+			searchReq.Query.Bool.Must = append(searchReq.Query.Bool.Must,
+				es.NewEqualQuery(fieldOfSpaceID, conv.Int64ToStr(req.SpaceID)))
+		}
 		searchReq.Query.Bool.Should = append(searchReq.Query.Bool.Should,
 			es.NewNotExistsQuery(fieldOfAPPID))
 		searchReq.Query.Bool.Should = append(searchReq.Query.Bool.Should,

@@ -125,6 +125,15 @@ export interface CreateDocumentRequest {
   parsing_strategy?: common.ParsingStrategy;
   index_strategy?: common.IndexStrategy;
   storage_strategy?: common.StorageStrategy;
+  /**
+   * MANUAL EDIT — Phase 3b dynamic upload form. JSON-stringified opaque
+   * options forwarded verbatim to rag's POST /documents document_options
+   * field. A reserved top-level `_source_modality` key (if present) is
+   * consumed by the backend to override rag's source_modality routing
+   * (e.g. "scanned_document_source" for a PDF the user explicitly marked
+   * as a scan). Codegen toolchain is not wired (see commit e2dcc807).
+   */
+  document_options?: string;
   Base?: base.Base;
 }
 
@@ -324,6 +333,26 @@ export interface GetDocumentProgressRequest {
 
 export interface GetDocumentProgressResponse {
   data?: Array<DocumentProgress>;
+  code: Int64;
+  msg: string;
+  BaseResp?: base.BaseResp;
+}
+
+// MANUAL EDIT: codegen toolchain not wired in this OSS repo (see commit e2dcc807).
+// Mirrors thrift struct RetryDocumentRequest from idl/data/knowledge/document.thrift.
+// document_id is i64 on the wire but transported as a string via api.js_conv="true"
+// (Agw-Js-Conv: str header), so the TS type is string.
+export interface RetryDocumentRequest {
+  document_id: string;
+  Base?: base.Base;
+}
+
+// MANUAL EDIT: see RetryDocumentRequest comment. Mirrors thrift struct
+// RetryDocumentResponse. document_info is the refreshed DocumentInfo with the
+// post-retry status (typically pending/processing); subsequent polls follow
+// the retry's new task via the server-side mapping update.
+export interface RetryDocumentResponse {
+  document_info?: DocumentInfo;
   code: Int64;
   msg: string;
   BaseResp?: base.BaseResp;

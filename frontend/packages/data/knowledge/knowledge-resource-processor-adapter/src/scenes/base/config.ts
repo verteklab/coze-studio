@@ -16,49 +16,65 @@
 
 import { get } from 'lodash-es';
 import {
-  type GetUploadConfig,
   UnitType,
   OptType,
   type UploadBaseState,
   type UploadBaseAction,
+  type UploadConfig,
 } from '@coze-data/knowledge-resource-processor-core';
 import { TextResegmentConfig } from '@coze-data/knowledge-resource-processor-base/features/resegment/text';
 import { TableResegmentConfig } from '@coze-data/knowledge-resource-processor-base/features/resegment/table';
 import { TextLocalResegmentConfig } from '@coze-data/knowledge-resource-processor-base/features/knowledge-type/text/first-party/local/resegment';
+import { TextLocalAddRagConfig } from '@coze-data/knowledge-resource-processor-base/features/knowledge-type/text/first-party/local/add-rag';
 import { TextLocalAddUpdateConfig } from '@coze-data/knowledge-resource-processor-base/features/knowledge-type/text/first-party/local/add';
 import { TextCustomAddUpdateConfig } from '@coze-data/knowledge-resource-processor-base/features/knowledge-type/text/first-party/custom/add';
 import { TableLocalIncrementalConfig } from '@coze-data/knowledge-resource-processor-base/features/knowledge-type/table/first-party/local/incremental';
+import { TableLocalAddRagConfig } from '@coze-data/knowledge-resource-processor-base/features/knowledge-type/table/first-party/local/add-rag';
 import { TableLocalAddConfig } from '@coze-data/knowledge-resource-processor-base/features/knowledge-type/table/first-party/local/add';
 import { TableCustomIncrementalConfig } from '@coze-data/knowledge-resource-processor-base/features/knowledge-type/table/first-party/custom/incremental';
 import { TableCustomAddConfig } from '@coze-data/knowledge-resource-processor-base/features/knowledge-type/table/first-party/custom/add';
+import { ImageFileAddRagConfig } from '@coze-data/knowledge-resource-processor-base/features/knowledge-type/image/file/add-rag';
 import { ImageFileAddConfig } from '@coze-data/knowledge-resource-processor-base/features/knowledge-type/image/file';
 
-const getConfigV2 = () => ({
-  [UnitType.TEXT]: {
-    [OptType.RESEGMENT]: TextResegmentConfig,
-  },
-  [UnitType.TABLE]: {
-    [OptType.RESEGMENT]: TableResegmentConfig,
-  },
-  [UnitType.TEXT_DOC]: {
-    [OptType.ADD]: TextLocalAddUpdateConfig,
-    [OptType.RESEGMENT]: TextLocalResegmentConfig,
-  },
-  [UnitType.TEXT_CUSTOM]: {
-    [OptType.ADD]: TextCustomAddUpdateConfig,
-  },
-  [UnitType.TABLE_DOC]: {
-    [OptType.ADD]: TableLocalAddConfig,
-    [OptType.INCREMENTAL]: TableLocalIncrementalConfig,
-  },
-  [UnitType.TABLE_CUSTOM]: {
-    [OptType.ADD]: TableCustomAddConfig,
-    [OptType.INCREMENTAL]: TableCustomIncrementalConfig,
-  },
-  [UnitType.IMAGE_FILE]: {
-    [OptType.ADD]: ImageFileAddConfig,
-  },
-});
+/**
+ * Which backend serves a given KB. See
+ * docs/superpowers/specs/2026-05-13-coze-ui-rag-flow-alignment-design.md §4.3.
+ *
+ * 'rag'        — managed by the standalone rag service; route to rag-mode wizard
+ * 'legacy'     — in-tree legacy module; route to existing wizard
+ * undefined    — KB not yet fetched / older server response; safe-fallback to legacy
+ */
+type Backend = 'rag' | 'legacy' | string | undefined;
+
+const getConfigV2 = (backend?: Backend) => {
+  const isRag = backend === 'rag';
+  return {
+    [UnitType.TEXT]: {
+      [OptType.RESEGMENT]: TextResegmentConfig,
+    },
+    [UnitType.TABLE]: {
+      [OptType.RESEGMENT]: TableResegmentConfig,
+    },
+    [UnitType.TEXT_DOC]: {
+      [OptType.ADD]: isRag ? TextLocalAddRagConfig : TextLocalAddUpdateConfig,
+      [OptType.RESEGMENT]: TextLocalResegmentConfig,
+    },
+    [UnitType.TEXT_CUSTOM]: {
+      [OptType.ADD]: TextCustomAddUpdateConfig,
+    },
+    [UnitType.TABLE_DOC]: {
+      [OptType.ADD]: isRag ? TableLocalAddRagConfig : TableLocalAddConfig,
+      [OptType.INCREMENTAL]: TableLocalIncrementalConfig,
+    },
+    [UnitType.TABLE_CUSTOM]: {
+      [OptType.ADD]: TableCustomAddConfig,
+      [OptType.INCREMENTAL]: TableCustomIncrementalConfig,
+    },
+    [UnitType.IMAGE_FILE]: {
+      [OptType.ADD]: isRag ? ImageFileAddRagConfig : ImageFileAddConfig,
+    },
+  };
+};
 
 /**
  * Knowledge information architecture reconstruction changes are not small, so split into two configs. Change points:
@@ -66,13 +82,21 @@ const getConfigV2 = () => ({
  * 2. The resegment of the text shares one, because the interaction is already the same
  * 3. There are some detailed UI changes
  * 4. All interfaces have been migrated to KnowledgeAPI.
+ *
+ * `backend` is the kb.backend value (see Backend type above). It gates which
+ * ADD wizard a KB type renders. Existing callers that do not yet pass it
+ * default to 'legacy' semantics — safe migration.
  */
-export const getUploadConfig: GetUploadConfig<
+export const getUploadConfig = (
+  type: UnitType,
+  opt: OptType,
+  backend?: Backend,
+): UploadConfig<
   number,
   UploadBaseState<number> & UploadBaseAction<number>
-> = (type, opt) => {
+> | null => {
   const optKey = opt || OptType.ADD; // When opt === '' , the default is ADD.
-  const config = getConfigV2();
+  const config = getConfigV2(backend);
 
   return get(config, `${type}.${optKey}`, null);
 };

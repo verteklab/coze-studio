@@ -169,6 +169,7 @@ export default class KnowledgeService<T> {
       parsing_strategy: _req['parsing_strategy'],
       index_strategy: _req['index_strategy'],
       storage_strategy: _req['storage_strategy'],
+      document_options: _req['document_options'],
       Base: _req['Base'],
     };
     return this.request({ url, method, data }, options);
@@ -290,6 +291,23 @@ export default class KnowledgeService<T> {
   }
 
   /**
+   * POST /api/knowledge/document/retry
+   *
+   * MANUAL EDIT: codegen toolchain not wired (see commit e2dcc807); mirrors
+   * the GetDocumentProgress entry pattern.
+   */
+  RetryDocument(
+    req: document.RetryDocumentRequest,
+    options?: T,
+  ): Promise<document.RetryDocumentResponse> {
+    const _req = req;
+    const url = this.genBaseURL('/api/knowledge/document/retry');
+    const method = 'POST';
+    const data = { document_id: _req['document_id'], Base: _req['Base'] };
+    return this.request({ url, method, data }, options);
+  }
+
+  /**
    * POST /api/knowledge/web_url/submit
    *
    * web 获取 *
@@ -385,6 +403,8 @@ export default class KnowledgeService<T> {
       biz_id: _req['biz_id'],
       project_id: _req['project_id'],
       storage_location: _req['storage_location'],
+      text_embedding_model_id: _req['text_embedding_model_id'],
+      image_embedding_model_id: _req['image_embedding_model_id'],
       Base: _req['Base'],
     };
     return this.request({ url, method, data }, options);

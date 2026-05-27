@@ -6761,7 +6761,14 @@ type CreateDocumentRequest struct {
 	IsAppend *bool `thrift:"is_append,31,optional" form:"is_append" json:"is_append,omitempty" query:"is_append"`
 	// parsing strategy
 	ParsingStrategy *ParsingStrategy `thrift:"parsing_strategy,32,optional" form:"parsing_strategy" json:"parsing_strategy,omitempty" query:"parsing_strategy"`
-	Base            *base.Base       `thrift:"Base,255,optional" form:"Base" json:"Base,omitempty" query:"Base"`
+	// MANUAL EDIT — Phase 3b dynamic upload form. JSON-stringified opaque
+	// options forwarded verbatim to rag's POST /documents document_options
+	// form field. A reserved `_source_modality` key, if present, is consumed
+	// by the backend to override rag's source_modality routing. Absent on
+	// legacy/openapi callers — those keep working without setting this.
+	// Codegen toolchain is not wired (see commit e2dcc807).
+	DocumentOptions *string    `thrift:"document_options,33,optional" form:"document_options" json:"document_options,omitempty" query:"document_options"`
+	Base            *base.Base `thrift:"Base,255,optional" form:"Base" json:"Base,omitempty" query:"Base"`
 }
 
 func NewCreateDocumentRequest() *CreateDocumentRequest {
@@ -6810,6 +6817,16 @@ func (p *CreateDocumentRequest) GetParsingStrategy() (v *ParsingStrategy) {
 	return p.ParsingStrategy
 }
 
+var CreateDocumentRequest_DocumentOptions_DEFAULT string
+
+// MANUAL EDIT — Phase 3b: getter for the dynamic-form document_options blob.
+func (p *CreateDocumentRequest) GetDocumentOptions() (v string) {
+	if !p.IsSetDocumentOptions() {
+		return CreateDocumentRequest_DocumentOptions_DEFAULT
+	}
+	return *p.DocumentOptions
+}
+
 var CreateDocumentRequest_Base_DEFAULT *base.Base
 
 func (p *CreateDocumentRequest) GetBase() (v *base.Base) {
@@ -6826,6 +6843,7 @@ var fieldIDToName_CreateDocumentRequest = map[int16]string{
 	17:  "chunk_strategy",
 	31:  "is_append",
 	32:  "parsing_strategy",
+	33:  "document_options",
 	255: "Base",
 }
 
@@ -6839,6 +6857,11 @@ func (p *CreateDocumentRequest) IsSetIsAppend() bool {
 
 func (p *CreateDocumentRequest) IsSetParsingStrategy() bool {
 	return p.ParsingStrategy != nil
+}
+
+// MANUAL EDIT — Phase 3b.
+func (p *CreateDocumentRequest) IsSetDocumentOptions() bool {
+	return p.DocumentOptions != nil
 }
 
 func (p *CreateDocumentRequest) IsSetBase() bool {
@@ -6906,6 +6929,15 @@ func (p *CreateDocumentRequest) Read(iprot thrift.TProtocol) (err error) {
 		case 32:
 			if fieldTypeId == thrift.STRUCT {
 				if err = p.ReadField32(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		// MANUAL EDIT — Phase 3b: document_options string.
+		case 33:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField33(iprot); err != nil {
 					goto ReadFieldError
 				}
 			} else if err = iprot.Skip(fieldTypeId); err != nil {
@@ -7020,6 +7052,18 @@ func (p *CreateDocumentRequest) ReadField32(iprot thrift.TProtocol) error {
 	p.ParsingStrategy = _field
 	return nil
 }
+
+// MANUAL EDIT — Phase 3b: reads the optional document_options string.
+func (p *CreateDocumentRequest) ReadField33(iprot thrift.TProtocol) error {
+	var _field *string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = &v
+	}
+	p.DocumentOptions = _field
+	return nil
+}
 func (p *CreateDocumentRequest) ReadField255(iprot thrift.TProtocol) error {
 	_field := base.NewBase()
 	if err := _field.Read(iprot); err != nil {
@@ -7057,6 +7101,11 @@ func (p *CreateDocumentRequest) Write(oprot thrift.TProtocol) (err error) {
 		}
 		if err = p.writeField32(oprot); err != nil {
 			fieldId = 32
+			goto WriteFieldError
+		}
+		// MANUAL EDIT — Phase 3b: document_options.
+		if err = p.writeField33(oprot); err != nil {
+			fieldId = 33
 			goto WriteFieldError
 		}
 		if err = p.writeField255(oprot); err != nil {
@@ -7190,6 +7239,26 @@ WriteFieldBeginError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 32 begin error: ", p), err)
 WriteFieldEndError:
 	return thrift.PrependError(fmt.Sprintf("%T write field 32 end error: ", p), err)
+}
+
+// MANUAL EDIT — Phase 3b: writes the optional document_options string.
+func (p *CreateDocumentRequest) writeField33(oprot thrift.TProtocol) (err error) {
+	if p.IsSetDocumentOptions() {
+		if err = oprot.WriteFieldBegin("document_options", thrift.STRING, 33); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := oprot.WriteString(*p.DocumentOptions); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 33 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 33 end error: ", p), err)
 }
 func (p *CreateDocumentRequest) writeField255(oprot thrift.TProtocol) (err error) {
 	if p.IsSetBase() {
@@ -9169,6 +9238,519 @@ func (p *GetDocumentProgressResponse) String() string {
 		return "<nil>"
 	}
 	return fmt.Sprintf("GetDocumentProgressResponse(%+v)", *p)
+
+}
+
+// MANUAL EDIT: codegen toolchain not wired in this OSS repo (see commit e2dcc807).
+// Mirrors thrift struct RetryDocumentRequest in idl/data/knowledge/document.thrift.
+// The eight thriftgo touchpoints reproduced by hand: struct field, NewX factory,
+// InitDefault, GetX, IsSetBase, fieldIDToName map, Read+ReadFieldN, Write+writeFieldN,
+// String.
+type RetryDocumentRequest struct {
+	DocumentID int64      `thrift:"document_id,1,required" form:"document_id,required" json:"document_id,string,required"`
+	Base       *base.Base `thrift:"Base,255,optional" form:"Base" json:"Base,omitempty" query:"Base"`
+}
+
+func NewRetryDocumentRequest() *RetryDocumentRequest {
+	return &RetryDocumentRequest{}
+}
+
+func (p *RetryDocumentRequest) InitDefault() {
+}
+
+func (p *RetryDocumentRequest) GetDocumentID() (v int64) {
+	return p.DocumentID
+}
+
+var RetryDocumentRequest_Base_DEFAULT *base.Base
+
+func (p *RetryDocumentRequest) GetBase() (v *base.Base) {
+	if !p.IsSetBase() {
+		return RetryDocumentRequest_Base_DEFAULT
+	}
+	return p.Base
+}
+
+var fieldIDToName_RetryDocumentRequest = map[int16]string{
+	1:   "document_id",
+	255: "Base",
+}
+
+func (p *RetryDocumentRequest) IsSetBase() bool {
+	return p.Base != nil
+}
+
+func (p *RetryDocumentRequest) Read(iprot thrift.TProtocol) (err error) {
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetDocumentID bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetDocumentID = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 255:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField255(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetDocumentID {
+		fieldId = 1
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_RetryDocumentRequest[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_RetryDocumentRequest[fieldId]))
+}
+
+func (p *RetryDocumentRequest) ReadField1(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.DocumentID = _field
+	return nil
+}
+func (p *RetryDocumentRequest) ReadField255(iprot thrift.TProtocol) error {
+	_field := base.NewBase()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.Base = _field
+	return nil
+}
+
+func (p *RetryDocumentRequest) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("RetryDocumentRequest"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField255(oprot); err != nil {
+			fieldId = 255
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *RetryDocumentRequest) writeField1(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("document_id", thrift.I64, 1); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.DocumentID); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+func (p *RetryDocumentRequest) writeField255(oprot thrift.TProtocol) (err error) {
+	if p.IsSetBase() {
+		if err = oprot.WriteFieldBegin("Base", thrift.STRUCT, 255); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.Base.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 255 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 255 end error: ", p), err)
+}
+
+func (p *RetryDocumentRequest) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RetryDocumentRequest(%+v)", *p)
+
+}
+
+// MANUAL EDIT: codegen toolchain not wired in this OSS repo (see commit e2dcc807).
+// Mirrors thrift struct RetryDocumentResponse. document_info is an optional struct
+// (pointer); code/msg are required.
+type RetryDocumentResponse struct {
+	DocumentInfo *DocumentInfo  `thrift:"document_info,1,optional" form:"document_info" json:"document_info,omitempty" query:"document_info"`
+	Code         int64          `thrift:"code,253,required" form:"code,required" json:"code,required" query:"code,required"`
+	Msg          string         `thrift:"msg,254,required" form:"msg,required" json:"msg,required" query:"msg,required"`
+	BaseResp     *base.BaseResp `thrift:"BaseResp,255,optional" form:"BaseResp" json:"BaseResp,omitempty" query:"BaseResp"`
+}
+
+func NewRetryDocumentResponse() *RetryDocumentResponse {
+	return &RetryDocumentResponse{}
+}
+
+func (p *RetryDocumentResponse) InitDefault() {
+}
+
+var RetryDocumentResponse_DocumentInfo_DEFAULT *DocumentInfo
+
+func (p *RetryDocumentResponse) GetDocumentInfo() (v *DocumentInfo) {
+	if !p.IsSetDocumentInfo() {
+		return RetryDocumentResponse_DocumentInfo_DEFAULT
+	}
+	return p.DocumentInfo
+}
+
+func (p *RetryDocumentResponse) GetCode() (v int64) {
+	return p.Code
+}
+
+func (p *RetryDocumentResponse) GetMsg() (v string) {
+	return p.Msg
+}
+
+var RetryDocumentResponse_BaseResp_DEFAULT *base.BaseResp
+
+func (p *RetryDocumentResponse) GetBaseResp() (v *base.BaseResp) {
+	if !p.IsSetBaseResp() {
+		return RetryDocumentResponse_BaseResp_DEFAULT
+	}
+	return p.BaseResp
+}
+
+var fieldIDToName_RetryDocumentResponse = map[int16]string{
+	1:   "document_info",
+	253: "code",
+	254: "msg",
+	255: "BaseResp",
+}
+
+func (p *RetryDocumentResponse) IsSetDocumentInfo() bool {
+	return p.DocumentInfo != nil
+}
+
+func (p *RetryDocumentResponse) IsSetBaseResp() bool {
+	return p.BaseResp != nil
+}
+
+func (p *RetryDocumentResponse) Read(iprot thrift.TProtocol) (err error) {
+	var fieldTypeId thrift.TType
+	var fieldId int16
+	var issetCode bool = false
+	var issetMsg bool = false
+
+	if _, err = iprot.ReadStructBegin(); err != nil {
+		goto ReadStructBeginError
+	}
+
+	for {
+		_, fieldTypeId, fieldId, err = iprot.ReadFieldBegin()
+		if err != nil {
+			goto ReadFieldBeginError
+		}
+		if fieldTypeId == thrift.STOP {
+			break
+		}
+
+		switch fieldId {
+		case 1:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField1(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 253:
+			if fieldTypeId == thrift.I64 {
+				if err = p.ReadField253(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetCode = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 254:
+			if fieldTypeId == thrift.STRING {
+				if err = p.ReadField254(iprot); err != nil {
+					goto ReadFieldError
+				}
+				issetMsg = true
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		case 255:
+			if fieldTypeId == thrift.STRUCT {
+				if err = p.ReadField255(iprot); err != nil {
+					goto ReadFieldError
+				}
+			} else if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		default:
+			if err = iprot.Skip(fieldTypeId); err != nil {
+				goto SkipFieldError
+			}
+		}
+		if err = iprot.ReadFieldEnd(); err != nil {
+			goto ReadFieldEndError
+		}
+	}
+	if err = iprot.ReadStructEnd(); err != nil {
+		goto ReadStructEndError
+	}
+
+	if !issetCode {
+		fieldId = 253
+		goto RequiredFieldNotSetError
+	}
+
+	if !issetMsg {
+		fieldId = 254
+		goto RequiredFieldNotSetError
+	}
+	return nil
+ReadStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct begin error: ", p), err)
+ReadFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d begin error: ", p, fieldId), err)
+ReadFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T read field %d '%s' error: ", p, fieldId, fieldIDToName_RetryDocumentResponse[fieldId]), err)
+SkipFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T field %d skip type %d error: ", p, fieldId, fieldTypeId), err)
+
+ReadFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read field end error", p), err)
+ReadStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T read struct end error: ", p), err)
+RequiredFieldNotSetError:
+	return thrift.NewTProtocolExceptionWithType(thrift.INVALID_DATA, fmt.Errorf("required field %s is not set", fieldIDToName_RetryDocumentResponse[fieldId]))
+}
+
+func (p *RetryDocumentResponse) ReadField1(iprot thrift.TProtocol) error {
+	_field := NewDocumentInfo()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.DocumentInfo = _field
+	return nil
+}
+func (p *RetryDocumentResponse) ReadField253(iprot thrift.TProtocol) error {
+
+	var _field int64
+	if v, err := iprot.ReadI64(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Code = _field
+	return nil
+}
+func (p *RetryDocumentResponse) ReadField254(iprot thrift.TProtocol) error {
+
+	var _field string
+	if v, err := iprot.ReadString(); err != nil {
+		return err
+	} else {
+		_field = v
+	}
+	p.Msg = _field
+	return nil
+}
+func (p *RetryDocumentResponse) ReadField255(iprot thrift.TProtocol) error {
+	_field := base.NewBaseResp()
+	if err := _field.Read(iprot); err != nil {
+		return err
+	}
+	p.BaseResp = _field
+	return nil
+}
+
+func (p *RetryDocumentResponse) Write(oprot thrift.TProtocol) (err error) {
+	var fieldId int16
+	if err = oprot.WriteStructBegin("RetryDocumentResponse"); err != nil {
+		goto WriteStructBeginError
+	}
+	if p != nil {
+		if err = p.writeField1(oprot); err != nil {
+			fieldId = 1
+			goto WriteFieldError
+		}
+		if err = p.writeField253(oprot); err != nil {
+			fieldId = 253
+			goto WriteFieldError
+		}
+		if err = p.writeField254(oprot); err != nil {
+			fieldId = 254
+			goto WriteFieldError
+		}
+		if err = p.writeField255(oprot); err != nil {
+			fieldId = 255
+			goto WriteFieldError
+		}
+	}
+	if err = oprot.WriteFieldStop(); err != nil {
+		goto WriteFieldStopError
+	}
+	if err = oprot.WriteStructEnd(); err != nil {
+		goto WriteStructEndError
+	}
+	return nil
+WriteStructBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct begin error: ", p), err)
+WriteFieldError:
+	return thrift.PrependError(fmt.Sprintf("%T write field %d error: ", p, fieldId), err)
+WriteFieldStopError:
+	return thrift.PrependError(fmt.Sprintf("%T write field stop error: ", p), err)
+WriteStructEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write struct end error: ", p), err)
+}
+
+func (p *RetryDocumentResponse) writeField1(oprot thrift.TProtocol) (err error) {
+	if p.IsSetDocumentInfo() {
+		if err = oprot.WriteFieldBegin("document_info", thrift.STRUCT, 1); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.DocumentInfo.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 1 end error: ", p), err)
+}
+func (p *RetryDocumentResponse) writeField253(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("code", thrift.I64, 253); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteI64(p.Code); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 253 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 253 end error: ", p), err)
+}
+func (p *RetryDocumentResponse) writeField254(oprot thrift.TProtocol) (err error) {
+	if err = oprot.WriteFieldBegin("msg", thrift.STRING, 254); err != nil {
+		goto WriteFieldBeginError
+	}
+	if err := oprot.WriteString(p.Msg); err != nil {
+		return err
+	}
+	if err = oprot.WriteFieldEnd(); err != nil {
+		goto WriteFieldEndError
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 254 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 254 end error: ", p), err)
+}
+func (p *RetryDocumentResponse) writeField255(oprot thrift.TProtocol) (err error) {
+	if p.IsSetBaseResp() {
+		if err = oprot.WriteFieldBegin("BaseResp", thrift.STRUCT, 255); err != nil {
+			goto WriteFieldBeginError
+		}
+		if err := p.BaseResp.Write(oprot); err != nil {
+			return err
+		}
+		if err = oprot.WriteFieldEnd(); err != nil {
+			goto WriteFieldEndError
+		}
+	}
+	return nil
+WriteFieldBeginError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 255 begin error: ", p), err)
+WriteFieldEndError:
+	return thrift.PrependError(fmt.Sprintf("%T write field 255 end error: ", p), err)
+}
+
+func (p *RetryDocumentResponse) String() string {
+	if p == nil {
+		return "<nil>"
+	}
+	return fmt.Sprintf("RetryDocumentResponse(%+v)", *p)
 
 }
 

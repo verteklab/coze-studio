@@ -17,11 +17,13 @@
 import { type MouseEvent } from 'react';
 
 import { useSize } from 'ahooks';
+import { useUserInfo } from '@coze-foundation/account-adapter';
 import { I18n } from '@coze-arch/i18n';
 import {
   type ColumnProps,
   Space,
   Avatar,
+  Tag,
   Typography,
 } from '@coze-arch/coze-design';
 import { responsiveTableColumn, formatDate } from '@coze-arch/bot-utils';
@@ -81,6 +83,8 @@ export const useGetColumns = ({
 }): ColumnProps<ResourceInfo>[] => {
   const size = useSize(document.body);
   const clientWidth = size?.width ?? document.body.clientWidth;
+  const userInfo = useUserInfo();
+  const currentUserId = userInfo?.user_id_str;
 
   return [
     {
@@ -113,52 +117,63 @@ export const useGetColumns = ({
         </div>
       ),
     },
-    ...(isPersonalSpace
-      ? []
-      : ([
-          {
-            title: I18n.t('Plugin_list_table_owner'),
-            dataIndex: 'creator',
-            width: responsiveTableColumn(CREATOR_COL_WIDTH, CREATOR_COL_WIDTH),
-            render: (_v, record) => {
-              if (!record.creator_name) {
-                return '-';
-              }
-              return (
-                <Space style={{ width: '100%' }} spacing={6}>
-                  <Avatar
-                    data-testid="workspace.library.item.creator.avatar"
-                    size="extra-small"
-                    src={record.creator_avatar}
-                  />
-                  <Text
-                    data-testid="workspace.library.item.creator.name"
-                    style={{
-                      fontSize: 14,
-                      fontWeight: 500,
-                      color: 'var(--coz-fg-secondary)',
-                    }}
-                    ellipsis={{ showTooltip: true }}
-                  >
-                    {record.creator_name}
-                  </Text>
-                  <Text
-                    data-testid="workspace.library.item.creator.username"
-                    style={{
-                      flex: 1,
-                      fontSize: 14,
-                      fontWeight: 400,
-                      color: 'var(--coz-fg-secondary)',
-                    }}
-                    ellipsis={{ showTooltip: true }}
-                  >
-                    {`@${record.user_name}`}
-                  </Text>
-                </Space>
-              );
-            },
-          },
-        ] satisfies ColumnProps<ResourceInfo>[])),
+    ...([
+      {
+        title: I18n.t('Plugin_list_table_owner'),
+        dataIndex: 'creator',
+        width: responsiveTableColumn(CREATOR_COL_WIDTH, CREATOR_COL_WIDTH),
+        render: (_v, record) => {
+          if (!record.creator_name) {
+            return '-';
+          }
+          const isMine =
+            currentUserId !== undefined &&
+            record.creator_id !== undefined &&
+            String(record.creator_id) === String(currentUserId);
+          return (
+            <Space style={{ width: '100%' }} spacing={6}>
+              <Avatar
+                data-testid="workspace.library.item.creator.avatar"
+                size="extra-small"
+                src={record.creator_avatar}
+              />
+              <Text
+                data-testid="workspace.library.item.creator.name"
+                style={{
+                  fontSize: 14,
+                  fontWeight: 500,
+                  color: 'var(--coz-fg-secondary)',
+                }}
+                ellipsis={{ showTooltip: true }}
+              >
+                {record.creator_name}
+              </Text>
+              {isMine ? (
+                <Tag
+                  color="blue"
+                  size="mini"
+                  data-testid="workspace.library.item.creator.mine"
+                >
+                  {I18n.t('knowledge_list_mine_badge')}
+                </Tag>
+              ) : null}
+              <Text
+                data-testid="workspace.library.item.creator.username"
+                style={{
+                  flex: 1,
+                  fontSize: 14,
+                  fontWeight: 400,
+                  color: 'var(--coz-fg-secondary)',
+                }}
+                ellipsis={{ showTooltip: true }}
+              >
+                {`@${record.user_name}`}
+              </Text>
+            </Space>
+          );
+        },
+      },
+    ] satisfies ColumnProps<ResourceInfo>[]),
     {
       title: I18n.t('library_edited_time', {}, 'Edited time'),
       dataIndex: 'edit_time',
