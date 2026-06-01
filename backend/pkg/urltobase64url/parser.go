@@ -22,6 +22,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -31,9 +32,42 @@ type FileData struct {
 	MimeType  string
 }
 
+// localStorageProxyPrefix is the path prefix that the SERVER_HOST reverse proxy
+// (nginx) uses to expose the MinIO bucket to browsers. Object URLs handed to the
+// frontend look like `{SERVER_HOST}/local_storage/{bucket}/{key}?{presigned}`,
+// while MinIO itself serves them at `{MINIO_API_HOST}/{bucket}/{key}?{presigned}`.
+const localStorageProxyPrefix = "/local_storage"
+
+// internalFetchURL rewrites a public object-storage URL (served through the
+// SERVER_HOST reverse proxy) to the internal MinIO endpoint so the backend can
+// fetch it from inside the container network. In containerized deployments the
+// public SERVER_HOST (e.g. an external IP) is frequently unreachable from the
+// backend container, which breaks server-side base64 inlining of images. The
+// presigned signature is computed against the MinIO endpoint host, so swapping
+// the host back to MINIO_API_HOST keeps the signature valid. URLs that do not
+// originate from SERVER_HOST (e.g. user-provided external images) and non-MinIO
+// deployments (MINIO_API_HOST unset) are returned unchanged.
+func internalFetchURL(rawURL string) string {
+	serverHost := strings.TrimRight(os.Getenv("SERVER_HOST"), "/")
+	internalHost := strings.TrimRight(os.Getenv("MINIO_API_HOST"), "/")
+	if serverHost == "" || internalHost == "" {
+		return rawURL
+	}
+	if !strings.HasPrefix(rawURL, serverHost) {
+		return rawURL
+	}
+
+	rest := strings.TrimPrefix(rawURL, serverHost)
+	rest = strings.TrimPrefix(rest, localStorageProxyPrefix)
+	if !strings.HasPrefix(rest, "/") {
+		rest = "/" + rest
+	}
+	return internalHost + rest
+}
+
 func URLToBase64(url string) (*FileData, error) {
 
-	resp, err := http.Get(url)
+	resp, err := http.Get(internalFetchURL(url))
 	if err != nil {
 		return nil, fmt.Errorf("http get error: %v", err)
 	}
