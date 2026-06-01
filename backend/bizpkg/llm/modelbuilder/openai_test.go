@@ -47,7 +47,7 @@ func TestOpenAIModelBuilderBuildReturnsProxyError(t *testing.T) {
 }
 
 func TestOpenAIModelBuilderApplyParamsMapsThinkingSwitch(t *testing.T) {
-	builder := newOpenaiModelBuilder(&config.Model{})
+	builder := newOpenaiModelBuilder(&config.Model{}).(*openaiModelBuilder)
 	conf := &modelopenai.ChatModelConfig{}
 
 	builder.applyParamsToOpenaiConfig(conf, &LLMParams{EnableThinking: ptr.Of(true)})

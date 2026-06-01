@@ -677,6 +677,13 @@
                 'model.modal.custom.endpoint_url.placeholder': '例如：http://127.0.0.1:18003/v1/scores',
                 'model.modal.enable_base64_url.label': '启用 Base64 URL',
                 'model.modal.enable_base64_url.help': '使用 base64 编码图片、文件、音频、视频 URL 给模型',
+                'model.modal.capability.label': '模型能力',
+                'model.modal.capability.help': '勾选该自定义模型支持的能力。多模态/视觉模型请至少勾选“图片理解”和“多模态”，并建议同时启用上方的 Base64 URL。',
+                'model.modal.capability.image_understanding': '图片理解',
+                'model.modal.capability.support_multi_modal': '多模态',
+                'model.modal.capability.video_understanding': '视频理解',
+                'model.modal.capability.audio_understanding': '音频理解',
+                'model.modal.capability.function_call': '函数调用（Function Call）',
                 'model.modal.ark_region.label': 'Region（Ark）',
                 'model.modal.ark_region.placeholder': '选填，例如：cn-beijing',
                 'model.modal.azure.label': '使用 Azure',
@@ -899,6 +906,13 @@
                 'model.modal.custom.endpoint_url.placeholder': 'e.g. http://127.0.0.1:18003/v1/scores',
                 'model.modal.enable_base64_url.label': 'Enable Base64 URL',
                 'model.modal.enable_base64_url.help': 'Use base64-encoded URLs for images, files, audio, video',
+                'model.modal.capability.label': 'Model Capabilities',
+                'model.modal.capability.help': 'Select the capabilities this custom model supports. For multimodal/vision models, enable at least "Image Understanding" and "Multimodal", and also enable Base64 URL above.',
+                'model.modal.capability.image_understanding': 'Image Understanding',
+                'model.modal.capability.support_multi_modal': 'Multimodal',
+                'model.modal.capability.video_understanding': 'Video Understanding',
+                'model.modal.capability.audio_understanding': 'Audio Understanding',
+                'model.modal.capability.function_call': 'Function Call',
                 'model.modal.ark_region.label': 'Region (Ark)',
                 'model.modal.ark_region.placeholder': 'Optional, e.g., cn-beijing',
                 'model.modal.azure.label': 'Use Azure',
@@ -2096,6 +2110,15 @@
                                      </select>
                                      <label id="newModelCustomResponsePathLabel" style="font-size:12px;color:#374151;display:none;">${t('model.modal.custom.response_path.label')}<span id="newModelCustomResponsePathRequiredMark" style="display:inline-block;width:6px;height:6px;background:#e74c3c;border-radius:50%;margin-left:6px;"></span></label>
                                      <input id="newModelCustomResponsePath" type="text" style="padding:8px;border:1px solid #e1e8ed;border-radius:8px;width:100%;display:none;" placeholder="${t('model.modal.custom.response_path.placeholder')}">
+                                     <div id="newModelCapabilitySection" style="display:none;flex-direction:column;gap:6px;border-top:1px solid #f1f3f4;padding-top:10px;">
+                                       <label style="font-size:12px;color:#374151;font-weight:600;">${t('model.modal.capability.label')}</label>
+                                       <div style="font-size:12px;color:#6c757d;margin-bottom:2px;">${t('model.modal.capability.help')}</div>
+                                       <div style="display:flex;align-items:center;gap:8px;"><input id="newModelCapImageUnderstanding" type="checkbox"><span style="font-size:12px;color:#374151;">${t('model.modal.capability.image_understanding')}</span></div>
+                                       <div style="display:flex;align-items:center;gap:8px;"><input id="newModelCapSupportMultiModal" type="checkbox"><span style="font-size:12px;color:#374151;">${t('model.modal.capability.support_multi_modal')}</span></div>
+                                       <div style="display:flex;align-items:center;gap:8px;"><input id="newModelCapVideoUnderstanding" type="checkbox"><span style="font-size:12px;color:#374151;">${t('model.modal.capability.video_understanding')}</span></div>
+                                       <div style="display:flex;align-items:center;gap:8px;"><input id="newModelCapAudioUnderstanding" type="checkbox"><span style="font-size:12px;color:#374151;">${t('model.modal.capability.audio_understanding')}</span></div>
+                                       <div style="display:flex;align-items:center;gap:8px;"><input id="newModelCapFunctionCall" type="checkbox"><span style="font-size:12px;color:#374151;">${t('model.modal.capability.function_call')}</span></div>
+                                     </div>
                                 </div>
                                 <div style="padding:12px 20px;display:flex;justify-content:flex-end;gap:8px;border-top:1px solid #f1f3f4;">
                                     <button onclick="closeAddModelModal()" style="background:#ecf0f1;color:#2c3e50;border:none;padding:8px 12px;border-radius:6px;cursor:pointer;">${t('common.cancel')}</button>
@@ -2310,7 +2333,21 @@
                 const el = document.getElementById(id);
                 if (el) el.style.display = isCustomHTTP ? '' : 'none';
               });
-              
+
+              // 模型能力区块：仅自定义 "Other"(999) 类显示，避免覆盖内置厂商的 meta 默认能力；每次打开重置为未勾选
+              const capSection = document.getElementById('newModelCapabilitySection');
+              if (capSection) capSection.style.display = isCustomHTTP ? 'flex' : 'none';
+              [
+                'newModelCapImageUnderstanding',
+                'newModelCapSupportMultiModal',
+                'newModelCapVideoUnderstanding',
+                'newModelCapAudioUnderstanding',
+                'newModelCapFunctionCall',
+              ].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.checked = false;
+              });
+
               modal.style.display = 'flex';
           }
           function closeAddModelModal() {
@@ -2442,6 +2479,17 @@
                   enable_base64_url: enableBase64Url,
                   connection
               };
+              // 仅自定义 "Other"(999) 类发送 capability：覆盖 model_meta.json 里 Other 类全 false 的默认能力。
+              // 内置厂商不发该字段，继续沿用各自 meta 默认值（pickCapability 只在请求带 capability 时才覆盖）。
+              if (isCustomHTTP) {
+                  payload.capability = {
+                      image_understanding: !!document.getElementById('newModelCapImageUnderstanding')?.checked,
+                      support_multi_modal: !!document.getElementById('newModelCapSupportMultiModal')?.checked,
+                      video_understanding: !!document.getElementById('newModelCapVideoUnderstanding')?.checked,
+                      audio_understanding: !!document.getElementById('newModelCapAudioUnderstanding')?.checked,
+                      function_call: !!document.getElementById('newModelCapFunctionCall')?.checked,
+                  };
+              }
               try {
                   const resp = await fetch('/api/admin/config/model/create', {
                       method: 'POST',

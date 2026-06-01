@@ -61,6 +61,68 @@ func TestCustomHTTPChatCompletionsGenerate(t *testing.T) {
 	require.Equal(t, "hello world", msg.Content)
 }
 
+func TestCustomHTTPMultiModalGenerate(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]any
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
+
+		messages, ok := req["messages"].([]any)
+		require.True(t, ok)
+		require.Len(t, messages, 1)
+
+		first, ok := messages[0].(map[string]any)
+		require.True(t, ok)
+		require.Equal(t, "user", first["role"])
+
+		// content must be an array carrying both the text and the image part,
+		// not an empty string.
+		content, ok := first["content"].([]any)
+		require.True(t, ok, "content should be an array for multimodal messages")
+		require.Len(t, content, 2)
+
+		textPart := content[0].(map[string]any)
+		require.Equal(t, "text", textPart["type"])
+		require.Equal(t, "describe this", textPart["text"])
+
+		imagePart := content[1].(map[string]any)
+		require.Equal(t, "image_url", imagePart["type"])
+		image := imagePart["image_url"].(map[string]any)
+		require.Equal(t, "https://example.com/cat.png", image["url"])
+
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{
+				map[string]any{
+					"message": map[string]any{
+						"content": "a cat",
+					},
+				},
+			},
+		})
+	}))
+	defer srv.Close()
+
+	builder, err := newCustomHTTPModelBuilder(newCustomHTTPConfig(srv.URL, &config.CustomHTTPConnInfo{
+		Method: http.MethodPost,
+		Path:   "/v1/chat/completions",
+	})).Build(context.Background(), nil)
+	require.NoError(t, err)
+
+	msg, err := builder.Generate(context.Background(), []*schema.Message{
+		{
+			Role: schema.User,
+			MultiContent: []schema.ChatMessagePart{
+				{Type: schema.ChatMessagePartTypeText, Text: "describe this"},
+				{
+					Type:     schema.ChatMessagePartTypeImageURL,
+					ImageURL: &schema.ChatMessageImageURL{URL: "https://example.com/cat.png"},
+				},
+			},
+		},
+	})
+	require.NoError(t, err)
+	require.Equal(t, "a cat", msg.Content)
+}
+
 func TestCustomHTTPScoresGenerate(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "/scores", r.URL.Path)

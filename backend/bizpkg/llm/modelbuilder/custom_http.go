@@ -378,19 +378,36 @@ func (r *customHTTPRuntime) buildTemplateVars(ctx context.Context, messages []*s
 		if msg == nil {
 			continue
 		}
-		messagePayload = append(messagePayload, map[string]any{
-			"role":    string(msg.Role),
-			"content": msg.Content,
-		})
-		if msg.Content != "" {
-			lastMessage = msg.Content
-			allMessagesText = append(allMessagesText, fmt.Sprintf("%s: %s", msg.Role, msg.Content))
+
+		entry := map[string]any{
+			"role": string(msg.Role),
 		}
-		if msg.Role == schema.User && msg.Content != "" {
-			lastUserMessage = msg.Content
+		// When the message carries multimodal parts (e.g. an image uploaded in a
+		// workflow), the payload lives in MultiContent and msg.Content is empty.
+		// Serialize those parts into the OpenAI-compatible content array so vision
+		// models receive the image instead of an empty prompt.
+		if len(msg.MultiContent) > 0 {
+			entry["content"] = chatMessagePartsToOpenAI(msg.MultiContent)
+		} else {
+			entry["content"] = msg.Content
 		}
-		if msg.Role == schema.System && msg.Content != "" {
-			systemMessages = append(systemMessages, msg.Content)
+		messagePayload = append(messagePayload, entry)
+
+		// Text projection for template-based payloads. Prefer Content, but fall
+		// back to the concatenated text parts of a multimodal message.
+		text := msg.Content
+		if text == "" && len(msg.MultiContent) > 0 {
+			text = chatMessagePartsText(msg.MultiContent)
+		}
+		if text != "" {
+			lastMessage = text
+			allMessagesText = append(allMessagesText, fmt.Sprintf("%s: %s", msg.Role, text))
+		}
+		if msg.Role == schema.User && text != "" {
+			lastUserMessage = text
+		}
+		if msg.Role == schema.System && text != "" {
+			systemMessages = append(systemMessages, text)
 		}
 	}
 
@@ -430,6 +447,71 @@ func (r *customHTTPRuntime) buildTemplateVars(ctx context.Context, messages []*s
 	}
 
 	return vars
+}
+
+// chatMessagePartsToOpenAI converts eino multimodal parts into the
+// OpenAI-compatible content array understood by vision/omni chat models
+// (e.g. {"type":"image_url","image_url":{"url":...}}).
+func chatMessagePartsToOpenAI(parts []schema.ChatMessagePart) []map[string]any {
+	out := make([]map[string]any, 0, len(parts))
+	for _, part := range parts {
+		switch part.Type {
+		case schema.ChatMessagePartTypeText:
+			out = append(out, map[string]any{
+				"type": "text",
+				"text": part.Text,
+			})
+		case schema.ChatMessagePartTypeImageURL:
+			if part.ImageURL == nil {
+				continue
+			}
+			image := map[string]any{"url": part.ImageURL.URL}
+			if part.ImageURL.Detail != "" {
+				image["detail"] = string(part.ImageURL.Detail)
+			}
+			out = append(out, map[string]any{
+				"type":      "image_url",
+				"image_url": image,
+			})
+		case schema.ChatMessagePartTypeAudioURL:
+			if part.AudioURL == nil {
+				continue
+			}
+			out = append(out, map[string]any{
+				"type":      "audio_url",
+				"audio_url": map[string]any{"url": part.AudioURL.URL},
+			})
+		case schema.ChatMessagePartTypeVideoURL:
+			if part.VideoURL == nil {
+				continue
+			}
+			out = append(out, map[string]any{
+				"type":      "video_url",
+				"video_url": map[string]any{"url": part.VideoURL.URL},
+			})
+		case schema.ChatMessagePartTypeFileURL:
+			if part.FileURL == nil {
+				continue
+			}
+			out = append(out, map[string]any{
+				"type":     "file_url",
+				"file_url": map[string]any{"url": part.FileURL.URL},
+			})
+		}
+	}
+	return out
+}
+
+// chatMessagePartsText concatenates the textual parts of a multimodal message,
+// used to populate plain-text template variables.
+func chatMessagePartsText(parts []schema.ChatMessagePart) string {
+	texts := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part.Type == schema.ChatMessagePartTypeText && part.Text != "" {
+			texts = append(texts, part.Text)
+		}
+	}
+	return strings.Join(texts, "\n")
 }
 
 func sampleProbeMessages() []*schema.Message {
