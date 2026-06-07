@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-import { vi, describe, it, expect, beforeEach, type Mock } from 'vitest';
+import { vi, describe, it, expect, beforeEach, afterEach, type Mock } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import {
   handleAPIErrorEvent,
@@ -40,11 +40,21 @@ const originalUserStore = {
   ...useUserStore.getState(),
   reset: mockReset,
 };
+const originalWindowTop = window.top;
 
 beforeEach(() => {
   useUserStore.setState(originalUserStore);
   vi.clearAllMocks();
+  mockCheckLoginImpl.mockResolvedValue({ userInfo: null, hasError: false });
   mockGoLogin.mockReset();
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+  Object.defineProperty(window, 'top', {
+    configurable: true,
+    value: originalWindowTop,
+  });
 });
 
 describe('useCheckLoginBase', () => {
@@ -97,5 +107,28 @@ describe('useCheckLoginBase', () => {
 
     act(() => handleUnauthorized());
     expect(mockGoLogin).not.toHaveBeenCalled();
+  });
+
+  it('should notify parent instead of redirecting when unauthorized in iframe', () => {
+    Object.defineProperty(window, 'top', {
+      configurable: true,
+      value: {},
+    });
+    const postMessage = vi.spyOn(window.parent, 'postMessage');
+    renderHook(() => useCheckLoginBase(true, mockCheckLoginImpl, mockGoLogin));
+    const handleUnauthorized = (handleAPIErrorEvent as Mock).mock.calls[0][1];
+
+    act(() => handleUnauthorized());
+
+    expect(mockReset).toHaveBeenCalled();
+    expect(mockGoLogin).not.toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledWith(
+      {
+        source: 'coze-studio-iframe',
+        type: 'session-invalid',
+        reason: 'unauthorized',
+      },
+      '*',
+    );
   });
 });
