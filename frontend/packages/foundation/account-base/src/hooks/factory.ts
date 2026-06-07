@@ -27,6 +27,37 @@ import { checkLoginBase } from '../utils/factory';
 import { type UserInfo } from '../types';
 import { useUserStore } from '../store/user';
 
+const COZE_IFRAME_SESSION_INVALID_MESSAGE = {
+  source: 'coze-studio-iframe',
+  type: 'session-invalid',
+  reason: 'unauthorized',
+} as const;
+
+const isInIframe = () => {
+  try {
+    return window.self !== window.top;
+  } catch (error) {
+    void error;
+    return true;
+  }
+};
+
+const getParentTargetOrigin = () => {
+  try {
+    return document.referrer ? new URL(document.referrer).origin : '*';
+  } catch (error) {
+    void error;
+    return '*';
+  }
+};
+
+const notifyParentSessionInvalid = () => {
+  window.parent.postMessage(
+    COZE_IFRAME_SESSION_INVALID_MESSAGE,
+    getParentTargetOrigin(),
+  );
+};
+
 /**
  * It is used to check the login status when the page is initialized, and listen for the interface error if the login status is invalid.
  * When the login status fails, it will be redirected to the login page
@@ -67,6 +98,10 @@ export const useCheckLoginBase = (
       if (needLogin) {
         if (!fired) {
           fired = true;
+          if (isInIframe()) {
+            notifyParentSessionInvalid();
+            return;
+          }
           memoizedGoLogin();
         }
       }
