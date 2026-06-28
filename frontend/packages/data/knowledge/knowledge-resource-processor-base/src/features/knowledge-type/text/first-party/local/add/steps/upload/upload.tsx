@@ -27,6 +27,7 @@ import { KnowledgeE2e } from '@coze-data/e2e';
 import { I18n } from '@coze-arch/i18n';
 
 import { useDocIdFromQuery } from '@/utils';
+import { useUploadCancelButton } from '@/hooks/use-upload-cancel-button';
 import { TextLocalTaskList } from '@/features/upload-task-list';
 import { PDF_MAX_PAGES } from '@/constants/components';
 import { getTextUploadChannelConfig, type Channel } from '@/constants/common';
@@ -51,6 +52,7 @@ export const TextUpload = <T extends UploadTextLocalAddUpdateStore>(
   /** common action */
   const setUnitList = useStore(state => state.setUnitList);
   const setCurrentStep = useStore(state => state.setCurrentStep);
+  const cancelButton = useUploadCancelButton();
 
   const onRetry = useRetry({ unitList, setUnitList });
 
@@ -137,6 +139,7 @@ export const TextUpload = <T extends UploadTextLocalAddUpdateStore>(
       ) : null}
 
       {footer?.([
+        cancelButton,
         {
           type: 'hgltplus',
           theme: 'solid',

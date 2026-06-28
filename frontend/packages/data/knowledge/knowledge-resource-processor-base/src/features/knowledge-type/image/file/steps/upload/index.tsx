@@ -27,6 +27,7 @@ import { KnowledgeE2e } from '@coze-data/e2e';
 import { I18n } from '@coze-arch/i18n';
 import { Toast } from '@coze-arch/coze-design';
 
+import { useUploadCancelButton } from '@/hooks/use-upload-cancel-button';
 import { UploadUnitFile, UploadUnitTable } from '@/components';
 
 import { ImageFileAddStep } from '../../types';
@@ -38,6 +39,7 @@ export const ImageUpload: FC<ContentProps<ImageFileAddStore>> = props => {
   const setCurrentStep = useStore(state => state.setCurrentStep);
   const unitList = useStore(state => state.unitList);
   const setUnitList = useStore(state => state.setUnitList);
+  const cancelButton = useUploadCancelButton();
 
   const onRetry = useRetry({ unitList, setUnitList });
 
@@ -101,6 +103,7 @@ export const ImageUpload: FC<ContentProps<ImageFileAddStore>> = props => {
         </div>
       ) : null}
       {footer?.([
+        cancelButton,
         {
           e2e: KnowledgeE2e.UploadUnitNextBtn,
           type: 'hgltplus',

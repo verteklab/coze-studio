@@ -26,6 +26,7 @@ import { I18n } from '@coze-arch/i18n';
 import { TableDataType } from '@coze-arch/bot-api/knowledge';
 
 import { tableSettingsToString } from '@/utils';
+import { useUploadCancelButton } from '@/hooks/use-upload-cancel-button';
 import type {
   UploadTableState,
   UploadTableAction,
@@ -59,6 +60,7 @@ export const TableUpload = <
   const setTableData = useStore(state => state.setTableData);
   const setTableSettings = useStore(state => state.setTableSettings);
   const setStatus = useStore(state => state.setStatus);
+  const cancelButton = useUploadCancelButton();
 
   /** event action */
   const onRetry = useRetry(useStore);
@@ -114,6 +116,7 @@ export const TableUpload = <
 
       {footer
         ? footer([
+            cancelButton,
             {
               e2e: KnowledgeE2e.UploadUnitNextBtn,
               type: 'hgltplus',
