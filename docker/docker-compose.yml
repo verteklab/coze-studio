@@ -302,7 +302,12 @@ services:
       MINIO_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
       MINIO_USE_SSL: false
-      LOG_LEVEL: debug
+      LOG_LEVEL: info
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "5"
     volumes:
       - ./data/milvus:/var/lib/milvus:rw,Z
     healthcheck:
