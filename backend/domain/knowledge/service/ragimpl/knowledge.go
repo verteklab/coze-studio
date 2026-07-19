@@ -269,9 +269,34 @@ func (i *Impl) MGetKnowledgeByID(ctx context.Context, req *service.MGetKnowledge
 	return &service.MGetKnowledgeByIDResponse{Knowledge: out}, nil
 }
 
+// ensureKBMappingForExternalKB assigns a coze id to a rag KB that was created
+// outside coze. The creator is unknown, so it is stored as 0 and only appears
+// in ScopeAll lists.
+func (i *Impl) ensureKBMappingForExternalKB(ctx context.Context, ragKBID string) (*KBMapping, error) {
+	cozeID, err := i.idgen.GenID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	nowMs := time.Now().UnixMilli()
+	if err := i.mapping.InsertKB(ctx, cozeID, ragKBID, "", 0, 0, nowMs, knowledgeModel.DocumentTypeText); err != nil {
+		// A concurrent list may have inserted the same rag_kb_id first.
+		m, lookupErr := i.mapping.kbByRagID(ctx, ragKBID)
+		if lookupErr == nil {
+			return m, nil
+		}
+		return nil, err
+	}
+	return &KBMapping{
+		CozeID:     cozeID,
+		RagKBID:    ragKBID,
+		CreatorID:  0,
+		FormatType: knowledgeModel.DocumentTypeText,
+	}, nil
+}
+
 // ListKnowledge calls rag.ListKBs and resolves each rag KB back to its coze
-// mapping for hydration. KBs that have no mapping row are skipped — they
-// belong to the rag tenant but aren't owned by this coze deployment.
+// mapping for hydration. KBs that have no mapping row are lazily assigned a
+// coze id so externally-created rag KBs can be selected in coze workflows.
 func (i *Impl) ListKnowledge(ctx context.Context, req *service.ListKnowledgeRequest) (*service.ListKnowledgeResponse, error) {
 	tenant, err := i.tenant(ctx)
 	if err != nil {
@@ -364,8 +389,15 @@ func (i *Impl) ListKnowledge(ctx context.Context, req *service.ListKnowledgeRequ
 		kb := resp.Items[idx]
 		m, err := i.mapping.kbByRagID(ctx, kb.KBID)
 		if err != nil {
-			// Not owned by this coze deployment (or mapping race) — skip silently.
-			continue
+			if !errors.Is(err, ErrMappingNotFound) {
+				logs.CtxWarnf(ctx, "ragimpl: ListKnowledge: mapping lookup by rag_kb_id=%s failed: %v", kb.KBID, err)
+				continue
+			}
+			m, err = i.ensureKBMappingForExternalKB(ctx, kb.KBID)
+			if err != nil {
+				logs.CtxWarnf(ctx, "ragimpl: ListKnowledge: auto-create mapping for rag_kb_id=%s failed: %v", kb.KBID, err)
+				continue
+			}
 		}
 		out = append(out, hydrateKnowledge(&kb, m))
 	}

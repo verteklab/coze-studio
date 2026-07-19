@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	knowledgeModel "github.com/coze-dev/coze-studio/backend/crossdomain/knowledge/model"
 	"github.com/coze-dev/coze-studio/backend/domain/knowledge/service"
@@ -62,8 +63,10 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 		return nil, err
 	}
 	ragKBIDs := make([]string, 0, len(kbs))
+	kbByRagID := make(map[string]*KBMapping, len(kbs))
 	for _, k := range kbs {
 		ragKBIDs = append(ragKBIDs, k.RagKBID)
+		kbByRagID[k.RagKBID] = k
 	}
 
 	ragReq := &contract.RetrieveRequest{
@@ -195,8 +198,15 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 		h := resp.Items[idx]
 		m, err := i.mapping.docByRagID(ctx, h.DocID)
 		if err != nil {
-			logs.CtxWarnf(ctx, "ragimpl.Retrieve: docByRagID(%s) failed, skipping hit: %v", h.DocID, err)
-			continue
+			if !errors.Is(err, ErrMappingNotFound) {
+				logs.CtxWarnf(ctx, "ragimpl.Retrieve: docByRagID(%s) failed, skipping hit: %v", h.DocID, err)
+				continue
+			}
+			m, err = i.ensureDocMappingForExternalHit(ctx, h, kbByRagID)
+			if err != nil {
+				logs.CtxWarnf(ctx, "ragimpl.Retrieve: auto-create doc mapping for rag_doc_id=%s failed, skipping hit: %v", h.DocID, err)
+				continue
+			}
 		}
 		cozeSliceID := i.resolveCozeSliceID(ctx, h.ChunkID, h.DocID, m.CozeID, m.CreatorID)
 		text := h.Content
@@ -209,4 +219,39 @@ func (i *Impl) Retrieve(ctx context.Context, req *service.RetrieveRequest) (*kno
 		slices = append(slices, &knowledgeModel.RetrieveSlice{Slice: s, Score: h.Score})
 	}
 	return &knowledgeModel.RetrieveResponse{RetrieveSlices: slices}, nil
+}
+
+func (i *Impl) ensureDocMappingForExternalHit(ctx context.Context, h contract.RetrieveHit, kbByRagID map[string]*KBMapping) (*DocMapping, error) {
+	if h.DocID == "" {
+		return nil, errors.New("rag hit doc_id is empty")
+	}
+	ragKBID := h.KBID
+	if ragKBID == "" && len(kbByRagID) == 1 {
+		for onlyKBID := range kbByRagID {
+			ragKBID = onlyKBID
+		}
+	}
+	kbMapping, ok := kbByRagID[ragKBID]
+	if !ok {
+		return nil, fmt.Errorf("rag hit kb_id=%s is not in requested knowledge bases", h.KBID)
+	}
+	cozeDocID, err := i.idgen.GenID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	nowMs := time.Now().UnixMilli()
+	if err := i.mapping.InsertDoc(ctx, cozeDocID, h.DocID, kbMapping.CozeID, kbMapping.CreatorID, "", nowMs, 0, ""); err != nil {
+		// A concurrent retrieval may have inserted the same rag_doc_id first.
+		m, lookupErr := i.mapping.docByRagID(ctx, h.DocID)
+		if lookupErr == nil {
+			return m, nil
+		}
+		return nil, err
+	}
+	return &DocMapping{
+		CozeID:    cozeDocID,
+		RagDocID:  h.DocID,
+		KBID:      kbMapping.CozeID,
+		CreatorID: kbMapping.CreatorID,
+	}, nil
 }

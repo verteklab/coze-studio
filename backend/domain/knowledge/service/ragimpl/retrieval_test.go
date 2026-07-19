@@ -100,6 +100,33 @@ func TestRetrieve_ChunkIDBackfill_StableAcrossCalls(t *testing.T) {
 	require.Equal(t, int64(9001), resp2.RetrieveSlices[0].Slice.Info.ID, "same chunk_id must resolve to same coze id; idgen was already exhausted")
 }
 
+func TestRetrieve_BackfillsExternalRagDocMapping(t *testing.T) {
+	fc := &fakeClient{
+		retrieveFunc: func(_ string, _ *contract.RetrieveRequest) (*contract.RetrieveResponse, error) {
+			return &contract.RetrieveResponse{
+				Items: []contract.RetrieveHit{
+					{ChunkID: "chunk-external", KBID: "rag-kb-100", DocID: "rag-doc-external", Score: 0.71, Content: "external content"},
+				},
+			}, nil
+		},
+	}
+	i := newTestImpl(t, fc, 9101, 9102)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "", 0, 0, 0, knowledgeModel.DocumentTypeText))
+
+	resp, err := i.Retrieve(ctx, &knowledgeModel.RetrieveRequest{Query: "x", KnowledgeIDs: []int64{100}})
+	require.NoError(t, err)
+	require.Len(t, resp.RetrieveSlices, 1)
+	require.Equal(t, int64(9101), resp.RetrieveSlices[0].Slice.DocumentID)
+	require.Equal(t, int64(100), resp.RetrieveSlices[0].Slice.KnowledgeID)
+	require.Equal(t, int64(9102), resp.RetrieveSlices[0].Slice.Info.ID)
+
+	m, err := i.mapping.docByRagID(ctx, "rag-doc-external")
+	require.NoError(t, err)
+	require.Equal(t, int64(9101), m.CozeID)
+	require.Equal(t, int64(100), m.KBID)
+}
+
 // TestRetrieve_QueryStrategy_AllFourBooleansAndModelIDs verifies that
 // when Strategy sets all 4 booleans (Rewrite / Expansion / MultiQuery /
 // EnableRerank), ragimpl emits those keys PLUS the env-configured

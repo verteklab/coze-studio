@@ -586,6 +586,35 @@ func TestListKnowledge_ByIDs_UnknownIDsSkipped(t *testing.T) {
 	require.Equal(t, int64(2001), resp.KnowledgeList[0].Info.ID)
 }
 
+func TestListKnowledge_ListAllBackfillsUnmappedRagKB(t *testing.T) {
+	fc := &fakeClient{
+		listKBsFunc: func(req *contract.ListKBsRequest) (*contract.ListKBsResponse, error) {
+			return &contract.ListKBsResponse{
+				Items: []contract.KB{
+					{KBID: "rag-mapped", Name: "mapped", Status: "active", CreatedAt: contract.RagTime(time.Unix(0, 0)), UpdatedAt: contract.RagTime(time.Unix(0, 0))},
+					{KBID: "rag-external", Name: "external", Status: "active", CreatedAt: contract.RagTime(time.Unix(0, 0)), UpdatedAt: contract.RagTime(time.Unix(0, 0))},
+				},
+				Total: 2,
+			}, nil
+		},
+	}
+	i := newTestImpl(t, fc, 3002)
+	require.NoError(t, i.mapping.InsertKB(context.Background(), 3001, "rag-mapped", "icon", 0, 7, 0, knowledgeModel.DocumentTypeText))
+
+	resp, err := i.ListKnowledge(context.Background(), &service.ListKnowledgeRequest{})
+	require.NoError(t, err)
+	require.Len(t, resp.KnowledgeList, 2)
+	require.Equal(t, int64(2), resp.Total)
+	require.Equal(t, int64(3001), resp.KnowledgeList[0].Info.ID)
+	require.Equal(t, int64(3002), resp.KnowledgeList[1].Info.ID)
+	require.Equal(t, "external", resp.KnowledgeList[1].Info.Name)
+	require.Equal(t, int64(0), resp.KnowledgeList[1].Info.CreatorID)
+
+	m, err := i.mapping.KBByCozeID(context.Background(), 3002)
+	require.NoError(t, err)
+	require.Equal(t, "rag-external", m.RagKBID)
+}
+
 // TestListKnowledge_ByUserID is the regression test for the ScopeSelf wiring
 // gap: ListDataset.Filter.scope_type = ScopeSelf is translated to
 // ListKnowledgeRequest.UserID by the application layer (see
@@ -699,4 +728,3 @@ func seedKBMapping(t *testing.T, m *MappingRepo, cozeID int64, ragKBID string) {
 	t.Helper()
 	require.NoError(t, m.InsertKB(context.Background(), cozeID, ragKBID, "", 0, 0, 0, knowledgeModel.DocumentTypeText))
 }
-
