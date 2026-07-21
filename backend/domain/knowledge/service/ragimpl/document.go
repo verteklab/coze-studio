@@ -19,6 +19,7 @@ package ragimpl
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -238,6 +239,10 @@ func isImageBearing(ent *entity.Document) bool {
 // filter rag's supported set via R2-D's /capabilities) when the enum
 // stabilizes.
 func buildDocumentEntity(dm *DocMapping, rd *contract.Document) *entity.Document {
+	size := dm.Size
+	if rd.FileSize > 0 {
+		size = rd.FileSize
+	}
 	return &entity.Document{
 		Info: knowledgeModel.Info{
 			ID:          dm.CozeID,
@@ -249,7 +254,7 @@ func buildDocumentEntity(dm *DocMapping, rd *contract.Document) *entity.Document
 		KnowledgeID:   dm.KBID,
 		Status:        RagStatusToEntity(rd.Status),
 		FileExtension: parser.FileExtension(rd.FileType),
-		Size:          dm.Size,
+		Size:          size,
 		URL:           dm.ImageURL,
 	}
 }
@@ -511,14 +516,50 @@ func (i *Impl) ListDocument(ctx context.Context, req *service.ListDocumentReques
 		rd := &resp.Items[idx]
 		dm, err := i.mapping.docByRagID(ctx, rd.DocID)
 		if err != nil {
-			// Doc exists in rag but we have no coze handle — drift; skip silently.
-			continue
+			if !errors.Is(err, ErrMappingNotFound) {
+				logs.CtxWarnf(ctx, "ragimpl: ListDocument: docByRagID(%s) failed, skipping doc: %v", rd.DocID, err)
+				continue
+			}
+			dm, err = i.ensureDocMappingForExternalDocument(ctx, kbMapping, rd)
+			if err != nil {
+				logs.CtxWarnf(ctx, "ragimpl: ListDocument: auto-create doc mapping for rag_doc_id=%s failed, skipping doc: %v", rd.DocID, err)
+				continue
+			}
 		}
 		out = append(out, buildDocumentEntity(dm, rd))
 	}
 	return &service.ListDocumentResponse{
 		Documents: out,
 		Total:     int64(resp.Total),
+	}, nil
+}
+
+func (i *Impl) ensureDocMappingForExternalDocument(ctx context.Context, kb *KBMapping, rd *contract.Document) (*DocMapping, error) {
+	if kb == nil {
+		return nil, errors.New("kb mapping is nil")
+	}
+	if rd == nil || rd.DocID == "" {
+		return nil, errors.New("rag document id is empty")
+	}
+	cozeDocID, err := i.idgen.GenID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	nowMs := time.Now().UnixMilli()
+	if err := i.mapping.InsertDoc(ctx, cozeDocID, rd.DocID, kb.CozeID, kb.CreatorID, "", nowMs, rd.FileSize, ""); err != nil {
+		// A concurrent read may have inserted the same rag_doc_id first.
+		m, lookupErr := i.mapping.docByRagID(ctx, rd.DocID)
+		if lookupErr == nil {
+			return m, nil
+		}
+		return nil, err
+	}
+	return &DocMapping{
+		CozeID:    cozeDocID,
+		RagDocID:  rd.DocID,
+		KBID:      kb.CozeID,
+		CreatorID: kb.CreatorID,
+		Size:      rd.FileSize,
 	}, nil
 }
 

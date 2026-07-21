@@ -743,6 +743,7 @@ func TestGetDocument_FieldShape(t *testing.T) {
 				"doc_id":          "doc-1",
 				"filename":        "7.测试计划.docx",
 				"file_type":       "docx",
+				"file_size":       12345,
 				"status":          "ready",
 				"chunk_count":     80,
 				"error_msg":       nil,
@@ -768,6 +769,9 @@ func TestGetDocument_FieldShape(t *testing.T) {
 	}
 	if got.FileType != "docx" {
 		t.Errorf("FileType = %q, want docx", got.FileType)
+	}
+	if got.FileSize != 12345 {
+		t.Errorf("FileSize = %d, want 12345", got.FileSize)
 	}
 	if got.Status != "ready" {
 		t.Errorf("Status = %q, want ready", got.Status)
@@ -809,6 +813,7 @@ func TestListDocuments_FieldShape(t *testing.T) {
 						"doc_id":          "doc-1",
 						"filename":        "a.txt",
 						"file_type":       "txt",
+						"file_size":       6789,
 						"status":          "ready",
 						"chunk_count":     3,
 						"error_msg":       nil,
@@ -841,6 +846,9 @@ func TestListDocuments_FieldShape(t *testing.T) {
 	}
 	if item.FileType != "txt" {
 		t.Errorf("Items[0].FileType = %q", item.FileType)
+	}
+	if item.FileSize != 6789 {
+		t.Errorf("Items[0].FileSize = %d, want 6789", item.FileSize)
 	}
 	if item.ChunkCount != 3 {
 		t.Errorf("Items[0].ChunkCount = %d", item.ChunkCount)

@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -78,6 +79,44 @@ func TestCreateDocument_InsertsMapping(t *testing.T) {
 	require.Equal(t, "task-A", got.LastTaskID)
 	require.Equal(t, int64(100), got.KBID)
 	require.Equal(t, int64(5), got.CreatorID)
+}
+
+func TestListDocument_BackfillsMissingDocMapping(t *testing.T) {
+	fc := &fakeClient{
+		listDocsFunc: func(tenantID, kbID string, page, pageSize int) (*contract.ListDocumentsResponse, error) {
+			require.Equal(t, "test-tenant", tenantID)
+			require.Equal(t, "rag-kb-100", kbID)
+			return &contract.ListDocumentsResponse{
+				Items: []contract.Document{{
+					DocID:     "rag-doc-external",
+					Filename:  "external.pdf",
+					FileType:  "pdf",
+					FileSize:  12345,
+					Status:    "ready",
+					CreatedAt: contract.RagTime(time.UnixMilli(1700000000000)),
+					UpdatedAt: contract.RagTime(time.UnixMilli(1700000000000)),
+				}},
+				Total: 1,
+			}, nil
+		},
+	}
+	i := newTestImpl(t, fc, 9901)
+	ctx := context.Background()
+	require.NoError(t, i.mapping.InsertKB(ctx, 100, "rag-kb-100", "icon", 0, 7, 0, knowledgeModel.DocumentTypeText))
+
+	resp, err := i.ListDocument(ctx, &service.ListDocumentRequest{KnowledgeID: 100})
+
+	require.NoError(t, err)
+	require.Len(t, resp.Documents, 1)
+	require.Equal(t, int64(9901), resp.Documents[0].ID)
+	require.Equal(t, "external.pdf", resp.Documents[0].Name)
+	require.Equal(t, int64(12345), resp.Documents[0].Size)
+
+	m, err := i.mapping.DocByCozeID(ctx, 9901)
+	require.NoError(t, err)
+	require.Equal(t, "rag-doc-external", m.RagDocID)
+	require.Equal(t, int64(100), m.KBID)
+	require.Equal(t, int64(7), m.CreatorID)
 }
 
 // TestCreateDocument_StrategyPassthrough verifies the Phase 1 mapping from
@@ -707,6 +746,43 @@ func TestBuildDocumentEntity_LeavesURLEmptyWhenMappingImageURLEmpty(t *testing.T
 	got := buildDocumentEntity(dm, rd)
 	require.Equal(t, "", got.URL,
 		"entity.Document.URL must be empty when DocMapping.ImageURL is empty")
+}
+
+func TestBuildDocumentEntity_UsesRagFileSizeWhenPresent(t *testing.T) {
+	dm := &DocMapping{
+		CozeID:   9003,
+		RagDocID: "rag-doc-size",
+		KBID:     100,
+		Size:     0,
+	}
+	rd := &contract.Document{
+		DocID:    "rag-doc-size",
+		Filename: "report.pdf",
+		Status:   "ready",
+		FileSize: 12345,
+	}
+
+	got := buildDocumentEntity(dm, rd)
+
+	require.Equal(t, int64(12345), got.Size)
+}
+
+func TestBuildDocumentEntity_FallsBackToMappingSizeWhenRagFileSizeMissing(t *testing.T) {
+	dm := &DocMapping{
+		CozeID:   9004,
+		RagDocID: "rag-doc-old",
+		KBID:     100,
+		Size:     6789,
+	}
+	rd := &contract.Document{
+		DocID:    "rag-doc-old",
+		Filename: "old.txt",
+		Status:   "ready",
+	}
+
+	got := buildDocumentEntity(dm, rd)
+
+	require.Equal(t, int64(6789), got.Size)
 }
 
 // --- OcrModelID default injection -----------------------------------------------

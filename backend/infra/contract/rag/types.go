@@ -196,13 +196,16 @@ type CreateDocumentResponse struct {
 // Document mirrors rag's DocumentDetail as of 0e1f49b. The wire shape changed
 // in the 2026-05-14 round-2 audit: KBID was dropped (the kb_id lives in the
 // URL path), Name was renamed to Filename, and FileType / ChunkCount /
-// ErrorMsg / SourceModality are new. Rag also emits delete_cleanup_errors,
+// ErrorMsg / SourceModality are new. FileSize was added later so coze can
+// aggregate Dataset.AllFileSize for rag-origin documents whose local mapping
+// row does not carry upload metadata. Rag also emits delete_cleanup_errors,
 // processing_config, processing_summary at the top level — coze ignores those
 // here; adding fields means adding contract surface we have to maintain.
 type Document struct {
 	DocID          string  `json:"doc_id"`
 	Filename       string  `json:"filename"`
 	FileType       string  `json:"file_type"`
+	FileSize       int64   `json:"file_size"`
 	Status         string  `json:"status"`
 	ChunkCount     int     `json:"chunk_count"`
 	ErrorMsg       string  `json:"error_msg,omitempty"`
